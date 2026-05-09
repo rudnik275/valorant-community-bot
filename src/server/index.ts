@@ -23,6 +23,7 @@ import { startDetectionListener } from './publisher/detect.ts';
 import { startPublisherLoop } from './publisher/loop.ts';
 import { startDigestLoop } from './digest/loop.ts';
 import { safeSendMessage, safeSetCustomTitle } from './lib/safe-telegram.ts';
+import { isPublishingEnabled } from './lib/silent-period.ts';
 
 const PORT = Number(process.env['PORT'] ?? 3000);
 
@@ -65,6 +66,14 @@ process.on('SIGTERM', () => {
 try {
   migrate(db, { migrationsFolder: './drizzle' });
   logger.info({ module: 'startup' }, 'DB migrations applied successfully');
+  logger.info(
+    {
+      module: 'startup',
+      publishing_enabled: isPublishingEnabled(),
+      enabled_after: process.env['EVENTS_PUBLISHING_ENABLED_AFTER'] ?? null,
+    },
+    'Silent-period state at boot',
+  );
 } catch (err) {
   logger.error({ module: 'startup', err }, 'DB migration failed — exiting');
   process.exit(1);

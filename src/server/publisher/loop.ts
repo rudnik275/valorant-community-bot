@@ -43,6 +43,7 @@ import { decide, ANTISTAT_TYPES } from './decide.ts';
 import { renderTemplate } from './templates.ts';
 import type { EventType } from './types.ts';
 import logger from '../lib/log.ts';
+import { isPublishingEnabled } from '../lib/silent-period.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
@@ -98,8 +99,6 @@ export interface PublisherLoopDeps {
   ) => Promise<{ message_id: number }>;
   /** Get the primary chat ID to post to. Defaults to TELEGRAM_PRIMARY_CHAT_ID env var. */
   getPrimaryChatId?: () => number;
-  /** Get EVENTS_PUBLISHING_ENABLED_AFTER in ms. Defaults to env var. */
-  getEventsEnabledAt?: () => number;
   /** Injectable Kyiv time for testing. */
   getNowKyiv?: () => KyivTime;
   /** Override cron expression for tests. */
@@ -117,12 +116,6 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
   const getPrimaryChatId = deps.getPrimaryChatId
     ?? (() => Number(process.env['TELEGRAM_PRIMARY_CHAT_ID'] ?? '0'));
 
-  const getEventsEnabledAt = deps.getEventsEnabledAt
-    ?? (() => {
-      const val = process.env['EVENTS_PUBLISHING_ENABLED_AFTER'];
-      return val ? Number(val) : 0;
-    });
-
   const getNowKyiv = deps.getNowKyiv ?? getKyivTime;
 
   async function runTick(): Promise<void> {
@@ -132,8 +125,7 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
       const { hour, today_start_ms } = kyivTime;
 
       // Step 1: Check if publishing period has started
-      const eventsEnabledAt = getEventsEnabledAt();
-      if (eventsEnabledAt > 0 && nowMs < eventsEnabledAt) {
+      if (!isPublishingEnabled(new Date(nowMs))) {
         // Mass-update all pending to silent
         const result = await db
           .update(detectedEvents)
@@ -142,7 +134,7 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
 
         if (result.changes > 0) {
           logger.info(
-            { module: 'publisher', changes: result.changes, events_enabled_at: eventsEnabledAt },
+            { module: 'publisher', changes: result.changes },
             'Publishing not yet enabled — marked pending events as silent',
           );
         }
