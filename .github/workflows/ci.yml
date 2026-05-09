@@ -61,7 +61,7 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/arm64
+          platforms: linux/amd64
           push: true
           tags: |
             ghcr.io/rudnik275/valorant-community-bot:${{ github.sha }}

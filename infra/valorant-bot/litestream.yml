@@ -3,7 +3,7 @@ dbs:
     replicas:
       - type: s3
         bucket: ${LITESTREAM_S3_BUCKET}
-        path: data.db
+        path: valorant-bot/data.db
         endpoint: ${LITESTREAM_S3_ENDPOINT}
         force-path-style: true
         retention: 168h          # 7-day WAL retention
