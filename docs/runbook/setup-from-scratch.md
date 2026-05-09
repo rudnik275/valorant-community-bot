@@ -33,7 +33,16 @@ ssh root@<VPS_IP> bash /tmp/bootstrap-vps.sh
 
 ## GitHub Secrets
 
-<!-- TODO: filled by #19 — GHCR_TOKEN, BOT_TOKEN, etc. added to repo secrets for GH Actions deploy -->
+Set in repo Settings → Secrets and variables → Actions → New repository secret:
+
+- `SSH_PRIVATE_KEY` — private key whose `*.pub` is in `~deploy/.ssh/authorized_keys` on the VPS
+- `SSH_HOST` — Hetzner CAX11 IP or hostname
+- `SSH_USER` — `deploy` (a non-root user in the `docker` group; create via `useradd -m -s /bin/bash deploy && usermod -aG docker deploy`)
+- `GHCR_TOKEN` — optional; we use `GITHUB_TOKEN` with `permissions: packages: write` instead, so this is NOT required
+
+Test the SSH connection once manually after setup: `ssh -i ~/.ssh/id_ed25519 deploy@<host> 'docker ps'`.
+
+<!-- TODO: filled by #19 — BOT_TOKEN and other app secrets added to VPS .env, not GH Secrets -->
 
 ---
 
