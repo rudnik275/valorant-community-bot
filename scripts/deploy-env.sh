@@ -41,7 +41,7 @@ TMP=$(mktemp)
 trap 'rm -f "$TMP"' EXIT
 
 echo "→ Resolving secrets via op inject..."
-op inject -i .env.1password -o "$TMP"
+op inject -f -i .env.1password -o "$TMP"
 chmod 600 "$TMP"
 
 echo "→ Uploading .env to ${SSH_USER}@${SSH_HOST}:${REMOTE_PATH}/.env ..."
