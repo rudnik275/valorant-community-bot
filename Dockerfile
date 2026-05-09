@@ -1,7 +1,9 @@
 FROM oven/bun:1
 WORKDIR /app
 COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile
+# --ignore-scripts: skip postinstall hooks (e.g. better-sqlite3's node-gyp rebuild)
+# better-sqlite3 is a devDep used only by Vitest as a bun:sqlite shim — runtime uses bun:sqlite
+RUN bun install --frozen-lockfile --ignore-scripts
 COPY . .
 RUN bun run build:web
 ENV NODE_ENV=production
