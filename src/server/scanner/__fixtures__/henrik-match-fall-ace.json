@@ -1,0 +1,172 @@
+{
+  "metadata": {
+    "matchid": "match-fall-ace-001",
+    "mode": "Competitive",
+    "map": "Icebox",
+    "game_start": 1700040000,
+    "rounds_played": 13
+  },
+  "players": {
+    "all_players": [
+      {
+        "puuid": "target-puuid",
+        "team": "Blue",
+        "character": "Raze",
+        "stats": { "kills": 5, "deaths": 3, "assists": 1 },
+        "currenttier": 21,
+        "currenttier_patched": "Ascendant 1"
+      },
+      {
+        "puuid": "ally-1",
+        "team": "Blue",
+        "character": "Sage",
+        "stats": { "kills": 8, "deaths": 6, "assists": 5 },
+        "currenttier": 20,
+        "currenttier_patched": "Diamond 3"
+      },
+      {
+        "puuid": "ally-2",
+        "team": "Blue",
+        "character": "Sova",
+        "stats": { "kills": 7, "deaths": 5, "assists": 4 },
+        "currenttier": 21,
+        "currenttier_patched": "Ascendant 1"
+      },
+      {
+        "puuid": "ally-3",
+        "team": "Blue",
+        "character": "Viper",
+        "stats": { "kills": 6, "deaths": 7, "assists": 6 },
+        "currenttier": 20,
+        "currenttier_patched": "Diamond 3"
+      },
+      {
+        "puuid": "ally-4",
+        "team": "Blue",
+        "character": "Omen",
+        "stats": { "kills": 5, "deaths": 8, "assists": 3 },
+        "currenttier": 22,
+        "currenttier_patched": "Ascendant 2"
+      },
+      {
+        "puuid": "enemy-1",
+        "team": "Red",
+        "character": "Jett",
+        "stats": { "kills": 4, "deaths": 9, "assists": 2 },
+        "currenttier": 18,
+        "currenttier_patched": "Diamond 1"
+      },
+      {
+        "puuid": "enemy-2",
+        "team": "Red",
+        "character": "Reyna",
+        "stats": { "kills": 3, "deaths": 10, "assists": 1 },
+        "currenttier": 19,
+        "currenttier_patched": "Diamond 2"
+      },
+      {
+        "puuid": "enemy-3",
+        "team": "Red",
+        "character": "Phoenix",
+        "stats": { "kills": 2, "deaths": 11, "assists": 3 },
+        "currenttier": 18,
+        "currenttier_patched": "Diamond 1"
+      },
+      {
+        "puuid": "enemy-4",
+        "team": "Red",
+        "character": "Breach",
+        "stats": { "kills": 1, "deaths": 12, "assists": 4 },
+        "currenttier": 17,
+        "currenttier_patched": "Platinum 3"
+      },
+      {
+        "puuid": "enemy-5",
+        "team": "Red",
+        "character": "Killjoy",
+        "stats": { "kills": 0, "deaths": 13, "assists": 5 },
+        "currenttier": 18,
+        "currenttier_patched": "Diamond 1"
+      }
+    ]
+  },
+  "teams": {
+    "red": { "has_won": false, "rounds_won": 1, "rounds_lost": 13 },
+    "blue": { "has_won": true, "rounds_won": 13, "rounds_lost": 1 }
+  },
+  "kills": [
+    {
+      "round": 1,
+      "killer_team": "Blue",
+      "victim_team": "Red",
+      "damage_weapon_id": "Vandal",
+      "damage_type": "Bullet",
+      "killer_puuid": "target-puuid",
+      "victim_puuid": "enemy-1"
+    },
+    {
+      "round": 1,
+      "killer_team": "Blue",
+      "victim_team": "Red",
+      "damage_weapon_id": "Vandal",
+      "damage_type": "Bullet",
+      "killer_puuid": "target-puuid",
+      "victim_puuid": "enemy-2"
+    },
+    {
+      "round": 1,
+      "killer_team": "Blue",
+      "victim_team": "Red",
+      "damage_weapon_id": "Vandal",
+      "damage_type": "Bullet",
+      "killer_puuid": "target-puuid",
+      "victim_puuid": "enemy-3"
+    },
+    {
+      "round": 1,
+      "killer_team": "Blue",
+      "victim_team": "Red",
+      "damage_weapon_id": "Vandal",
+      "damage_type": "Bullet",
+      "killer_puuid": "target-puuid",
+      "victim_puuid": "enemy-4"
+    },
+    {
+      "round": 1,
+      "killer_team": "Blue",
+      "victim_team": "Red",
+      "damage_weapon_id": "Vandal",
+      "damage_type": "Bullet",
+      "killer_puuid": "target-puuid",
+      "victim_puuid": "enemy-5"
+    },
+    {
+      "round": 2,
+      "killer_team": "Red",
+      "victim_team": "Blue",
+      "damage_weapon_id": "Fall",
+      "damage_type": "Fall",
+      "killer_puuid": null,
+      "victim_puuid": "target-puuid"
+    },
+    {
+      "round": 5,
+      "killer_team": "Red",
+      "victim_team": "Blue",
+      "damage_weapon_id": "Fall",
+      "damage_type": "Fall",
+      "killer_puuid": null,
+      "victim_puuid": "target-puuid"
+    },
+    {
+      "round": 7,
+      "killer_team": "Red",
+      "victim_team": "Blue",
+      "damage_weapon_id": "Operator",
+      "damage_type": "Bullet",
+      "killer_puuid": "enemy-1",
+      "victim_puuid": "target-puuid"
+    }
+  ],
+  "rounds": []
+}

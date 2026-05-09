@@ -12,6 +12,7 @@ export const users = sqliteTable(
     riot_puuid: text('riot_puuid').unique(),
     riot_name: text('riot_name'),
     riot_tag: text('riot_tag'),
+    riot_region: text('riot_region'),
     last_message_at: integer('last_message_at'),
     joined_at: integer('joined_at').notNull().default(sql`(unixepoch() * 1000)`),
     onboarded_at: integer('onboarded_at'),

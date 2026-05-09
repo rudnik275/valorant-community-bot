@@ -17,6 +17,7 @@ import { verifyInitData } from './lib/init-data.ts';
 import { makeAvatarCache } from './lib/telegram-avatar.ts';
 import { validateAccount } from './lib/henrik.ts';
 import { loadAllowedChatIds } from './lib/scope.ts';
+import { scanForPuuid as scanForPuuidBase, startScanLoop } from './scanner/index.ts';
 
 const PORT = Number(process.env['PORT'] ?? 3000);
 
@@ -46,7 +47,6 @@ if (botToken) {
   logger.warn({ module: 'bot' }, 'TELEGRAM_BOT_TOKEN not set — bot disabled (dev mode)');
 }
 
-// TODO: scanner — start scan-tick croner job here (#6)
 // TODO: publisher — start publisher-tick croner job here (#9)
 // TODO: digest — schedule weekly digest here (#11)
 
@@ -96,10 +96,18 @@ const membersHandler = makeMembersHandler(membersDeps);
 app.use('/api/*', authMiddleware);
 app.get('/api/members', membersHandler);
 
+// Bind scanForPuuid to the main db instance for use in onboard handler and loop
+const scanForPuuid = (puuid: string, opts: { detection: boolean }) =>
+  scanForPuuidBase(db, puuid, opts);
+
+if (process.env['SCANNER_DISABLED'] !== 'true') {
+  startScanLoop({ db, scanForPuuid });
+}
+
 const onboardHandler = makeOnboardHandler({
   db,
   validateAccount,
-  scanForPuuid: undefined, // wired in #9 (henrik-scanner-loop)
+  scanForPuuid, // wired in #9 (henrik-scanner-loop)
   botApi: bot?.api,
   getAllowedChatIds: loadAllowedChatIds,
 });
