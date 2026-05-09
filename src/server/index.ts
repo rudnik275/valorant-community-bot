@@ -21,6 +21,7 @@ import { scanForPuuid as scanForPuuidBase, startScanLoop } from './scanner/index
 import { startRiotIdTrackerLoop } from './scanner/riot-id-tracker.ts';
 import { startDetectionListener } from './publisher/detect.ts';
 import { startPublisherLoop } from './publisher/loop.ts';
+import { startDigestLoop } from './digest/loop.ts';
 import { safeSendMessage, safeSetCustomTitle } from './lib/safe-telegram.ts';
 
 const PORT = Number(process.env['PORT'] ?? 3000);
@@ -51,7 +52,7 @@ if (botToken) {
   logger.warn({ module: 'bot' }, 'TELEGRAM_BOT_TOKEN not set — bot disabled (dev mode)');
 }
 
-// TODO: digest — schedule weekly digest here (separate issue)
+// Digest loop is started below inside the `if (bot)` block after publisher.
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
@@ -118,6 +119,11 @@ if (process.env['SCANNER_DISABLED'] !== 'true') {
           text,
           opts as Parameters<typeof bot.api.sendMessage>[2],
         ),
+        getPrimaryChatId: () => primaryChatId,
+      });
+      startDigestLoop({
+        db,
+        sendMessage: (chatId, text, opts) => safeSendMessage(bot!.api, chatId, text, opts as never),
         getPrimaryChatId: () => primaryChatId,
       });
     } else {
