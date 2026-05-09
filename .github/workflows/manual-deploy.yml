@@ -1,0 +1,60 @@
+name: Manual Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'Git SHA of the image to deploy (tag must exist in ghcr.io)'
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    name: Deploy specific SHA to VPS
+    runs-on: ubuntu-latest
+    permissions:
+      packages: read
+      contents: read
+    steps:
+      - name: Pull specific image and restart app
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            PREV_IMAGE=$(docker inspect --format '{{.Image}}' valorant-bot-app 2>/dev/null || echo "none")
+            echo "$PREV_IMAGE" > /opt/valorant-bot/.last-image-id
+            docker pull ghcr.io/rudnik275/valorant-community-bot:${{ inputs.sha }}
+            docker tag ghcr.io/rudnik275/valorant-community-bot:${{ inputs.sha }} ghcr.io/rudnik275/valorant-community-bot:latest
+            cd /opt/valorant-bot && docker compose up -d --no-deps app
+
+      - name: Health-gate (60s poll)
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            for i in $(seq 1 12); do
+              status=$(docker inspect --format '{{.State.Health.Status}}' valorant-bot-app 2>/dev/null || echo "none")
+              if [ "$status" = "healthy" ]; then echo "✓ healthy"; exit 0; fi
+              sleep 5
+            done
+            echo "✗ health timeout after 60s"; exit 1
+
+      - name: Rollback on failure
+        if: failure()
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            PREV=$(cat /opt/valorant-bot/.last-image-id)
+            if [ "$PREV" != "none" ] && [ -n "$PREV" ]; then
+              docker tag "$PREV" ghcr.io/rudnik275/valorant-community-bot:latest
+              cd /opt/valorant-bot && docker compose up -d --no-deps app
+            else
+              echo "no previous image to rollback to"
+            fi
