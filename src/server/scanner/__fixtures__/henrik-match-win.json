@@ -1,0 +1,103 @@
+{
+  "metadata": {
+    "matchid": "match-win-001",
+    "mode": "Competitive",
+    "map": "Ascent",
+    "game_start": 1700000000,
+    "rounds_played": 25
+  },
+  "players": {
+    "all_players": [
+      {
+        "puuid": "target-puuid",
+        "team": "Blue",
+        "character": "Jett",
+        "stats": { "kills": 22, "deaths": 14, "assists": 4 },
+        "currenttier": 18,
+        "currenttier_patched": "Diamond 1"
+      },
+      {
+        "puuid": "ally-1",
+        "team": "Blue",
+        "character": "Sage",
+        "stats": { "kills": 10, "deaths": 12, "assists": 8 },
+        "currenttier": 18,
+        "currenttier_patched": "Diamond 1"
+      },
+      {
+        "puuid": "ally-2",
+        "team": "Blue",
+        "character": "Sova",
+        "stats": { "kills": 15, "deaths": 13, "assists": 6 },
+        "currenttier": 19,
+        "currenttier_patched": "Diamond 2"
+      },
+      {
+        "puuid": "ally-3",
+        "team": "Blue",
+        "character": "Killjoy",
+        "stats": { "kills": 12, "deaths": 11, "assists": 10 },
+        "currenttier": 17,
+        "currenttier_patched": "Platinum 3"
+      },
+      {
+        "puuid": "ally-4",
+        "team": "Blue",
+        "character": "Omen",
+        "stats": { "kills": 11, "deaths": 15, "assists": 7 },
+        "currenttier": 18,
+        "currenttier_patched": "Diamond 1"
+      },
+      {
+        "puuid": "enemy-1",
+        "team": "Red",
+        "character": "Reyna",
+        "stats": { "kills": 18, "deaths": 16, "assists": 2 },
+        "currenttier": 18,
+        "currenttier_patched": "Diamond 1"
+      },
+      {
+        "puuid": "enemy-2",
+        "team": "Red",
+        "character": "Phoenix",
+        "stats": { "kills": 14, "deaths": 17, "assists": 5 },
+        "currenttier": 19,
+        "currenttier_patched": "Diamond 2"
+      },
+      {
+        "puuid": "enemy-3",
+        "team": "Red",
+        "character": "Breach",
+        "stats": { "kills": 12, "deaths": 18, "assists": 9 },
+        "currenttier": 20,
+        "currenttier_patched": "Diamond 3"
+      },
+      {
+        "puuid": "enemy-4",
+        "team": "Red",
+        "character": "Viper",
+        "stats": { "kills": 10, "deaths": 20, "assists": 4 },
+        "currenttier": 17,
+        "currenttier_patched": "Platinum 3"
+      },
+      {
+        "puuid": "enemy-5",
+        "team": "Red",
+        "character": "Cypher",
+        "stats": { "kills": 8, "deaths": 22, "assists": 11 },
+        "currenttier": 18,
+        "currenttier_patched": "Diamond 1"
+      }
+    ]
+  },
+  "teams": {
+    "red": { "has_won": false, "rounds_won": 11, "rounds_lost": 14 },
+    "blue": { "has_won": true, "rounds_won": 14, "rounds_lost": 11 }
+  },
+  "kills": [
+    { "round": 1, "killer_team": "Blue", "victim_team": "Red", "damage_weapon_id": "Vandal", "damage_type": "Bullet", "killer_puuid": "target-puuid", "victim_puuid": "enemy-1" },
+    { "round": 2, "killer_team": "Red", "victim_team": "Blue", "damage_weapon_id": "Operator", "damage_type": "Bullet", "killer_puuid": "enemy-2", "victim_puuid": "target-puuid" },
+    { "round": 3, "killer_team": "Blue", "victim_team": "Red", "damage_weapon_id": "Vandal", "damage_type": "Bullet", "killer_puuid": "target-puuid", "victim_puuid": "enemy-3" }
+  ],
+  "rounds": []
+}

@@ -1,0 +1,27 @@
+{
+  "metadata": {
+    "matchid": "match-unrated-001",
+    "mode": "Unrated",
+    "map": "Split",
+    "game_start": 1700030000,
+    "rounds_played": 13
+  },
+  "players": {
+    "all_players": [
+      {
+        "puuid": "target-puuid",
+        "team": "Blue",
+        "character": "Jett",
+        "stats": { "kills": 15, "deaths": 10, "assists": 3 },
+        "currenttier": 18,
+        "currenttier_patched": "Diamond 1"
+      }
+    ]
+  },
+  "teams": {
+    "red": { "has_won": false, "rounds_won": 6, "rounds_lost": 7 },
+    "blue": { "has_won": true, "rounds_won": 7, "rounds_lost": 6 }
+  },
+  "kills": [],
+  "rounds": []
+}

@@ -152,16 +152,28 @@ describe('makeOnboardHandler', () => {
     const { app } = makeApp(db);
     await app.request(makeRequest({ name: 'TestPlayer', tag: 'EU1' }));
 
-    const row = sqlite.prepare('SELECT riot_puuid, riot_name, riot_tag, onboarded_at FROM users WHERE telegram_id = 12345').get() as {
+    const row = sqlite.prepare('SELECT riot_puuid, riot_name, riot_tag, riot_region, onboarded_at FROM users WHERE telegram_id = 12345').get() as {
       riot_puuid: string;
       riot_name: string;
       riot_tag: string;
+      riot_region: string;
       onboarded_at: number;
     };
     expect(row.riot_puuid).toBe(MOCK_PUUID);
     expect(row.riot_name).toBe('TestPlayer');
     expect(row.riot_tag).toBe('EU1');
     expect(row.onboarded_at).toBeGreaterThan(0);
+  });
+
+  it('persists riot_region from Henrik response after successful onboard', async () => {
+    const { app } = makeApp(db);
+    await app.request(makeRequest({ name: 'TestPlayer', tag: 'EU1' }));
+
+    const row = sqlite.prepare('SELECT riot_region FROM users WHERE telegram_id = 12345').get() as {
+      riot_region: string;
+    };
+    // MOCK_ACCOUNT has region: 'EU'
+    expect(row.riot_region).toBe('EU');
   });
 
   it('calls safePromote and safeSetCustomTitle for each allowed chat', async () => {

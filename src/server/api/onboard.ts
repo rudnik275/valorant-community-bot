@@ -27,7 +27,8 @@ export interface OnboardHandlerDeps {
    * Optional: initial backfill hook from henrik-scanner-loop (#9).
    * Will be wired once that issue lands. For now, pass `undefined`.
    */
-  scanForPuuid?: ((puuid: string, opts: { detection: boolean }) => Promise<void>) | undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  scanForPuuid?: ((puuid: string, opts: { detection: boolean }) => Promise<any>) | undefined;
   botApi: Api | undefined;
   getAllowedChatIds: () => Set<number>;
 }
@@ -105,6 +106,7 @@ export function makeOnboardHandler(deps: OnboardHandlerDeps) {
         riot_puuid: puuid,
         riot_name: account.name,
         riot_tag: account.tag,
+        riot_region: account.region,
         onboarded_at: now,
         joined_at: now,
       })
@@ -114,6 +116,7 @@ export function makeOnboardHandler(deps: OnboardHandlerDeps) {
           riot_puuid: puuid,
           riot_name: account.name,
           riot_tag: account.tag,
+          riot_region: account.region,
           onboarded_at: now,
         },
       });

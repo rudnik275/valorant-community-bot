@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `riot_region` text;
