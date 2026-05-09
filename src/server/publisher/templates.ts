@@ -44,12 +44,49 @@ function playerTag(user: TemplateUser): string {
   return `<b>${esc(user.riot_name + '#' + user.riot_tag)}</b>`;
 }
 
+/**
+ * Render opponents' peak ranks as an addendum to ace/clutch messages.
+ *
+ * Victims are listed in kill order from `victim_names_for_template` (may be empty strings).
+ * For each victim, peak rank comes from `opponents_peak[puuid].tier_name` if present.
+ * If both name and peak are missing for a victim, that victim is omitted from the line.
+ */
+function renderOpponentsPeak(payload: Record<string, unknown>): string {
+  const opponentsPeak = payload['opponents_peak'] as Record<string, { tier_id: number; tier_name: string; season_short: string }> | undefined;
+  const victims = payload['victims'] as Array<{ puuid: string; name: string; tag: string }> | undefined;
+  const victimNames = payload['victim_names_for_template'] as string[] | undefined;
+
+  if (!opponentsPeak || Object.keys(opponentsPeak).length === 0) return '';
+  if (!victims || victims.length === 0) return '';
+
+  const parts: string[] = [];
+
+  for (let i = 0; i < victims.length; i++) {
+    const victim = victims[i]!;
+    const displayName = (victimNames?.[i] ?? victim.name) || null;
+    const peak = opponentsPeak[victim.puuid];
+
+    if (displayName && peak) {
+      parts.push(`${esc(displayName)} (peak ${esc(peak.tier_name)})`);
+    } else if (displayName) {
+      parts.push(esc(displayName));
+    } else if (peak) {
+      parts.push(`peak ${esc(peak.tier_name)}`);
+    }
+    // If neither name nor peak — skip this victim
+  }
+
+  if (parts.length === 0) return '';
+  return `\n💥 Жертвы: ${parts.join(', ')}`;
+}
+
 const templates: Record<EventType, TemplateFn> = {
   ace: (payload, user, match) => {
     const rounds = Array.isArray(payload['rounds']) ? payload['rounds'] : [];
     const roundCount = rounds.length > 1 ? ` (${rounds.length}×)` : '';
     const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
-    return `🎯 Эйс! У ${playerTag(user)} 5 убийств в раунде${roundCount}${mapStr}`;
+    const opponentsStr = renderOpponentsPeak(payload);
+    return `🎯 Эйс! У ${playerTag(user)} 5 убийств в раунде${roundCount}${mapStr}${opponentsStr}`;
   },
 
   ace_rare_weapon: (payload, user, match) => {
@@ -64,7 +101,8 @@ const templates: Record<EventType, TemplateFn> = {
   clutch_1vN: (payload, user, match) => {
     const n = payload['n'] ?? payload['kills'] ?? '?';
     const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
-    return `🥷 Клатч 1v${esc(String(n))}! ${playerTag(user)} вытащил раунд${mapStr}`;
+    const opponentsStr = renderOpponentsPeak(payload);
+    return `🥷 Клатч 1v${esc(String(n))}! ${playerTag(user)} вытащил раунд${mapStr}${opponentsStr}`;
   },
 
   rank_promo: (payload, user, _match) => {
