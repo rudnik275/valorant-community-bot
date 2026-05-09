@@ -1,0 +1,6 @@
+tunnel: <TUNNEL_UUID>
+credentials-file: /etc/cloudflared/creds.json
+ingress:
+  - hostname: bot.example.com
+    service: http://valorant-bot-app:3000
+  - service: http_status:404

@@ -1,0 +1,13 @@
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    volumes:
+      - ./config.yml:/etc/cloudflared/config.yml:ro
+      - ./creds.json:/etc/cloudflared/creds.json:ro
+    networks: [infra-net]
+networks:
+  infra-net:
+    external: true
