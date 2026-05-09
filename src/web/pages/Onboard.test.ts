@@ -1,21 +1,14 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { createRouter, createWebHistory } from 'vue-router';
 import Onboard from './Onboard.vue';
 import MembersList from './MembersList.vue';
 
-// We mock global fetch to control API responses
-let fetchMock: ReturnType<typeof vi.fn>;
-
-beforeEach(() => {
-  fetchMock = vi.fn();
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
-});
-
-afterEach(() => {
-  vi.resetAllMocks();
-});
+// Onboard.vue is a static "Riot Sign-On coming soon" splash during the
+// Henrik -> Riot+RSO transition (issue #41). The previous form-and-fetch
+// tests were retired together with the Henrik input flow; the real RSO
+// flow ships in issue #43 and will bring its own e2e test suite.
 
 function makeRouter() {
   return createRouter({
@@ -27,158 +20,25 @@ function makeRouter() {
   });
 }
 
-function makeJsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
+describe('Onboard.vue (RSO-pending splash)', () => {
+  it('renders the closed-alpha badge and the "coming soon" headline', () => {
+    const wrapper = mount(Onboard, { global: { plugins: [makeRouter()] } });
 
-describe('Onboard.vue', () => {
-  it('shows the form initially', async () => {
-    const wrapper = mount(Onboard, {
-      global: { plugins: [makeRouter()] },
-    });
-
-    expect(wrapper.find('input').exists()).toBe(true);
-    expect(wrapper.find('button').exists()).toBe(true);
-    expect(wrapper.find('button').text()).toContain('Привязать');
+    expect(wrapper.text()).toContain('Closed alpha');
+    expect(wrapper.text()).toContain('Riot Sign-On is on the way');
   });
 
-  it('shows loading state while request is in progress', async () => {
-    // Never resolves
-    fetchMock.mockImplementation(() => new Promise(() => {}));
+  it('does not render the old Riot-ID form or any input', () => {
+    const wrapper = mount(Onboard, { global: { plugins: [makeRouter()] } });
 
-    const wrapper = mount(Onboard, {
-      global: { plugins: [makeRouter()] },
-    });
-
-    await wrapper.find('input').setValue('TestPlayer#EU1');
-    await wrapper.find('form').trigger('submit');
-
-    expect(wrapper.find('button').text()).toContain('Загрузка');
-    expect(wrapper.find('button').attributes('disabled')).toBeDefined();
+    expect(wrapper.find('input').exists()).toBe(false);
+    expect(wrapper.find('form').exists()).toBe(false);
   });
 
-  it('shows error message on 404 (riot_id_not_found)', async () => {
-    fetchMock.mockResolvedValue(makeJsonResponse(404, { error: 'riot_id_not_found' }));
+  it('links to the public landing page for more info', () => {
+    const wrapper = mount(Onboard, { global: { plugins: [makeRouter()] } });
 
-    const wrapper = mount(Onboard, {
-      global: { plugins: [makeRouter()] },
-    });
-
-    await wrapper.find('input').setValue('bad#42');
-    await wrapper.find('form').trigger('submit');
-
-    // Wait for async to settle
-    await new Promise((r) => setTimeout(r, 0));
-    await wrapper.vm.$nextTick();
-
-    const error = wrapper.find('[data-testid="error"]');
-    expect(error.exists()).toBe(true);
-    expect(error.text()).toContain('Riot ID не найден');
-  });
-
-  it('shows error message on 503 (henrik_rate_limited) with retryAfter', async () => {
-    fetchMock.mockResolvedValue(
-      makeJsonResponse(503, { error: 'henrik_rate_limited', retryAfter: 30 }),
-    );
-
-    const wrapper = mount(Onboard, {
-      global: { plugins: [makeRouter()] },
-    });
-
-    await wrapper.find('input').setValue('TestPlayer#EU1');
-    await wrapper.find('form').trigger('submit');
-
-    await new Promise((r) => setTimeout(r, 0));
-    await wrapper.vm.$nextTick();
-
-    const error = wrapper.find('[data-testid="error"]');
-    expect(error.exists()).toBe(true);
-    expect(error.text()).toContain('Henrik API перегружен');
-    expect(error.text()).toContain('30');
-  });
-
-  it('shows error message on 409 (puuid_already_linked) with username', async () => {
-    fetchMock.mockResolvedValue(
-      makeJsonResponse(409, { error: 'puuid_already_linked', other: '@otherusername' }),
-    );
-
-    const wrapper = mount(Onboard, {
-      global: { plugins: [makeRouter()] },
-    });
-
-    await wrapper.find('input').setValue('TestPlayer#EU1');
-    await wrapper.find('form').trigger('submit');
-
-    await new Promise((r) => setTimeout(r, 0));
-    await wrapper.vm.$nextTick();
-
-    const error = wrapper.find('[data-testid="error"]');
-    expect(error.exists()).toBe(true);
-    expect(error.text()).toContain('@otherusername');
-    expect(error.text()).toContain('привязан');
-  });
-
-  it('shows error message on bot_lacks_admin_rights', async () => {
-    fetchMock.mockResolvedValue(
-      makeJsonResponse(500, { error: 'bot_lacks_admin_rights', chatId: -100123 }),
-    );
-
-    const wrapper = mount(Onboard, {
-      global: { plugins: [makeRouter()] },
-    });
-
-    await wrapper.find('input').setValue('TestPlayer#EU1');
-    await wrapper.find('form').trigger('submit');
-
-    await new Promise((r) => setTimeout(r, 0));
-    await wrapper.vm.$nextTick();
-
-    const error = wrapper.find('[data-testid="error"]');
-    expect(error.exists()).toBe(true);
-    expect(error.text()).toContain('admin-права');
-  });
-
-  it('shows success message on successful onboarding', async () => {
-    fetchMock.mockResolvedValue(
-      makeJsonResponse(200, {
-        success: true,
-        profile: { name: 'TestPlayer', tag: 'EU1', puuid: 'puuid-abc' },
-        joinedGroup: true,
-      }),
-    );
-
-    const wrapper = mount(Onboard, {
-      global: { plugins: [makeRouter()] },
-    });
-
-    await wrapper.find('input').setValue('TestPlayer#EU1');
-    await wrapper.find('form').trigger('submit');
-
-    await new Promise((r) => setTimeout(r, 0));
-    await wrapper.vm.$nextTick();
-
-    const success = wrapper.find('[data-testid="success"]');
-    expect(success.exists()).toBe(true);
-    expect(success.text()).toContain('Готово');
-  });
-
-  it('shows validation error when no # in input', async () => {
-    const wrapper = mount(Onboard, {
-      global: { plugins: [makeRouter()] },
-    });
-
-    await wrapper.find('input').setValue('NoHashSign');
-    await wrapper.find('form').trigger('submit');
-
-    await wrapper.vm.$nextTick();
-
-    const error = wrapper.find('[data-testid="error"]');
-    expect(error.exists()).toBe(true);
-    expect(error.text()).toContain('Имя#TAG');
-    // fetch should NOT have been called
-    expect(fetchMock).not.toHaveBeenCalled();
+    const link = wrapper.find('a[href="/about"]');
+    expect(link.exists()).toBe(true);
   });
 });

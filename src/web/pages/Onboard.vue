@@ -1,122 +1,111 @@
 <template>
-  <div class="onboard-page">
-    <h1>Привязать Riot ID</h1>
-    <p class="hint">Введи свой Riot ID в формате <code>Имя#TAG</code></p>
+  <div class="onboard-pending">
+    <span class="badge">
+      <span class="badge-dot" aria-hidden="true"></span>
+      Closed alpha
+    </span>
 
-    <form @submit.prevent="handleSubmit">
-      <div class="field">
-        <input
-          v-model="riotIdInput"
-          type="text"
-          placeholder="YourName#TAG"
-          :disabled="loading"
-          autocomplete="off"
-          autocorrect="off"
-          spellcheck="false"
-        />
-      </div>
+    <h1>Riot Sign-On is on the way</h1>
 
-      <button type="submit" :disabled="loading || !riotIdInput.trim()">
-        {{ loading ? 'Загрузка...' : 'Привязать' }}
-      </button>
-    </form>
+    <p class="hint">
+      Account linking via Riot Sign-On is being reviewed by Riot Games.
+      Until that lands, the bot is in coordination-only mode &mdash;
+      no match data, no notifications, no rank display.
+    </p>
 
-    <div v-if="errorMessage" class="error" data-testid="error">{{ errorMessage }}</div>
-    <div v-if="successMessage" class="success" data-testid="success">{{ successMessage }}</div>
+    <p class="hint">
+      Once approved, you'll see a <strong>Login with Riot</strong> button
+      here. One tap, one-time authorization, no password sharing.
+    </p>
+
+    <a href="/about" class="link">Learn more about the bot</a>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
-import { useRouter } from 'vue-router';
-
-const router = useRouter();
-const riotIdInput = ref('');
-const loading = ref(false);
-const errorMessage = ref<string | null>(null);
-const successMessage = ref<string | null>(null);
-
-function getInitDataRaw(): string {
-  if (typeof window === 'undefined') return '';
-  const tg = (window as Window & { Telegram?: { WebApp?: { initData?: string } } }).Telegram;
-  const raw = tg?.WebApp?.initData ?? '';
-  // Strip control chars — WebKit/iOS occasionally appends \r/\n which makes
-  // Headers constructor throw "The string did not match the expected pattern".
-  // eslint-disable-next-line no-control-regex
-  return raw.replace(/[\x00-\x1F\x7F]/g, '').trim();
-}
-
-async function handleSubmit() {
-  errorMessage.value = null;
-  successMessage.value = null;
-
-  const raw = riotIdInput.value.trim();
-  if (!raw) return;
-
-  const hashIndex = raw.indexOf('#');
-  let name: string;
-  let tag: string;
-
-  if (hashIndex > 0 && hashIndex < raw.length - 1) {
-    name = raw.slice(0, hashIndex);
-    tag = raw.slice(hashIndex + 1);
-  } else {
-    errorMessage.value = 'Введи Riot ID в формате Имя#TAG';
-    return;
-  }
-
-  loading.value = true;
-
-  try {
-    const res = await fetch('/api/onboard', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `tma ${getInitDataRaw()}`,
-      },
-      body: JSON.stringify({ name, tag }),
-    });
-
-    const body: unknown = await res.json();
-
-    if (!res.ok) {
-      handleApiError(res.status, body as Record<string, unknown>);
-      return;
-    }
-
-    // Success — haptic feedback + success message + redirect
-    const tg = (window as Window & { Telegram?: { WebApp?: { HapticFeedback?: { notificationOccurred: (type: string) => void } } } }).Telegram;
-    tg?.WebApp?.HapticFeedback?.notificationOccurred('success');
-
-    successMessage.value = 'Готово!';
-
-    setTimeout(() => {
-      void router.replace({ name: 'members' });
-    }, 2000);
-  } catch (err) {
-    errorMessage.value = `Ошибка: ${(err as Error).message}`;
-  } finally {
-    loading.value = false;
-  }
-}
-
-function handleApiError(status: number, body: Record<string, unknown>) {
-  const error = body?.error as string | undefined;
-
-  if (status === 404 || error === 'riot_id_not_found') {
-    errorMessage.value = 'Riot ID не найден. Проверь правильность ввода.';
-  } else if (status === 503 || error === 'henrik_rate_limited') {
-    const retryAfter = body?.retryAfter as number | undefined;
-    errorMessage.value = retryAfter
-      ? `Henrik API перегружен, попробуй через ${retryAfter} секунд`
-      : 'Henrik API перегружен, попробуй позже';
-  } else if (status === 409 || error === 'puuid_already_linked') {
-    const other = (body?.other as string | undefined) ?? 'другим пользователем';
-    errorMessage.value = `Этот Riot ID уже привязан к ${other}`;
-  } else if (error === 'bot_lacks_admin_rights') {
-    errorMessage.value = 'Боту нужны admin-права в группе — обратись к владельцу';
-  } else {
-    errorMessage.value = `Ошибка ${status}: что-то пошло не так`;
-  }
-}
+// Onboarding via Riot Sign-On (RSO) is gated on Riot Production approval
+// (issue #40) and RSO Client provisioning (issue #44). The previous
+// Henrik trust-based form is intentionally removed (issue #41) — Henrik
+// has zero coverage for console accounts, so the form never worked for
+// our community.
+//
+// When the RSO scaffold (issue #43) ships, this page becomes a real
+// "Login with Riot" CTA wired to /auth/riot/start.
 </script>
+
+<style scoped>
+.onboard-pending {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 18px;
+  padding: clamp(48px, 12vw, 96px) 22px;
+  max-width: 520px;
+  margin: 0 auto;
+  color: var(--fg, #f1f1f7);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
+  letter-spacing: -0.01em;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  padding: 6px 12px;
+  border-radius: 999px;
+}
+
+.badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #5be3a4;
+  box-shadow: 0 0 8px #5be3a4;
+}
+
+h1 {
+  font-size: clamp(24px, 4.5vw, 32px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0;
+  background: linear-gradient(135deg, #f1f1f7 0%, #c8c9e0 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.hint {
+  font-size: 15px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.65);
+  margin: 0;
+}
+
+.hint strong {
+  color: #f1f1f7;
+  font-weight: 500;
+}
+
+.link {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #7383ff;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.link:hover {
+  color: #b15eff;
+}
+</style>
