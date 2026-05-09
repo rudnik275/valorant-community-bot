@@ -20,6 +20,9 @@ import logger from '../lib/log.ts';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
 
+/** Queue ID for console-competitive matches (the only queue we process). */
+export const CONSOLE_COMPETITIVE_QUEUE = 'console_competitive';
+
 export interface ScanResult {
   newRecords: MatchRecordInsert[];
   skippedDuplicates: number;
@@ -33,7 +36,8 @@ export interface ScanOpts {
 /**
  * Scan a single user's recent competitive matches and persist new ones.
  *
- * - Fetches last 5 competitive matches from Henrik.
+ * - Fetches last 5 console_competitive matches from Henrik v4.
+ * - Filters client-side: only metadata.queue.id === CONSOLE_COMPETITIVE_QUEUE.
  * - Skips any that already exist in match_records (dedup by match_id + riot_puuid).
  * - Inserts new records via UPSERT (onConflictDoNothing).
  * - If detection=true, emits 'newRecord' on scannerEvents for each new record.
@@ -48,8 +52,6 @@ export async function scanForPuuid(
   // 1. Get user from DB
   const userRows = await db
     .select({
-      riot_name: users.riot_name,
-      riot_tag: users.riot_tag,
       riot_region: users.riot_region,
     })
     .from(users)
@@ -89,14 +91,10 @@ export async function scanForPuuid(
     }
   }
 
-  const riotName = user.riot_name as string;
-  const riotTag = user.riot_tag as string;
-
-  // 3. Fetch matches from Henrik
+  // 3. Fetch matches from Henrik v4 (console platform)
   let rawMatches;
   try {
-    // @ts-expect-error pending Slice B #53 — old (name,tag,region,opts) signature; rewrite to (puuid,region,opts) in Slice B
-    rawMatches = await getMatches(riotName, riotTag, region, { mode: 'competitive', size: 5 });
+    rawMatches = await getMatches(puuid, region, { platform: 'console', size: 5 });
   } catch (err) {
     if (
       err instanceof HenrikRateLimitError ||
@@ -109,13 +107,17 @@ export async function scanForPuuid(
     throw err;
   }
 
-  if (rawMatches.length === 0) {
+  // 4. Filter: only console_competitive queue
+  const competitiveMatches = rawMatches.filter(
+    (m) => m.metadata.queue?.id === CONSOLE_COMPETITIVE_QUEUE,
+  );
+
+  if (competitiveMatches.length === 0) {
     return { newRecords: [], skippedDuplicates: 0 };
   }
 
-  // 4. Derive compact records (filter non-competitive, null if player not found)
-  const derived = rawMatches
-    // @ts-expect-error pending Slice B #53 — v4 match shape; deriveMatchRecord updated in Slice B
+  // 5. Derive compact records (null if player not found in match)
+  const derived = competitiveMatches
     .map((m) => deriveMatchRecord(m, puuid))
     .filter((r): r is MatchRecordInsert => r !== null);
 
@@ -123,7 +125,7 @@ export async function scanForPuuid(
     return { newRecords: [], skippedDuplicates: 0 };
   }
 
-  // 5. Check which match_ids already exist
+  // 6. Check which match_ids already exist
   const matchIds = derived.map((r) => r.match_id);
   const existingRows = await db
     .select({ match_id: matchRecords.match_id })
@@ -141,13 +143,13 @@ export async function scanForPuuid(
     return { newRecords: [], skippedDuplicates };
   }
 
-  // 6. Insert new records (UPSERT for safety — onConflictDoNothing on PK)
+  // 7. Insert new records (UPSERT for safety — onConflictDoNothing on PK)
   await db
     .insert(matchRecords)
     .values(toInsert)
     .onConflictDoNothing();
 
-  // 7. Emit events if detection mode is enabled
+  // 8. Emit events if detection mode is enabled
   if (opts.detection) {
     for (const record of toInsert) {
       scannerEvents.emit('newRecord', record);
