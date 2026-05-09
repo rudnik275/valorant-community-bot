@@ -1,10 +1,14 @@
 import type { z } from 'zod';
 
-// Access Telegram WebApp initData, if available (inside Telegram) or empty string (dev)
+// Access Telegram WebApp initData, if available (inside Telegram) or empty string (dev).
+// Strip C0 control chars (\r, \n, etc.) — WebKit/iOS sometimes appends trailing
+// whitespace and HTTP header values must be ASCII printable per RFC 7230.
 function getInitDataRaw(): string {
   if (typeof window === 'undefined') return '';
   const tg = (window as Window & { Telegram?: { WebApp?: { initData?: string } } }).Telegram;
-  return tg?.WebApp?.initData ?? '';
+  const raw = tg?.WebApp?.initData ?? '';
+  // eslint-disable-next-line no-control-regex
+  return raw.replace(/[\x00-\x1F\x7F]/g, '').trim();
 }
 
 /**

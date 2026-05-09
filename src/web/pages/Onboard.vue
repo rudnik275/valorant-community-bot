@@ -39,7 +39,11 @@ const successMessage = ref<string | null>(null);
 function getInitDataRaw(): string {
   if (typeof window === 'undefined') return '';
   const tg = (window as Window & { Telegram?: { WebApp?: { initData?: string } } }).Telegram;
-  return tg?.WebApp?.initData ?? '';
+  const raw = tg?.WebApp?.initData ?? '';
+  // Strip control chars — WebKit/iOS occasionally appends \r/\n which makes
+  // Headers constructor throw "The string did not match the expected pattern".
+  // eslint-disable-next-line no-control-regex
+  return raw.replace(/[\x00-\x1F\x7F]/g, '').trim();
 }
 
 async function handleSubmit() {
