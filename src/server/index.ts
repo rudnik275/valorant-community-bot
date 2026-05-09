@@ -18,6 +18,7 @@ import { makeAvatarCache } from './lib/telegram-avatar.ts';
 import { validateAccount } from './lib/henrik.ts';
 import { loadAllowedChatIds } from './lib/scope.ts';
 import { scanForPuuid as scanForPuuidBase, startScanLoop } from './scanner/index.ts';
+import { startDetectionListener } from './publisher/detect.ts';
 
 const PORT = Number(process.env['PORT'] ?? 3000);
 
@@ -101,6 +102,7 @@ const scanForPuuid = (puuid: string, opts: { detection: boolean }) =>
   scanForPuuidBase(db, puuid, opts);
 
 if (process.env['SCANNER_DISABLED'] !== 'true') {
+  startDetectionListener({ db });
   startScanLoop({ db, scanForPuuid });
 }
 
