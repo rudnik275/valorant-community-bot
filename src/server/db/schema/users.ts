@@ -16,6 +16,7 @@ export const users = sqliteTable(
     last_message_at: integer('last_message_at'),
     joined_at: integer('joined_at').notNull().default(sql`(unixepoch() * 1000)`),
     onboarded_at: integer('onboarded_at'),
+    riot_lookup_failed_since: integer('riot_lookup_failed_since'),
   },
   (table) => [
     uniqueIndex('idx_users_riot_puuid').on(table.riot_puuid),
