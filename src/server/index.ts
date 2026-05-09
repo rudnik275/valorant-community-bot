@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { serveStatic } from 'hono/bun';
 import { Bot } from 'grammy';
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
 import logger from './lib/log.ts';
@@ -7,6 +8,10 @@ import healthz from './api/healthz.ts';
 import { scopeGuard } from './bot/scope-guard.ts';
 import { makeLastMessageHandler } from './bot/listener.ts';
 import { isAllowedChat } from './lib/scope.ts';
+import { makeAuthMiddleware } from './api/auth.ts';
+import { makeMembersHandler } from './api/members.ts';
+import { verifyInitData } from './lib/init-data.ts';
+import { makeAvatarCache } from './lib/telegram-avatar.ts';
 
 const PORT = Number(process.env['PORT'] ?? 3000);
 
@@ -55,6 +60,39 @@ try {
   logger.error({ module: 'startup', err }, 'DB migration failed — exiting');
   process.exit(1);
 }
+
+// API middleware + routes
+const currentBotToken = botToken ?? '';
+const authMiddleware = makeAuthMiddleware({
+  verify: (raw) => verifyInitData(raw, currentBotToken),
+});
+
+// Avatar cache (lazy, fire-and-forget)
+const avatarCache = bot
+  ? makeAvatarCache({
+      db,
+      getApi: () => bot!.api,
+      getBotToken: () => currentBotToken,
+    })
+  : null;
+
+const membersDeps = avatarCache
+  ? {
+      db,
+      refreshAvatarIfStale: (id: number) => {
+        avatarCache.ensureAvatar(id).catch((err) => {
+          logger.warn({ module: 'avatar', err, telegram_id: id }, 'Avatar refresh failed');
+        });
+      },
+    }
+  : { db };
+const membersHandler = makeMembersHandler(membersDeps);
+
+app.use('/api/*', authMiddleware);
+app.get('/api/members', membersHandler);
+
+// Serve Vite build static files (dist/web) — API routes above take precedence
+app.use('/*', serveStatic({ root: './dist/web' }));
 
 logger.info({ module: 'startup', port: PORT }, 'Server starting');
 
