@@ -10,8 +10,12 @@ import { makeLastMessageHandler } from './bot/listener.ts';
 import { isAllowedChat } from './lib/scope.ts';
 import { makeAuthMiddleware } from './api/auth.ts';
 import { makeMembersHandler } from './api/members.ts';
+import { makeOnboardHandler } from './api/onboard.ts';
+import { makeMeHandler } from './api/me.ts';
 import { verifyInitData } from './lib/init-data.ts';
 import { makeAvatarCache } from './lib/telegram-avatar.ts';
+import { validateAccount } from './lib/henrik.ts';
+import { loadAllowedChatIds } from './lib/scope.ts';
 
 const PORT = Number(process.env['PORT'] ?? 3000);
 
@@ -90,6 +94,17 @@ const membersHandler = makeMembersHandler(membersDeps);
 
 app.use('/api/*', authMiddleware);
 app.get('/api/members', membersHandler);
+
+const onboardHandler = makeOnboardHandler({
+  db,
+  validateAccount,
+  scanForPuuid: undefined, // wired in #9 (henrik-scanner-loop)
+  botApi: bot?.api,
+  getAllowedChatIds: loadAllowedChatIds,
+});
+const meHandler = makeMeHandler({ db });
+app.post('/api/onboard', onboardHandler);
+app.get('/api/me', meHandler);
 
 // Serve Vite build static files (dist/web) — API routes above take precedence
 app.use('/*', serveStatic({ root: './dist/web' }));
