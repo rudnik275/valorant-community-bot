@@ -1,5 +1,8 @@
 <template>
   <div class="members-list">
+    <div class="members-header">
+      <router-link to="/settings" class="settings-link">⚙</router-link>
+    </div>
     <div v-if="loading">Загрузка...</div>
     <div v-else-if="error">Ошибка: {{ error }}</div>
     <div v-else-if="members.length === 0">Пока никто не писал в чат</div>

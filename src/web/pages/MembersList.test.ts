@@ -37,7 +37,10 @@ const MOCK_MEMBERS: Member[] = [
 function makeRouter() {
   return createRouter({
     history: createWebHistory(),
-    routes: [{ path: '/', component: MembersList }],
+    routes: [
+      { path: '/', component: MembersList },
+      { path: '/settings', component: { template: '<div />' } },
+    ],
   });
 }
 
