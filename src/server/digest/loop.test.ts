@@ -63,6 +63,7 @@ describe('runDigestNow', () => {
   afterEach(() => {
     sqlite.close();
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
   });
 
   describe('happy path', () => {
@@ -72,7 +73,6 @@ describe('runDigestNow', () => {
         sendMessage,
         getPrimaryChatId: () => -1001234567890,
         getNowKyiv: () => DEFAULT_KYIV,
-        getEventsEnabledAt: () => 0,
       });
 
       expect(sendMessage).toHaveBeenCalledOnce();
@@ -97,7 +97,6 @@ describe('runDigestNow', () => {
         sendMessage,
         getPrimaryChatId: () => -1001234567890,
         getNowKyiv: () => DEFAULT_KYIV,
-        getEventsEnabledAt: () => 0,
       });
 
       // Run again in the same week
@@ -106,7 +105,6 @@ describe('runDigestNow', () => {
         sendMessage,
         getPrimaryChatId: () => -1001234567890,
         getNowKyiv: () => DEFAULT_KYIV,
-        getEventsEnabledAt: () => 0,
       });
 
       // sendMessage should only have been called once
@@ -116,14 +114,14 @@ describe('runDigestNow', () => {
 
   describe('silent period', () => {
     it('inserts digest_runs with [silent-period] marker and does not call sendMessage', async () => {
-      const futureGate = FIXED_NOW + 999999999;
+      const future = new Date(FIXED_NOW + 999999999).toISOString();
+      vi.stubEnv('EVENTS_PUBLISHING_ENABLED_AFTER', future);
 
       await runDigestNow({
         db,
         sendMessage,
         getPrimaryChatId: () => -1001234567890,
         getNowKyiv: () => DEFAULT_KYIV,
-        getEventsEnabledAt: () => futureGate,
       });
 
       expect(sendMessage).not.toHaveBeenCalled();
@@ -134,7 +132,8 @@ describe('runDigestNow', () => {
     });
 
     it('silent-period row prevents re-posting even after gate passes', async () => {
-      const futureGate = FIXED_NOW + 999999999;
+      const future = new Date(FIXED_NOW + 999999999).toISOString();
+      vi.stubEnv('EVENTS_PUBLISHING_ENABLED_AFTER', future);
 
       // First call: silent period
       await runDigestNow({
@@ -142,16 +141,15 @@ describe('runDigestNow', () => {
         sendMessage,
         getPrimaryChatId: () => -1001234567890,
         getNowKyiv: () => DEFAULT_KYIV,
-        getEventsEnabledAt: () => futureGate,
       });
 
       // Second call: gate now in the past (but row already exists)
+      vi.stubEnv('EVENTS_PUBLISHING_ENABLED_AFTER', '');
       await runDigestNow({
         db,
         sendMessage,
         getPrimaryChatId: () => -1001234567890,
         getNowKyiv: () => DEFAULT_KYIV,
-        getEventsEnabledAt: () => 0,
       });
 
       expect(sendMessage).not.toHaveBeenCalled();
@@ -171,7 +169,6 @@ describe('runDigestNow', () => {
         sendMessage,
         getPrimaryChatId: () => -1001234567890,
         getNowKyiv: () => DEFAULT_KYIV,
-        getEventsEnabledAt: () => 0,
       });
 
       expect(sendMessage).not.toHaveBeenCalled();
@@ -191,7 +188,6 @@ describe('runDigestNow', () => {
         sendMessage,
         getPrimaryChatId: () => -1001234567890,
         getNowKyiv: () => DEFAULT_KYIV,
-        getEventsEnabledAt: () => 0,
         healthcheckUrl: 'https://hc-ping.example.com/test-uuid',
       });
 
@@ -211,7 +207,6 @@ describe('runDigestNow', () => {
           sendMessage,
           getPrimaryChatId: () => -1001234567890,
           getNowKyiv: () => DEFAULT_KYIV,
-          getEventsEnabledAt: () => 0,
           healthcheckUrl: 'https://hc-ping.example.com/bad-url',
         }),
       ).resolves.not.toThrow();

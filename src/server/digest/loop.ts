@@ -17,6 +17,7 @@ import { eq, sql } from 'drizzle-orm';
 import { digestRuns } from '../db/schema/digest_runs.ts';
 import { buildDigest } from './build.ts';
 import logger from '../lib/log.ts';
+import { isPublishingEnabled } from '../lib/silent-period.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
@@ -29,8 +30,6 @@ export interface DigestLoopDeps {
     opts?: { parse_mode?: string; disable_web_page_preview?: boolean },
   ) => Promise<{ message_id: number }>;
   getPrimaryChatId: () => number;
-  /** Get EVENTS_PUBLISHING_ENABLED_AFTER in ms. Defaults to env var. */
-  getEventsEnabledAt?: () => number;
   /** Healthchecks.io URL. Defaults to HEALTHCHECK_DIGEST_URL env var. */
   healthcheckUrl?: string;
   /** Injectable now-in-Kyiv for testing. Returns { nowMs, weekIso, weekStart, weekEnd }. */
@@ -114,12 +113,6 @@ export function getDigestNowKyiv(nowMs?: number): DigestNowKyiv {
 export async function runDigestNow(deps: DigestLoopDeps): Promise<void> {
   const { db, sendMessage, getPrimaryChatId } = deps;
 
-  const getEventsEnabledAt = deps.getEventsEnabledAt
-    ?? (() => {
-      const val = process.env['EVENTS_PUBLISHING_ENABLED_AFTER'];
-      return val ? Number(val) : 0;
-    });
-
   const getNowKyiv = deps.getNowKyiv ?? getDigestNowKyiv;
 
   const healthcheckUrl = deps.healthcheckUrl ?? process.env['HEALTHCHECK_DIGEST_URL'];
@@ -128,8 +121,7 @@ export async function runDigestNow(deps: DigestLoopDeps): Promise<void> {
     const { nowMs, weekIso, weekStart, weekEnd } = getNowKyiv();
 
     // Check silent period
-    const eventsEnabledAt = getEventsEnabledAt();
-    if (eventsEnabledAt > 0 && nowMs < eventsEnabledAt) {
+    if (!isPublishingEnabled(new Date(nowMs))) {
       // Insert a row so we don't retry in the same week
       try {
         await db.insert(digestRuns).values({

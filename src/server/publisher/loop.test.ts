@@ -101,23 +101,19 @@ function makeLoop(
   sendMessage: ReturnType<typeof vi.fn>,
   opts: {
     primaryChatId?: number;
-    eventsEnabledAt?: number;
     kyivTime?: KyivTime;
   } = {},
 ) {
   const getNowKyiv = vi.fn().mockReturnValue(opts.kyivTime ?? { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 });
-  const getEventsEnabledAt = vi.fn().mockReturnValue(opts.eventsEnabledAt ?? 0);
   const getPrimaryChatId = vi.fn().mockReturnValue(opts.primaryChatId ?? -1001234567890);
 
   return {
     getNowKyiv,
-    getEventsEnabledAt,
     getPrimaryChatId,
     stop: startPublisherLoop({
       db,
       sendMessage,
       getNowKyiv: () => getNowKyiv(),
-      getEventsEnabledAt: () => getEventsEnabledAt(),
       getPrimaryChatId: () => getPrimaryChatId(),
       intervalCron: '* * * * * *', // every second for tests — but we call runTick manually via cron
     }),
@@ -139,6 +135,7 @@ describe('startPublisherLoop', () => {
     sqlite.close();
     vi.useRealTimers();
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
   });
 
   // Helper: run one tick synchronously by advancing cron timer and flushing
@@ -156,10 +153,10 @@ describe('startPublisherLoop', () => {
       const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'ace' });
       const id2 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'winstreak_9' });
 
-      const futureMs = Date.now() + 999999999;
+      const future = new Date(Date.now() + 999999999).toISOString();
+      vi.stubEnv('EVENTS_PUBLISHING_ENABLED_AFTER', future);
 
       const { stop } = makeLoop(db, sendMessage, {
-        eventsEnabledAt: futureMs,
         kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
       });
 
@@ -174,10 +171,10 @@ describe('startPublisherLoop', () => {
       seedUser(sqlite, 1, 'puuid-1');
       const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'ace' });
 
-      const pastMs = Date.now() - 1000; // already in the past
+      const past = new Date(Date.now() - 1000).toISOString(); // already in the past
+      vi.stubEnv('EVENTS_PUBLISHING_ENABLED_AFTER', past);
 
       const { stop } = makeLoop(db, sendMessage, {
-        eventsEnabledAt: pastMs,
         kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
       });
 
@@ -409,7 +406,6 @@ describe('startPublisherLoop', () => {
         db,
         sendMessage,
         getNowKyiv: () => getNowKyiv(),
-        getEventsEnabledAt: () => 0,
         getPrimaryChatId: () => -1001234567890,
         intervalCron: '0 0 1 1 *', // effectively never fires again after first tick
       });
@@ -429,7 +425,6 @@ describe('startPublisherLoop', () => {
         db,
         sendMessage,
         getNowKyiv: () => getNowKyiv(),
-        getEventsEnabledAt: () => 0,
         getPrimaryChatId: () => -1001234567890,
         intervalCron: '* * * * * *',
       });
@@ -540,10 +535,10 @@ describe('startPublisherLoop', () => {
       const id2 = seedPendingEvent(sqlite, { puuid: 'puuid-2', eventType: 'winstreak_9' });
       const id3 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'lostrick_9' });
 
-      const futureGate = Date.now() + 999999;
+      const future = new Date(Date.now() + 999999).toISOString();
+      vi.stubEnv('EVENTS_PUBLISHING_ENABLED_AFTER', future);
 
       const { stop } = makeLoop(db, sendMessage, {
-        eventsEnabledAt: futureGate,
         kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
       });
 
