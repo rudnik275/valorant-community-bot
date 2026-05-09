@@ -1,14 +1,13 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { createRouter, createWebHistory } from 'vue-router';
 import Onboard from './Onboard.vue';
 import MembersList from './MembersList.vue';
 
-// Onboard.vue is a static "Riot Sign-On coming soon" splash during the
-// Henrik -> Riot+RSO transition (issue #41). The previous form-and-fetch
-// tests were retired together with the Henrik input flow; the real RSO
-// flow ships in issue #43 and will bring its own e2e test suite.
+// Mock global fetch for all tests
+const fetchMock = vi.fn();
+vi.stubGlobal('fetch', fetchMock);
 
 function makeRouter() {
   return createRouter({
@@ -20,25 +19,236 @@ function makeRouter() {
   });
 }
 
-describe('Onboard.vue (RSO-pending splash)', () => {
-  it('renders the closed-alpha badge and the "coming soon" headline', () => {
-    const wrapper = mount(Onboard, { global: { plugins: [makeRouter()] } });
+function mountOnboard() {
+  return mount(Onboard, { global: { plugins: [makeRouter()] } });
+}
 
-    expect(wrapper.text()).toContain('Closed alpha');
-    expect(wrapper.text()).toContain('Riot Sign-On is on the way');
+function makeOkResponse(body: Record<string, unknown>) {
+  return {
+    ok: true,
+    status: 200,
+    json: vi.fn().mockResolvedValue(body),
+  };
+}
+
+function makeErrorResponse(status: number, body: Record<string, unknown>) {
+  return {
+    ok: false,
+    status,
+    json: vi.fn().mockResolvedValue(body),
+  };
+}
+
+describe('Onboard.vue', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  it('does not render the old Riot-ID form or any input', () => {
-    const wrapper = mount(Onboard, { global: { plugins: [makeRouter()] } });
-
-    expect(wrapper.find('input').exists()).toBe(false);
-    expect(wrapper.find('form').exists()).toBe(false);
+  afterEach(() => {
+    // no global cleanup needed
   });
 
-  it('links to the public landing page for more info', () => {
-    const wrapper = mount(Onboard, { global: { plugins: [makeRouter()] } });
+  // ── Form rendering ───────────────────────────────────────────────────────────
 
-    const link = wrapper.find('a[href="/about"]');
-    expect(link.exists()).toBe(true);
+  it('renders name and tag inputs and a submit button', () => {
+    const wrapper = mountOnboard();
+
+    expect(wrapper.find('[data-testid="input-name"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="input-tag"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="submit-btn"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="submit-btn"]').text()).toContain('Привязать аккаунт');
+  });
+
+  it('renders a "#" visual separator between the two inputs', () => {
+    const wrapper = mountOnboard();
+    expect(wrapper.text()).toContain('#');
+  });
+
+  it('does not show success message initially', () => {
+    const wrapper = mountOnboard();
+    expect(wrapper.find('[data-testid="success-message"]').exists()).toBe(false);
+  });
+
+  // ── Client-side validation ───────────────────────────────────────────────────
+
+  it('shows a validation error when name is empty on submit', async () => {
+    const wrapper = mountOnboard();
+
+    await wrapper.find('[data-testid="input-tag"]').setValue('EU1');
+    await wrapper.find('form').trigger('submit');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-testid="validation-error"]').exists()).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('shows a validation error when tag is empty on submit', async () => {
+    const wrapper = mountOnboard();
+
+    await wrapper.find('[data-testid="input-name"]').setValue('PlayerName');
+    await wrapper.find('form').trigger('submit');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-testid="validation-error"]').exists()).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('shows a validation error when tag contains non-alphanumeric chars', async () => {
+    const wrapper = mountOnboard();
+
+    await wrapper.find('[data-testid="input-name"]').setValue('Player');
+    await wrapper.find('[data-testid="input-tag"]').setValue('EU#1');
+    await wrapper.find('form').trigger('submit');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-testid="validation-error"]').exists()).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // ── Happy path ───────────────────────────────────────────────────────────────
+
+  it('shows success message after a successful API call', async () => {
+    fetchMock.mockResolvedValue(makeOkResponse({
+      status: 'ok',
+      riot_name: 'TestPlayer',
+      riot_tag: 'EU1',
+      riot_region: 'eu',
+    }));
+
+    const wrapper = mountOnboard();
+    await wrapper.find('[data-testid="input-name"]').setValue('TestPlayer');
+    await wrapper.find('[data-testid="input-tag"]').setValue('EU1');
+    await wrapper.find('form').trigger('submit');
+
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-testid="success-message"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="success-message"]').text()).toContain('TestPlayer#EU1');
+    expect(wrapper.find('[data-testid="success-message"]').text()).toContain('eu');
+  });
+
+  it('POSTs to /api/onboard with { name, tag }', async () => {
+    fetchMock.mockResolvedValue(makeOkResponse({
+      status: 'ok',
+      riot_name: 'TestPlayer',
+      riot_tag: 'EU1',
+      riot_region: 'eu',
+    }));
+
+    const wrapper = mountOnboard();
+    await wrapper.find('[data-testid="input-name"]').setValue('TestPlayer');
+    await wrapper.find('[data-testid="input-tag"]').setValue('EU1');
+    await wrapper.find('form').trigger('submit');
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/onboard');
+    expect(opts.method).toBe('POST');
+    expect(JSON.parse(opts.body as string)).toEqual({ name: 'TestPlayer', tag: 'EU1' });
+  });
+
+  // ── Loading state ────────────────────────────────────────────────────────────
+
+  it('disables the submit button while loading', async () => {
+    // Never resolves during the test — simulates in-flight request
+    fetchMock.mockReturnValue(new Promise(() => {}));
+
+    const wrapper = mountOnboard();
+    await wrapper.find('[data-testid="input-name"]').setValue('Player');
+    await wrapper.find('[data-testid="input-tag"]').setValue('EU1');
+    await wrapper.find('form').trigger('submit');
+    await wrapper.vm.$nextTick();
+
+    const btn = wrapper.find('[data-testid="submit-btn"]').element as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+  });
+
+  // ── Error states ─────────────────────────────────────────────────────────────
+
+  it('shows "Аккаунт Riot не найден" for account_not_found', async () => {
+    fetchMock.mockResolvedValue(makeErrorResponse(404, { error: 'account_not_found' }));
+
+    const wrapper = mountOnboard();
+    await wrapper.find('[data-testid="input-name"]').setValue('Ghost');
+    await wrapper.find('[data-testid="input-tag"]').setValue('X1');
+    await wrapper.find('form').trigger('submit');
+
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-testid="api-error"]').text()).toContain('Аккаунт Riot не найден');
+  });
+
+  it('shows rate limit message for rate_limited', async () => {
+    fetchMock.mockResolvedValue(makeErrorResponse(429, { error: 'rate_limited', retry_after: 60 }));
+
+    const wrapper = mountOnboard();
+    await wrapper.find('[data-testid="input-name"]').setValue('Player');
+    await wrapper.find('[data-testid="input-tag"]').setValue('EU1');
+    await wrapper.find('form').trigger('submit');
+
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-testid="api-error"]').text()).toContain('Слишком много запросов');
+  });
+
+  it('shows already-linked message for puuid_already_linked', async () => {
+    fetchMock.mockResolvedValue(makeErrorResponse(409, { error: 'puuid_already_linked' }));
+
+    const wrapper = mountOnboard();
+    await wrapper.find('[data-testid="input-name"]').setValue('Player');
+    await wrapper.find('[data-testid="input-tag"]').setValue('EU1');
+    await wrapper.find('form').trigger('submit');
+
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-testid="api-error"]').text()).toContain('уже привязан');
+  });
+
+  it('shows upstream message for henrik_upstream', async () => {
+    fetchMock.mockResolvedValue(makeErrorResponse(502, { error: 'henrik_upstream' }));
+
+    const wrapper = mountOnboard();
+    await wrapper.find('[data-testid="input-name"]').setValue('Player');
+    await wrapper.find('[data-testid="input-tag"]').setValue('EU1');
+    await wrapper.find('form').trigger('submit');
+
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-testid="api-error"]').text()).toContain('Henrik');
+  });
+
+  it('shows generic fallback message for unknown error codes', async () => {
+    fetchMock.mockResolvedValue(makeErrorResponse(500, { error: 'internal_error' }));
+
+    const wrapper = mountOnboard();
+    await wrapper.find('[data-testid="input-name"]').setValue('Player');
+    await wrapper.find('[data-testid="input-tag"]').setValue('EU1');
+    await wrapper.find('form').trigger('submit');
+
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-testid="api-error"]').text()).toContain('Что-то пошло не так');
+  });
+
+  it('shows generic message when fetch throws (network error)', async () => {
+    fetchMock.mockRejectedValue(new Error('Network failure'));
+
+    const wrapper = mountOnboard();
+    await wrapper.find('[data-testid="input-name"]').setValue('Player');
+    await wrapper.find('[data-testid="input-tag"]').setValue('EU1');
+    await wrapper.find('form').trigger('submit');
+
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-testid="api-error"]').text()).toContain('Что-то пошло не так');
   });
 });

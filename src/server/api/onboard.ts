@@ -1,24 +1,142 @@
 import type { Context } from 'hono';
+import { z } from 'zod';
+import { eq } from 'drizzle-orm';
+import { users } from '../db/schema/users.ts';
+import {
+  validateAccount as defaultValidateAccount,
+  HenrikNotFoundError,
+  HenrikRateLimitError,
+  HenrikUpstreamError,
+  type RiotAccount,
+} from '../lib/henrik.ts';
+import { scanForPuuid as defaultScanForPuuid } from '../scanner/index.ts';
+import logger from '../lib/log.ts';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyDb = any;
+
+export interface OnboardHandlerDeps {
+  db: AnyDb;
+  /** validateAccount injectable for testing; defaults to Henrik implementation */
+  validateAccount?: (name: string, tag: string) => Promise<RiotAccount>;
+  /** Fire-and-forget per-puuid scan, already bound to db. Injected for testing. */
+  scanForPuuid?: (puuid: string, opts: { detection: boolean }) => Promise<unknown>;
+  /** Telegram Bot API instance — reserved for future notifications, unused in this slice. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  botApi?: any;
+  /** Returns allowed Telegram chat IDs — reserved for future use, unused in this slice. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getAllowedChatIds?: any;
+}
+
+const OnboardBodySchema = z.object({
+  name: z.string().min(1).max(16),
+  tag: z.string().min(1).max(5).regex(/^[a-zA-Z0-9]+$/, 'Tag must be alphanumeric'),
+});
 
 /**
- * POST /api/onboard — disabled during the Henrik -> Riot+RSO transition (issue #41).
+ * Factory: returns a Hono handler for POST /api/onboard.
  *
- * The previous Henrik trust-input flow is gone. Henrik returns code:24 for
- * console accounts, our community is console-only, so the endpoint never
- * worked for our users. The replacement RSO flow (issue #43) lands after
- * Riot Production approval (issue #40, App ID 834784, Pending Review).
- *
- * Until then this handler always returns 503 with `{ error: 'rso_pending' }`
- * and the Mini App's onboarding page renders a "Riot Sign-On is coming
- * soon" splash instead of the input form.
- *
- * Deps are kept in the signature so server wiring in src/server/index.ts
- * does not need to change for this transitional shim. The fields are
- * deliberately unused.
+ * Validates { name, tag } from the JSON body against Riot's naming rules,
+ * resolves the PUUID via Henrik's account endpoint, persists the user row,
+ * and kicks off a fire-and-forget backfill scan.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type OnboardHandlerDeps = Record<string, any>;
+export function makeOnboardHandler(deps: OnboardHandlerDeps) {
+  const validate = deps.validateAccount ?? defaultValidateAccount;
+  const scan = deps.scanForPuuid ?? ((puuid, opts) => defaultScanForPuuid(deps.db, puuid, opts));
 
-export function makeOnboardHandler(_deps: OnboardHandlerDeps) {
-  return (c: Context) => c.json({ error: 'rso_pending' }, 503);
+  return async (c: Context) => {
+    const telegramUser = c.get('telegramUser');
+    const telegramId: number = telegramUser.id;
+
+    // Parse + validate request body
+    let body: z.infer<typeof OnboardBodySchema>;
+    try {
+      const raw: unknown = await c.req.json();
+      const parsed = OnboardBodySchema.safeParse(raw);
+      if (!parsed.success) {
+        return c.json({ error: 'invalid_body', details: parsed.error.flatten() }, 400);
+      }
+      body = parsed.data;
+    } catch {
+      return c.json({ error: 'invalid_body' }, 400);
+    }
+
+    const { name, tag } = body;
+
+    // Resolve PUUID via Henrik
+    let account: RiotAccount;
+    try {
+      account = await validate(name, tag);
+    } catch (err) {
+      if (err instanceof HenrikNotFoundError) {
+        return c.json(
+          { error: 'account_not_found', message: 'Riot аккаунт не найден' },
+          404,
+        );
+      }
+      if (err instanceof HenrikRateLimitError) {
+        return c.json({ error: 'rate_limited', retry_after: err.retryAfter }, 429);
+      }
+      if (err instanceof HenrikUpstreamError) {
+        return c.json({ error: 'henrik_upstream' }, 502);
+      }
+      throw err;
+    }
+
+    const { puuid, name: riot_name, tag: riot_tag, region: riot_region } = account;
+    const onboarded_at = Date.now();
+
+    // Persist to DB (UPSERT keyed on telegram_id)
+    try {
+      await deps.db
+        .insert(users)
+        .values({
+          telegram_id: telegramId,
+          riot_puuid: puuid,
+          riot_name,
+          riot_tag,
+          riot_region,
+          onboarded_at,
+        })
+        .onConflictDoUpdate({
+          target: users.telegram_id,
+          set: { riot_puuid: puuid, riot_name, riot_tag, riot_region, onboarded_at },
+        });
+    } catch (err) {
+      // SQLite UNIQUE constraint on riot_puuid — another Telegram account already linked
+      const msg = (err as Error).message ?? '';
+      if (msg.includes('UNIQUE') || msg.includes('unique')) {
+        // Check whether the conflict is on riot_puuid (not telegram_id)
+        const existing = await deps.db
+          .select({ telegram_id: users.telegram_id })
+          .from(users)
+          .where(eq(users.riot_puuid, puuid))
+          .limit(1);
+        const owner = existing[0];
+        if (owner && owner.telegram_id !== telegramId) {
+          return c.json({ error: 'puuid_already_linked' }, 409);
+        }
+      }
+      throw err;
+    }
+
+    logger.info(
+      { module: 'onboard', telegramId, riot_name, riot_tag, riot_region, puuid },
+      'User onboarded',
+    );
+
+    // Fire-and-forget backfill scan — don't await, return success immediately
+    void scan(puuid, { detection: false }).catch((err) => {
+      logger.warn({ module: 'onboard', puuid, err }, 'Backfill scan failed (non-fatal)');
+    });
+
+    return c.json({
+      status: 'ok',
+      riot_name,
+      riot_tag,
+      riot_puuid: puuid,
+      riot_region,
+    });
+  };
 }

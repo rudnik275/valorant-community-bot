@@ -1,111 +1,270 @@
 <template>
-  <div class="onboard-pending">
-    <span class="badge">
-      <span class="badge-dot" aria-hidden="true"></span>
-      Closed alpha
-    </span>
+  <div class="onboard-page">
+    <h1 class="onboard-title">Привязать аккаунт Riot</h1>
 
-    <h1>Riot Sign-On is on the way</h1>
-
-    <p class="hint">
-      Account linking via Riot Sign-On is being reviewed by Riot Games.
-      Until that lands, the bot is in coordination-only mode &mdash;
-      no match data, no notifications, no rank display.
+    <p class="onboard-hint">
+      Введи своё Riot имя и тег — бот найдёт твой аккаунт и начнёт отслеживать матчи.
     </p>
 
-    <p class="hint">
-      Once approved, you'll see a <strong>Login with Riot</strong> button
-      here. One tap, one-time authorization, no password sharing.
-    </p>
+    <form v-if="!success" class="onboard-form" @submit.prevent="onSubmit">
+      <div class="riot-id-row">
+        <input
+          v-model="name"
+          class="riot-input riot-name"
+          type="text"
+          placeholder="Riot Name"
+          maxlength="16"
+          :disabled="loading"
+          autocomplete="off"
+          autocorrect="off"
+          spellcheck="false"
+          data-testid="input-name"
+        />
+        <span class="riot-separator">#</span>
+        <input
+          v-model="tag"
+          class="riot-input riot-tag"
+          type="text"
+          placeholder="1234"
+          maxlength="5"
+          :disabled="loading"
+          autocomplete="off"
+          autocorrect="off"
+          spellcheck="false"
+          data-testid="input-tag"
+        />
+      </div>
 
-    <a href="/about" class="link">Learn more about the bot</a>
+      <p v-if="validationError" class="onboard-error" data-testid="validation-error">
+        {{ validationError }}
+      </p>
+
+      <button
+        type="submit"
+        class="onboard-btn"
+        :disabled="loading"
+        data-testid="submit-btn"
+      >
+        <span v-if="loading" class="spinner" aria-hidden="true"></span>
+        {{ loading ? 'Проверяем…' : 'Привязать аккаунт' }}
+      </button>
+
+      <p v-if="apiError" class="onboard-error" data-testid="api-error">
+        {{ apiError }}
+      </p>
+    </form>
+
+    <div v-else class="onboard-success" data-testid="success-message">
+      Аккаунт привязан: {{ linkedName }}#{{ linkedTag }} ({{ linkedRegion }})
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-// Onboarding via Riot Sign-On (RSO) is gated on Riot Production approval
-// (issue #40) and RSO Client provisioning (issue #44). The previous
-// Henrik trust-based form is intentionally removed (issue #41) — Henrik
-// has zero coverage for console accounts, so the form never worked for
-// our community.
-//
-// When the RSO scaffold (issue #43) ships, this page becomes a real
-// "Login with Riot" CTA wired to /auth/riot/start.
+import { ref } from 'vue';
+import { z } from 'zod';
+
+const name = ref('');
+const tag = ref('');
+const loading = ref(false);
+const validationError = ref<string | null>(null);
+const apiError = ref<string | null>(null);
+const success = ref(false);
+const linkedName = ref('');
+const linkedTag = ref('');
+const linkedRegion = ref('');
+
+const ClientBodySchema = z.object({
+  name: z.string().min(1, 'Введи Riot Name').max(16),
+  tag: z.string().min(1, 'Введи тег').max(5).regex(/^[a-zA-Z0-9]+$/, 'Тег — только буквы и цифры'),
+});
+
+function getInitDataRaw(): string {
+  if (typeof window === 'undefined') return '';
+  const tg = (window as Window & { Telegram?: { WebApp?: { initData?: string } } }).Telegram;
+  const raw = tg?.WebApp?.initData ?? '';
+  // eslint-disable-next-line no-control-regex
+  return raw.replace(/[\x00-\x1F\x7F]/g, '').trim();
+}
+
+const ERROR_MESSAGES: Record<string, string> = {
+  account_not_found: 'Аккаунт Riot не найден. Проверьте написание.',
+  rate_limited: 'Слишком много запросов. Попробуйте через минуту.',
+  puuid_already_linked: 'Этот Riot аккаунт уже привязан к другому Telegram.',
+  henrik_upstream: 'Сервер Henrik временно недоступен.',
+};
+
+async function onSubmit() {
+  validationError.value = null;
+  apiError.value = null;
+
+  const parsed = ClientBodySchema.safeParse({ name: name.value.trim(), tag: tag.value.trim() });
+  if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0];
+    validationError.value = firstIssue?.message ?? 'Заполни все поля.';
+    return;
+  }
+
+  loading.value = true;
+  try {
+    const initDataRaw = getInitDataRaw();
+    const res = await fetch('/api/onboard', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `tma ${initDataRaw}`,
+      },
+      body: JSON.stringify({ name: parsed.data.name, tag: parsed.data.tag }),
+    });
+
+    if (res.ok) {
+      const body = await res.json() as { riot_name: string; riot_tag: string; riot_region: string };
+      linkedName.value = body.riot_name;
+      linkedTag.value = body.riot_tag;
+      linkedRegion.value = body.riot_region;
+      success.value = true;
+    } else {
+      let errorCode = 'unknown';
+      try {
+        const errBody = await res.json() as { error?: string };
+        errorCode = errBody.error ?? 'unknown';
+      } catch {
+        // ignore parse error
+      }
+      apiError.value = ERROR_MESSAGES[errorCode] ?? 'Что-то пошло не так. Попробуйте ещё раз.';
+    }
+  } catch {
+    apiError.value = 'Что-то пошло не так. Попробуйте ещё раз.';
+  } finally {
+    loading.value = false;
+  }
+}
 </script>
 
 <style scoped>
-.onboard-pending {
+.onboard-page {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 18px;
-  padding: clamp(48px, 12vw, 96px) 22px;
-  max-width: 520px;
+  gap: 20px;
+  padding: 24px 16px;
+  max-width: 480px;
   margin: 0 auto;
-  color: var(--fg, #f1f1f7);
+  background-color: var(--tg-theme-bg-color, #ffffff);
+  color: var(--tg-theme-text-color, #000000);
+  min-height: 100vh;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
-  letter-spacing: -0.01em;
 }
 
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
+.onboard-title {
+  font-size: 20px;
   font-weight: 600;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.6);
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  padding: 6px 12px;
-  border-radius: 999px;
-}
-
-.badge-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #5be3a4;
-  box-shadow: 0 0 8px #5be3a4;
-}
-
-h1 {
-  font-size: clamp(24px, 4.5vw, 32px);
-  font-weight: 700;
-  letter-spacing: -0.02em;
   margin: 0;
-  background: linear-gradient(135deg, #f1f1f7 0%, #c8c9e0 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
 }
 
-.hint {
+.onboard-hint {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--tg-theme-hint-color, #8e8e93);
+  margin: 0;
+}
+
+.onboard-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.riot-id-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.riot-input {
+  padding: 10px 12px;
+  border: 1px solid var(--tg-theme-hint-color, #ccc);
+  border-radius: 8px;
   font-size: 15px;
-  line-height: 1.55;
-  color: rgba(255, 255, 255, 0.65);
+  background: var(--tg-theme-secondary-bg-color, #f2f2f7);
+  color: var(--tg-theme-text-color, #000000);
+  outline: none;
+}
+
+.riot-input:focus {
+  border-color: var(--tg-theme-button-color, #2481cc);
+}
+
+.riot-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.riot-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.riot-tag {
+  width: 80px;
+  flex-shrink: 0;
+}
+
+.riot-separator {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--tg-theme-hint-color, #8e8e93);
+  line-height: 1;
+  user-select: none;
+}
+
+.onboard-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  border: none;
+  border-radius: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  background-color: var(--tg-theme-button-color, #2481cc);
+  color: var(--tg-theme-button-text-color, #ffffff);
+  transition: opacity 0.15s;
+}
+
+.onboard-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.onboard-error {
+  font-size: 14px;
+  color: var(--tg-theme-destructive-text-color, #e53e3e);
   margin: 0;
 }
 
-.hint strong {
-  color: #f1f1f7;
+.onboard-success {
+  font-size: 15px;
   font-weight: 500;
-}
-
-.link {
-  margin-top: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  color: #7383ff;
-  text-decoration: none;
-  transition: color 0.15s ease;
-}
-
-.link:hover {
-  color: #b15eff;
+  color: #5be3a4;
+  padding: 16px;
+  border-radius: 10px;
+  background: rgba(91, 227, 164, 0.1);
+  text-align: center;
 }
 </style>
