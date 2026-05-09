@@ -98,6 +98,8 @@ Replace `<region>` with the actual region slug (e.g. `fsn1`).
 
 > **Security:** These are placeholder/dev credentials in Phase 0–3. Real prod credentials will be rotated to 1Password in Phase 4 (#21).
 
+After bucket setup, see `docs/runbook/litestream-restore.md` for restore procedure.
+
 ---
 
 ## Start Services
