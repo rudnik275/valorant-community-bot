@@ -12,6 +12,7 @@ import { makeAuthMiddleware } from './api/auth.ts';
 import { makeMembersHandler } from './api/members.ts';
 import { makeOnboardHandler } from './api/onboard.ts';
 import { makeMeHandler } from './api/me.ts';
+import { makeSettingsHandlers } from './api/settings.ts';
 import { verifyInitData } from './lib/init-data.ts';
 import { makeAvatarCache } from './lib/telegram-avatar.ts';
 import { validateAccount } from './lib/henrik.ts';
@@ -105,6 +106,10 @@ const onboardHandler = makeOnboardHandler({
 const meHandler = makeMeHandler({ db });
 app.post('/api/onboard', onboardHandler);
 app.get('/api/me', meHandler);
+
+const settingsHandlers = makeSettingsHandlers({ db });
+app.get('/api/me/settings', settingsHandlers.getSettings);
+app.patch('/api/me/settings', settingsHandlers.patchSettings);
 
 // Serve Vite build static files (dist/web) — API routes above take precedence
 app.use('/*', serveStatic({ root: './dist/web' }));
