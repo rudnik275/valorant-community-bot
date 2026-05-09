@@ -7,6 +7,9 @@ interface KillEvent {
   weapon: string;
   attacker_puuid: string;
   victim_puuid: string;
+  /** Optional — not present in v3 kill_events_compact; present in v4 when available. */
+  victim_name?: string;
+  victim_tag?: string;
 }
 
 function parseKillEvents(record: MatchRecord): KillEvent[] {
@@ -46,6 +49,7 @@ export const clutchDetector: Detector = {
     }
 
     const clutchRounds: { round: number; kills: number }[] = [];
+    const victimsByRound = new Map<number, Array<{ puuid: string; name: string; tag: string }>>();
 
     for (const [round, roundKills] of byRound) {
       // Count how many kills the player made in this round
@@ -56,10 +60,30 @@ export const clutchDetector: Detector = {
       const lastKill = roundKills[roundKills.length - 1];
       if (lastKill && lastKill.attacker_puuid === puuid) {
         clutchRounds.push({ round, kills: playerKills.length });
+        victimsByRound.set(
+          round,
+          playerKills.map((k) => ({
+            puuid: k.victim_puuid,
+            name: k.victim_name ?? '',
+            tag: k.victim_tag ?? '',
+          })),
+        );
       }
     }
 
     if (clutchRounds.length === 0) return [];
+
+    // Collect all unique victims across all clutch rounds (de-duped by puuid, in kill order)
+    const seenPuuids = new Set<string>();
+    const allVictims: Array<{ puuid: string; name: string; tag: string }> = [];
+    for (const round of clutchRounds) {
+      for (const v of victimsByRound.get(round.round) ?? []) {
+        if (!seenPuuids.has(v.puuid)) {
+          seenPuuids.add(v.puuid);
+          allVictims.push(v);
+        }
+      }
+    }
 
     return [
       {
@@ -68,6 +92,10 @@ export const clutchDetector: Detector = {
         match_id: record.match_id,
         payload: {
           rounds: clutchRounds,
+          /** All unique victims killed across all clutch rounds. Used for opponent peak lookup. */
+          victims: allVictims,
+          /** Display names in kill order (empty string if unknown). Used by templates. */
+          victim_names_for_template: allVictims.map((v) => v.name),
         },
       },
     ];
