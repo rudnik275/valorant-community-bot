@@ -1,0 +1,9 @@
+{
+  "status": 200,
+  "data": {
+    "account": {"name": "rudі", "tag": "1111", "puuid": "26f40503-6b6d-576c-a32d-9fcb8f081042"},
+    "current": {"tier": {"id": 21, "name": "Ascendant 1"}, "rr": 0, "last_change": -18, "elo": 1800, "rank_protection_shields": 2, "leaderboard_placement": null, "games_needed_for_rating": 0},
+    "peak": {"tier": {"id": 22, "name": "Ascendant 2"}, "rr": 0, "season": {"short": "e11a1", "id": "3ea2b318-423b-cf86-25da-7cbb0eefbe2d"}, "ranking_schema": "ascendant"},
+    "seasonal": []
+  }
+}

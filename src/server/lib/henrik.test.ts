@@ -1,11 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   validateAccount,
+  getMatches,
+  getMmr,
+  getMmrByPuuid,
   HenrikNotFoundError,
   HenrikRateLimitError,
   HenrikUpstreamError,
   HenrikError,
 } from './henrik.ts';
+import matchFixture from './__fixtures__/henrik/match_console_v4.json';
+import mmrFixture from './__fixtures__/henrik/mmr_console_v3.json';
 
 vi.mock('./log.ts', () => ({
   default: {
@@ -157,5 +162,241 @@ describe('validateAccount', () => {
     fetchMock.mockRejectedValue(new Error('Network unreachable'));
 
     await expect(validateAccount('TestPlayer', 'EU1')).rejects.toThrow(HenrikError);
+  });
+});
+
+// ─── getMatches (v4 console) ─────────────────────────────────────────────────
+
+describe('getMatches', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    delete process.env['HENRIK_API_KEY'];
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('returns parsed v4 matches from fixture on 200', async () => {
+    fetchMock.mockResolvedValue(makeResponse(200, matchFixture));
+
+    const result = await getMatches('26f40503-6b6d-576c-a32d-9fcb8f081042', 'eu');
+
+    expect(result).toHaveLength(1);
+    const match = result[0]!;
+    const player = match.players[0]!;
+    expect(match.metadata.match_id).toBe('test-match-id-1');
+    expect(match.metadata.queue?.id).toBe('console_competitive');
+    expect(match.metadata.map?.name).toBe('Haven');
+    expect(player.puuid).toBe('26f40503-6b6d-576c-a32d-9fcb8f081042');
+    expect(player.stats?.kills).toBe(16);
+  });
+
+  it('uses default platform=console and size=5 in URL', async () => {
+    fetchMock.mockResolvedValue(makeResponse(200, matchFixture));
+
+    await getMatches('test-puuid', 'eu');
+
+    const url = (fetchMock.mock.calls[0] as [string, unknown])[0] as string;
+    expect(url).toContain('/valorant/v4/by-puuid/matches/eu/console/test-puuid');
+    expect(url).toContain('size=5');
+    // Must NOT contain mode=
+    expect(url).not.toContain('mode=');
+  });
+
+  it('respects platform=pc override', async () => {
+    fetchMock.mockResolvedValue(makeResponse(200, matchFixture));
+
+    await getMatches('test-puuid', 'eu', { platform: 'pc', size: 10 });
+
+    const url = (fetchMock.mock.calls[0] as [string, unknown])[0] as string;
+    expect(url).toContain('/valorant/v4/by-puuid/matches/eu/pc/test-puuid');
+    expect(url).toContain('size=10');
+  });
+
+  it('URL-encodes all path segments', async () => {
+    fetchMock.mockResolvedValue(makeResponse(200, matchFixture));
+
+    const puuid = 'puuid with spaces';
+    await getMatches(puuid, 'na', { platform: 'console' });
+
+    const url = (fetchMock.mock.calls[0] as [string, unknown])[0] as string;
+    expect(url).toContain(encodeURIComponent(puuid));
+  });
+
+  it('throws HenrikNotFoundError on 404', async () => {
+    fetchMock.mockResolvedValue(makeResponse(404, { status: 404 }));
+
+    await expect(getMatches('test-puuid', 'eu')).rejects.toThrow(HenrikNotFoundError);
+  });
+
+  it('throws HenrikRateLimitError on 429', async () => {
+    fetchMock.mockResolvedValue(makeResponse(429, { status: 429 }, { 'Retry-After': '45' }));
+
+    const err = await getMatches('test-puuid', 'eu').catch((e) => e);
+    expect(err).toBeInstanceOf(HenrikRateLimitError);
+    expect((err as HenrikRateLimitError).retryAfter).toBe(45);
+  });
+
+  it('throws HenrikUpstreamError after retries on 500', async () => {
+    fetchMock
+      .mockResolvedValueOnce(makeTextResponse(500, 'Internal Server Error'))
+      .mockResolvedValueOnce(makeTextResponse(500, 'Internal Server Error'))
+      .mockResolvedValueOnce(makeTextResponse(500, 'Internal Server Error'));
+
+    await expect(getMatches('test-puuid', 'eu')).rejects.toThrow(HenrikUpstreamError);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+});
+
+// ─── getMmr ──────────────────────────────────────────────────────────────────
+
+describe('getMmr', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    delete process.env['HENRIK_API_KEY'];
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('returns parsed MMR from fixture on 200', async () => {
+    fetchMock.mockResolvedValue(makeResponse(200, mmrFixture));
+
+    const result = await getMmr('rudі', '1111', 'eu');
+
+    expect(result.current.tier.id).toBe(21);
+    expect(result.current.tier.name).toBe('Ascendant 1');
+    expect(result.current.rr).toBe(0);
+    expect(result.current.last_change).toBe(-18);
+    expect(result.peak).not.toBeNull();
+    expect(result.peak?.tier.id).toBe(22);
+    expect(result.peak?.tier.name).toBe('Ascendant 2');
+    expect(result.peak?.season).toBe('e11a1');
+  });
+
+  it('uses default platform=console in URL', async () => {
+    fetchMock.mockResolvedValue(makeResponse(200, mmrFixture));
+
+    await getMmr('rudі', '1111', 'eu');
+
+    const url = (fetchMock.mock.calls[0] as [string, unknown])[0] as string;
+    expect(url).toContain('/valorant/v3/mmr/eu/console/');
+  });
+
+  it('respects platform=pc override', async () => {
+    fetchMock.mockResolvedValue(makeResponse(200, mmrFixture));
+
+    await getMmr('TestPlayer', 'EU1', 'eu', 'pc');
+
+    const url = (fetchMock.mock.calls[0] as [string, unknown])[0] as string;
+    expect(url).toContain('/valorant/v3/mmr/eu/pc/');
+  });
+
+  it('URL-encodes name and tag (Cyrillic)', async () => {
+    fetchMock.mockResolvedValue(makeResponse(200, mmrFixture));
+
+    await getMmr('rudі', '1111', 'eu');
+
+    const url = (fetchMock.mock.calls[0] as [string, unknown])[0] as string;
+    // 'і' is U+0456 (Ukrainian і), should be encoded
+    expect(url).toContain(encodeURIComponent('rudі'));
+  });
+
+  it('throws HenrikNotFoundError on 404', async () => {
+    fetchMock.mockResolvedValue(makeResponse(404, { status: 404 }));
+
+    await expect(getMmr('NoSuch', 'TAG', 'eu')).rejects.toThrow(HenrikNotFoundError);
+  });
+
+  it('throws HenrikRateLimitError on 429', async () => {
+    fetchMock.mockResolvedValue(makeResponse(429, { status: 429 }, { 'Retry-After': '60' }));
+
+    const err = await getMmr('TestPlayer', 'EU1', 'eu').catch((e) => e);
+    expect(err).toBeInstanceOf(HenrikRateLimitError);
+    expect((err as HenrikRateLimitError).retryAfter).toBe(60);
+  });
+});
+
+// ─── getMmrByPuuid ────────────────────────────────────────────────────────────
+
+describe('getMmrByPuuid', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    delete process.env['HENRIK_API_KEY'];
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('returns parsed MMR from fixture on 200', async () => {
+    fetchMock.mockResolvedValue(makeResponse(200, mmrFixture));
+
+    const result = await getMmrByPuuid('26f40503-6b6d-576c-a32d-9fcb8f081042', 'eu');
+
+    expect(result.current.tier.id).toBe(21);
+    expect(result.current.rr).toBe(0);
+    expect(result.peak?.tier.name).toBe('Ascendant 2');
+    expect(result.peak?.season).toBe('e11a1');
+  });
+
+  it('uses default platform=console in URL', async () => {
+    fetchMock.mockResolvedValue(makeResponse(200, mmrFixture));
+
+    await getMmrByPuuid('test-puuid', 'eu');
+
+    const url = (fetchMock.mock.calls[0] as [string, unknown])[0] as string;
+    expect(url).toContain('/valorant/v3/by-puuid/mmr/eu/console/test-puuid');
+  });
+
+  it('respects platform=pc override', async () => {
+    fetchMock.mockResolvedValue(makeResponse(200, mmrFixture));
+
+    await getMmrByPuuid('test-puuid', 'na', 'pc');
+
+    const url = (fetchMock.mock.calls[0] as [string, unknown])[0] as string;
+    expect(url).toContain('/valorant/v3/by-puuid/mmr/na/pc/test-puuid');
+  });
+
+  it('throws HenrikNotFoundError on 404', async () => {
+    fetchMock.mockResolvedValue(makeResponse(404, { status: 404 }));
+
+    await expect(getMmrByPuuid('no-such-puuid', 'eu')).rejects.toThrow(HenrikNotFoundError);
+  });
+
+  it('throws HenrikRateLimitError on 429', async () => {
+    fetchMock.mockResolvedValue(makeResponse(429, { status: 429 }, { 'Retry-After': '30' }));
+
+    const err = await getMmrByPuuid('test-puuid', 'eu').catch((e) => e);
+    expect(err).toBeInstanceOf(HenrikRateLimitError);
+    expect((err as HenrikRateLimitError).retryAfter).toBe(30);
+  });
+
+  it('handles null peak gracefully', async () => {
+    const fixtureWithNullPeak = {
+      status: 200,
+      data: {
+        account: { name: 'test', tag: '0000', puuid: 'abc' },
+        current: { tier: { id: 3, name: 'Iron 3' }, rr: 50, last_change: 10, elo: 150 },
+        peak: null,
+        seasonal: [],
+      },
+    };
+    fetchMock.mockResolvedValue(makeResponse(200, fixtureWithNullPeak));
+
+    const result = await getMmrByPuuid('abc', 'eu');
+    expect(result.peak).toBeNull();
+    expect(result.current.tier.id).toBe(3);
   });
 });

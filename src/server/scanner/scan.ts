@@ -95,6 +95,7 @@ export async function scanForPuuid(
   // 3. Fetch matches from Henrik
   let rawMatches;
   try {
+    // @ts-expect-error pending Slice B #53 — old (name,tag,region,opts) signature; rewrite to (puuid,region,opts) in Slice B
     rawMatches = await getMatches(riotName, riotTag, region, { mode: 'competitive', size: 5 });
   } catch (err) {
     if (
@@ -114,6 +115,7 @@ export async function scanForPuuid(
 
   // 4. Derive compact records (filter non-competitive, null if player not found)
   const derived = rawMatches
+    // @ts-expect-error pending Slice B #53 — v4 match shape; deriveMatchRecord updated in Slice B
     .map((m) => deriveMatchRecord(m, puuid))
     .filter((r): r is MatchRecordInsert => r !== null);
 
