@@ -176,77 +176,7 @@ function parseAccountResponse(json: unknown): RiotAccount {
   };
 }
 
-// ─── Legacy v3 match schema (kept for derive.ts / Slice B migration) ─────────
-//
-// TODO Slice A #52: remove this block once Slice B (#53) migrates derive.ts to v4 schema.
-
-/** Kill event shape from Henrik /v3/matches */
-const KillEventSchema = z.object({
-  round: z.number(),
-  /** killer's team: 'Red' | 'Blue' */
-  killer_team: z.string().optional(),
-  /** victim's team: 'Red' | 'Blue' */
-  victim_team: z.string().optional(),
-  /** weapon id, e.g. 'Vandal', 'Fall' */
-  damage_weapon_id: z.string().optional(),
-  /** attacker puuid */
-  killer_puuid: z.string().optional(),
-  /** victim puuid */
-  victim_puuid: z.string().optional(),
-  /** damage type: 'Fall', 'Bullet', etc. */
-  damage_type: z.string().optional(),
-}).passthrough();
-
-const PlayerSchema = z.object({
-  puuid: z.string(),
-  team: z.string(),
-  character: z.string(),
-  stats: z.object({
-    kills: z.number(),
-    deaths: z.number(),
-    assists: z.number(),
-  }).passthrough().optional(),
-  currenttier: z.number().optional(),
-  currenttier_patched: z.string().optional(),
-}).passthrough();
-
-const TeamSchema = z.object({
-  has_won: z.boolean(),
-  rounds_won: z.number().optional(),
-  rounds_lost: z.number().optional(),
-}).passthrough();
-
-const MatchMetadataSchema = z.object({
-  matchid: z.string(),
-  mode: z.string(),
-  map: z.string(),
-  game_start: z.number(),
-  rounds_played: z.number().optional(),
-}).passthrough();
-
-const MatchPlayersSchema = z.object({
-  all_players: z.array(PlayerSchema),
-}).passthrough();
-
-const MatchTeamsSchema = z.object({
-  red: TeamSchema.optional(),
-  blue: TeamSchema.optional(),
-}).passthrough();
-
-export const HenrikMatchSchema = z.object({
-  metadata: MatchMetadataSchema,
-  players: MatchPlayersSchema,
-  teams: MatchTeamsSchema,
-  kills: z.array(KillEventSchema).default([]),
-  rounds: z.array(z.unknown()).default([]),
-}).passthrough();
-
-/** @deprecated — v3 PC-only shape; use HenrikMatchV4 for new code. Slice B (#53) will migrate. */
-export type HenrikMatch = z.infer<typeof HenrikMatchSchema>;
-/** @deprecated use HenrikKillV4 for new code */
-export type HenrikKillEvent = z.infer<typeof KillEventSchema>;
-/** @deprecated use HenrikPlayerV4 for new code */
-export type HenrikPlayer = z.infer<typeof PlayerSchema>;
+// Legacy v3 schemas removed in Slice B (#53) — no remaining consumers.
 
 // ─── Zod schemas for v4 matches endpoint ─────────────────────────────────────
 
