@@ -1,10 +1,19 @@
 import { Hono } from 'hono';
+import { sql } from 'drizzle-orm';
+import { db } from '../db/client.ts';
+import logger from '../lib/log.ts';
 
 const healthz = new Hono();
 
 healthz.get('/', (c) => {
-  // db: false until schema is added in issue #4
-  return c.json({ ok: true, db: false });
+  let dbOk = false;
+  try {
+    db.run(sql`SELECT 1`);
+    dbOk = true;
+  } catch (err) {
+    logger.error({ module: 'healthz', err }, 'DB probe failed');
+  }
+  return c.json({ ok: true, db: dbOk });
 });
 
 export default healthz;

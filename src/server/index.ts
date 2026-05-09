@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
 import { Bot } from 'grammy';
+import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
 import logger from './lib/log.ts';
+import { db } from './db/client.ts';
 import healthz from './api/healthz.ts';
 import { scopeGuard } from './bot/scope-guard.ts';
 
@@ -36,6 +38,15 @@ process.on('SIGTERM', () => {
   bot?.stop();
   process.exit(0);
 });
+
+// Run DB migrations synchronously before starting the server
+try {
+  migrate(db, { migrationsFolder: './drizzle' });
+  logger.info({ module: 'startup' }, 'DB migrations applied successfully');
+} catch (err) {
+  logger.error({ module: 'startup', err }, 'DB migration failed — exiting');
+  process.exit(1);
+}
 
 logger.info({ module: 'startup', port: PORT }, 'Server starting');
 

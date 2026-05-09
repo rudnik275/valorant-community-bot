@@ -8,7 +8,10 @@
     "start": "bun run src/server/index.ts",
     "build:web": "vite build",
     "typecheck": "tsc --noEmit -p tsconfig.server.json && tsc --noEmit -p tsconfig.web.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
     "@telegram-apps/init-data-node": "^2.0.10",
@@ -22,8 +25,10 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/bun": "latest",
     "@vitejs/plugin-vue": "^5.2.0",
+    "better-sqlite3": "^12.9.0",
     "drizzle-kit": "^0.31.0",
     "pino-pretty": "^13.0.0",
     "typescript": "^5.8.0",
