@@ -1,0 +1,16 @@
+services:
+  app:
+    image: ghcr.io/rudnik275/valorant-community-bot:latest
+    container_name: valorant-bot-app
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    networks: [infra-net]
+    mem_limit: 512m
+    cpus: 1.0
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
+networks:
+  infra-net:
+    external: true
