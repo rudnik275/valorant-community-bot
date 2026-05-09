@@ -12,6 +12,8 @@
 
 <!-- TODO: filled by #19 — create Telegram bot, obtain BOT_TOKEN -->
 
+After `/newbot` in BotFather, run `/mybots` → select your bot → **Bot Settings** → **Group Privacy** → **Turn off** (`/setprivacy → Disable`) so the bot receives all group messages (required for the `last_message_at` listener).
+
 ## Hetzner CAX11 Ordering
 
 <!-- TODO: filled by #19 — server ordering, SSH access, firewall in Hetzner UI -->

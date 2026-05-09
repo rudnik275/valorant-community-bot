@@ -14,6 +14,15 @@ Implemented in issue #5 (chat-scope-guard).
 - `my_chat_member` updates where the bot itself is added to an unauthorized chat
   trigger an automatic `leaveChat` call before dropping the update.
 
+## Privacy mode
+
+By default, Telegram bots in **privacy mode** only receive messages that are direct replies to the bot or that mention the bot by username. To receive **all** group messages (required for the `last_message_at` listener to fire on every message, reaction, and edit), you must disable privacy mode in BotFather:
+
+1. Open [@BotFather](https://t.me/BotFather) → `/mybots` → select your bot.
+2. Go to **Bot Settings** → **Group Privacy** → **Turn off**.
+
+Without this step, Telegram will not deliver regular group messages to the bot via `getUpdates`, and `users.last_message_at` will only update when users interact with the bot directly.
+
 ## Rule: always use safe-telegram wrappers
 
 All outbound Telegram API calls **must** go through the wrappers in

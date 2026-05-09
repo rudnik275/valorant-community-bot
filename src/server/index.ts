@@ -5,6 +5,8 @@ import logger from './lib/log.ts';
 import { db } from './db/client.ts';
 import healthz from './api/healthz.ts';
 import { scopeGuard } from './bot/scope-guard.ts';
+import { makeLastMessageHandler } from './bot/listener.ts';
+import { isAllowedChat } from './lib/scope.ts';
 
 const PORT = Number(process.env['PORT'] ?? 3000);
 
@@ -19,8 +21,14 @@ let bot: Bot | undefined;
 if (botToken) {
   bot = new Bot(botToken);
   bot.use(scopeGuard);
-  // TODO: lastMessageAt listener — added in #6
-  bot.start({ drop_pending_updates: true }).catch((err) => {
+  const lastMessageHandler = makeLastMessageHandler({ db, isAllowedChat });
+  bot.on('message', lastMessageHandler);
+  bot.on('edited_message', lastMessageHandler);
+  bot.on('message_reaction', lastMessageHandler);
+  bot.start({
+    drop_pending_updates: true,
+    allowed_updates: ['message', 'edited_message', 'message_reaction', 'my_chat_member'],
+  }).catch((err) => {
     logger.error({ module: 'bot', err }, 'grammY bot failed to start');
   });
   logger.info({ module: 'bot' }, 'Telegram bot started (long-polling)');
