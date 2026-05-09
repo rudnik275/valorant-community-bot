@@ -1,0 +1,462 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "cb9fd3d0-596b-42fa-af99-56ac6db54c3e",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "tables": {
+    "detected_events": {
+      "name": "detected_events",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "event_type": {
+          "name": "event_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "riot_puuid": {
+          "name": "riot_puuid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "match_id": {
+          "name": "match_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload_json": {
+          "name": "payload_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "detected_at": {
+          "name": "detected_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending'"
+        },
+        "posted_at": {
+          "name": "posted_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "posted_message_id": {
+          "name": "posted_message_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_de_status_detected_at": {
+          "name": "idx_de_status_detected_at",
+          "columns": [
+            "status",
+            "detected_at"
+          ],
+          "isUnique": false
+        },
+        "idx_de_puuid_detected_at": {
+          "name": "idx_de_puuid_detected_at",
+          "columns": [
+            "riot_puuid",
+            "detected_at"
+          ],
+          "isUnique": false
+        },
+        "idx_de_match_event": {
+          "name": "idx_de_match_event",
+          "columns": [
+            "match_id",
+            "event_type",
+            "riot_puuid"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "detected_events_riot_puuid_users_riot_puuid_fk": {
+          "name": "detected_events_riot_puuid_users_riot_puuid_fk",
+          "tableFrom": "detected_events",
+          "tableTo": "users",
+          "columnsFrom": [
+            "riot_puuid"
+          ],
+          "columnsTo": [
+            "riot_puuid"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "status_check": {
+          "name": "status_check",
+          "value": "\"detected_events\".\"status\" IN ('pending','posted','digest-only','silent','opted-out')"
+        }
+      }
+    },
+    "users": {
+      "name": "users",
+      "columns": {
+        "telegram_id": {
+          "name": "telegram_id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "telegram_username": {
+          "name": "telegram_username",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "telegram_avatar_file_id": {
+          "name": "telegram_avatar_file_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "telegram_avatar_url": {
+          "name": "telegram_avatar_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "telegram_avatar_fetched_at": {
+          "name": "telegram_avatar_fetched_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "riot_puuid": {
+          "name": "riot_puuid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "riot_name": {
+          "name": "riot_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "riot_tag": {
+          "name": "riot_tag",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_message_at": {
+          "name": "last_message_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "joined_at": {
+          "name": "joined_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        },
+        "onboarded_at": {
+          "name": "onboarded_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "users_riot_puuid_unique": {
+          "name": "users_riot_puuid_unique",
+          "columns": [
+            "riot_puuid"
+          ],
+          "isUnique": true
+        },
+        "idx_users_riot_puuid": {
+          "name": "idx_users_riot_puuid",
+          "columns": [
+            "riot_puuid"
+          ],
+          "isUnique": true
+        },
+        "idx_users_last_message_at": {
+          "name": "idx_users_last_message_at",
+          "columns": [
+            "last_message_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "match_records": {
+      "name": "match_records",
+      "columns": {
+        "riot_puuid": {
+          "name": "riot_puuid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "match_id": {
+          "name": "match_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "map": {
+          "name": "map",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "agent": {
+          "name": "agent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kills": {
+          "name": "kills",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "deaths": {
+          "name": "deaths",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "assists": {
+          "name": "assists",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "result": {
+          "name": "result",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rounds_played": {
+          "name": "rounds_played",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rank_before": {
+          "name": "rank_before",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "rank_after": {
+          "name": "rank_after",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "enemy_avg_rank": {
+          "name": "enemy_avg_rank",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "fall_damage_kills": {
+          "name": "fall_damage_kills",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "kill_events_compact": {
+          "name": "kill_events_compact",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "inserted_at": {
+          "name": "inserted_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {
+        "idx_match_records_puuid_started_at": {
+          "name": "idx_match_records_puuid_started_at",
+          "columns": [
+            "riot_puuid",
+            "started_at"
+          ],
+          "isUnique": false
+        },
+        "idx_match_records_inserted_at": {
+          "name": "idx_match_records_inserted_at",
+          "columns": [
+            "inserted_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "match_records_riot_puuid_users_riot_puuid_fk": {
+          "name": "match_records_riot_puuid_users_riot_puuid_fk",
+          "tableFrom": "match_records",
+          "tableTo": "users",
+          "columnsFrom": [
+            "riot_puuid"
+          ],
+          "columnsTo": [
+            "riot_puuid"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "match_records_riot_puuid_match_id_pk": {
+          "columns": [
+            "riot_puuid",
+            "match_id"
+          ],
+          "name": "match_records_riot_puuid_match_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "result_check": {
+          "name": "result_check",
+          "value": "\"match_records\".\"result\" IN ('win','loss','draw')"
+        }
+      }
+    },
+    "opt_outs": {
+      "name": "opt_outs",
+      "columns": {
+        "telegram_id": {
+          "name": "telegram_id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "chat_realtime_disabled": {
+          "name": "chat_realtime_disabled",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "opt_outs_telegram_id_users_telegram_id_fk": {
+          "name": "opt_outs_telegram_id_users_telegram_id_fk",
+          "tableFrom": "opt_outs",
+          "tableTo": "users",
+          "columnsFrom": [
+            "telegram_id"
+          ],
+          "columnsTo": [
+            "telegram_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}
