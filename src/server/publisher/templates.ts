@@ -1,0 +1,136 @@
+/**
+ * templates.ts — Message templates for each EventType.
+ *
+ * Each template renders an HTML-formatted string for Telegram (parse_mode=HTML).
+ * User-supplied strings (riot_name, riot_tag, etc.) are HTML-escaped via `esc()`
+ * to prevent injection.
+ *
+ * Template signature: (payload, user, match?) => string
+ * The `match` param is optional — only fetched when needed.
+ */
+
+import type { EventType } from './types.ts';
+
+/**
+ * HTML-escape a string to prevent injection in Telegram HTML messages.
+ * Replaces <, >, &, ", ' with safe HTML entities.
+ */
+export function esc(s: string): string {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+export interface TemplateUser {
+  riot_name: string;
+  riot_tag: string;
+  telegram_id: number;
+}
+
+export interface TemplateMatch {
+  map?: string;
+}
+
+type TemplateFn = (
+  payload: Record<string, unknown>,
+  user: TemplateUser,
+  match?: TemplateMatch,
+) => string;
+
+function playerTag(user: TemplateUser): string {
+  return `<b>${esc(user.riot_name + '#' + user.riot_tag)}</b>`;
+}
+
+const templates: Record<EventType, TemplateFn> = {
+  ace: (payload, user, match) => {
+    const rounds = Array.isArray(payload['rounds']) ? payload['rounds'] : [];
+    const roundCount = rounds.length > 1 ? ` (${rounds.length}×)` : '';
+    const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
+    return `🎯 Эйс! У ${playerTag(user)} 5 убийств в раунде${roundCount}${mapStr}`;
+  },
+
+  ace_rare_weapon: (payload, user, match) => {
+    const weapons = Array.isArray(payload['weapons']) ? payload['weapons'] : [];
+    const weaponsStr = weapons.length > 0
+      ? ` (${weapons.map((w) => esc(String(w))).join(', ')})`
+      : '';
+    const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
+    return `🔪 Эйс редким оружием! ${playerTag(user)}${mapStr}${weaponsStr}`;
+  },
+
+  clutch_1vN: (payload, user, match) => {
+    const n = payload['n'] ?? payload['kills'] ?? '?';
+    const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
+    return `🥷 Клатч 1v${esc(String(n))}! ${playerTag(user)} вытащил раунд${mapStr}`;
+  },
+
+  rank_promo: (payload, user, _match) => {
+    const from = payload['from'] ? ` (${esc(String(payload['from']))} →` : '';
+    const to = payload['to'] ? ` ${esc(String(payload['to']))})` : '';
+    if (payload['from'] && payload['to']) {
+      return `📈 ${playerTag(user)} обновил ранг — ${esc(String(payload['from']))} → ${esc(String(payload['to']))}!`;
+    }
+    if (payload['to']) {
+      return `📈 ${playerTag(user)} обновил ранг — теперь ${esc(String(payload['to']))}!`;
+    }
+    return `📈 ${playerTag(user)} обновил ранг!${from}${to}`;
+  },
+
+  winstreak_9: (payload, user, _match) => {
+    const streak = payload['streak'] ?? 9;
+    return `🔥 Винстрик! ${streak} побед подряд у ${playerTag(user)}`;
+  },
+
+  giant_slayer: (payload, user, _match) => {
+    const enemyAvg = payload['enemy_avg'] ? ` рангом ${esc(String(payload['enemy_avg']))}` : '';
+    const own = payload['own'] ? ` (ранг: ${esc(String(payload['own']))})` : '';
+    return `⚔️ Гигантоборец! ${playerTag(user)} взял команду${enemyAvg}${own}`;
+  },
+
+  comeback: (payload, user, _match) => {
+    const days = payload['days_paused'] ? `${esc(String(payload['days_paused']))} дней` : 'долгого перерыва';
+    return `👋 С возвращением! ${playerTag(user)} снова в строю после ${days}`;
+  },
+
+  lostrick_9: (payload, user, _match) => {
+    const streak = payload['streak'] ?? 9;
+    return `🌧️ ${streak} поражений подряд у ${playerTag(user)} — держись, всё пройдёт!`;
+  },
+
+  teamkill: (payload, user, _match) => {
+    const roundNumbers = Array.isArray(payload['round_numbers']) ? payload['round_numbers'] : [];
+    const count = roundNumbers.length > 0 ? roundNumbers.length : payload['count'] ?? '?';
+    return `🤦 ${playerTag(user)} случайно своих... (${count}× за матч)`;
+  },
+
+  fall_damage_death: (payload, user, match) => {
+    const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
+    const count = payload['count'] ? ` (${esc(String(payload['count']))}×)` : '';
+    return `🤡 ${playerTag(user)} встретился с гравитацией${mapStr}${count}`;
+  },
+
+  zero_match: (payload, user, _match) => {
+    const rounds = payload['rounds'] ? `${esc(String(payload['rounds']))} раундов` : '? раундов';
+    return `😬 Нулевой матч у ${playerTag(user)} (${rounds}) — бывает!`;
+  },
+};
+
+/**
+ * Render a template for the given event_type.
+ * Returns a fallback string if event_type is unknown.
+ */
+export function renderTemplate(
+  eventType: EventType,
+  payload: Record<string, unknown>,
+  user: TemplateUser,
+  match?: TemplateMatch,
+): string {
+  const fn = templates[eventType];
+  if (!fn) {
+    return `📢 Новое событие у ${playerTag(user)}`;
+  }
+  return fn(payload, user, match);
+}

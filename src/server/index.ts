@@ -19,6 +19,8 @@ import { validateAccount } from './lib/henrik.ts';
 import { loadAllowedChatIds } from './lib/scope.ts';
 import { scanForPuuid as scanForPuuidBase, startScanLoop } from './scanner/index.ts';
 import { startDetectionListener } from './publisher/detect.ts';
+import { startPublisherLoop } from './publisher/loop.ts';
+import { safeSendMessage } from './lib/safe-telegram.ts';
 
 const PORT = Number(process.env['PORT'] ?? 3000);
 
@@ -48,8 +50,7 @@ if (botToken) {
   logger.warn({ module: 'bot' }, 'TELEGRAM_BOT_TOKEN not set — bot disabled (dev mode)');
 }
 
-// TODO: publisher — start publisher-tick croner job here (#9)
-// TODO: digest — schedule weekly digest here (#11)
+// TODO: digest — schedule weekly digest here (separate issue)
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
@@ -104,6 +105,24 @@ const scanForPuuid = (puuid: string, opts: { detection: boolean }) =>
 if (process.env['SCANNER_DISABLED'] !== 'true') {
   startDetectionListener({ db });
   startScanLoop({ db, scanForPuuid });
+
+  if (bot) {
+    const primaryChatId = Number(process.env['TELEGRAM_PRIMARY_CHAT_ID'] ?? '0');
+    if (primaryChatId) {
+      startPublisherLoop({
+        db,
+        sendMessage: (chatId, text, opts) => safeSendMessage(
+          bot!.api,
+          chatId,
+          text,
+          opts as Parameters<typeof bot.api.sendMessage>[2],
+        ),
+        getPrimaryChatId: () => primaryChatId,
+      });
+    } else {
+      logger.warn({ module: 'publisher' }, 'TELEGRAM_PRIMARY_CHAT_ID not set — publisher disabled');
+    }
+  }
 }
 
 const onboardHandler = makeOnboardHandler({
