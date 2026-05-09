@@ -1,0 +1,13 @@
+services:
+  app:
+    build: .
+    container_name: valorant-bot-app
+    restart: unless-stopped
+    env_file: .env
+    ports: ["3000:3000"]   # на проде убирается, остаётся только для local dev
+    volumes:
+      - ./data:/app/data
+    mem_limit: 512m
+    cpus: 1.0
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"   # деплой через GH Actions, не watchtower

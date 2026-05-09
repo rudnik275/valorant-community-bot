@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+data/
+.DS_Store
+.idea/
+.claude/settings.local.json
+bun.lock.bak
+*.log

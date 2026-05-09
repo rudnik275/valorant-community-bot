@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+data/
+.DS_Store
+.idea/
+.claude/
+.git/
+*.log
+docs/
