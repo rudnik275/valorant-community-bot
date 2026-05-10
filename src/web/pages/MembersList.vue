@@ -19,52 +19,61 @@
         class="card member-card"
         @pointermove="onCardPointerMove"
       >
-        <!-- Avatar -->
-        <div class="member-avatar">
-          <!-- Primary: Valorant card if available, else TG avatar fallback -->
-          <img
-            v-if="m.riotCardId"
-            :src="valorantCardUrl(m.riotCardId)"
-            :alt="m.riotName ?? ''"
-            class="avatar-img avatar-img--card"
-          />
-          <img
-            v-else-if="m.telegramAvatarUrl"
-            :src="m.telegramAvatarUrl"
-            :alt="m.telegramUsername ?? ''"
-            class="avatar-img"
-          />
-          <div v-else class="avatar-placeholder">{{ avatarInitial(m) }}</div>
-
-          <!-- Corner: TG avatar OR initial-circle, ONLY when primary is the Valorant card -->
-          <template v-if="m.riotCardId">
+        <!-- Left-half copy trigger: avatar + name -->
+        <button
+          type="button"
+          class="member-copy-trigger"
+          :aria-label="m.riotName ? `Скопировать ${m.riotName}#${m.riotTag}` : 'Без Riot ID'"
+          :disabled="!m.riotName"
+          @click="copyRiotId(m, $event)"
+        >
+          <!-- Avatar -->
+          <div class="member-avatar">
+            <!-- Primary: Valorant card if available, else TG avatar fallback -->
             <img
-              v-if="m.telegramAvatarUrl"
+              v-if="m.riotCardId"
+              :src="valorantCardUrl(m.riotCardId)"
+              :alt="m.riotName ?? ''"
+              class="avatar-img avatar-img--card"
+            />
+            <img
+              v-else-if="m.telegramAvatarUrl"
               :src="m.telegramAvatarUrl"
               :alt="m.telegramUsername ?? ''"
-              class="tg-avatar-overlay"
+              class="avatar-img"
             />
-            <div v-else class="tg-avatar-overlay tg-avatar-overlay--placeholder">
-              {{ avatarInitial(m) }}
-            </div>
-          </template>
-        </div>
+            <div v-else class="avatar-placeholder">{{ avatarInitial(m) }}</div>
 
-        <!-- Name + username -->
-        <div class="member-info">
-          <div class="member-riot" v-if="m.riotName">
-            {{ m.riotName }}#{{ m.riotTag }}
+            <!-- Corner: TG avatar OR initial-circle, ONLY when primary is the Valorant card -->
+            <template v-if="m.riotCardId">
+              <img
+                v-if="m.telegramAvatarUrl"
+                :src="m.telegramAvatarUrl"
+                :alt="m.telegramUsername ?? ''"
+                class="tg-avatar-overlay"
+              />
+              <div v-else class="tg-avatar-overlay tg-avatar-overlay--placeholder">
+                {{ avatarInitial(m) }}
+              </div>
+            </template>
           </div>
-          <div
-            class="member-username"
-            v-if="m.telegramUsername"
-          >
-            @{{ m.telegramUsername }}
+
+          <!-- Name + username -->
+          <div class="member-info">
+            <div class="member-riot" v-if="m.riotName">
+              {{ m.riotName }}#{{ m.riotTag }}
+            </div>
+            <div
+              class="member-username"
+              v-if="m.telegramUsername"
+            >
+              @{{ m.telegramUsername }}
+            </div>
+            <div class="member-username" v-if="!m.riotName && !m.telegramUsername">
+              unknown
+            </div>
           </div>
-          <div class="member-username" v-if="!m.riotName && !m.telegramUsername">
-            unknown
-          </div>
-        </div>
+        </button>
 
         <!-- Rank icons: current + peak -->
         <div class="member-rank">
@@ -89,27 +98,14 @@
         <!-- Action buttons -->
         <div class="member-actions">
           <button
-            v-if="m.riotName"
-            type="button"
-            class="action-btn action-copy"
-            aria-label="Скопировать Riot ID"
-            @click="copyRiotId(m, $event)"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-            </svg>
-          </button>
-          <button
             v-if="m.telegramUsername"
             type="button"
             class="action-btn action-tg"
             aria-label="Открыть чат в Telegram"
             @click="openTgChat(m.telegramUsername!, $event)"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="22" y1="2" x2="11" y2="13"/>
-              <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
             </svg>
           </button>
         </div>
@@ -168,7 +164,7 @@ async function copyRiotId(m: Member, evt: Event) {
   const id = `${m.riotName}#${m.riotTag}`;
   try {
     await navigator.clipboard.writeText(id);
-    showToast(`Скопировано: ${id}`);
+    showToast(`${id} скопирован`);
     hapticImpact('light');
   } catch {
     showToast('Не удалось скопировать');
@@ -254,6 +250,32 @@ function avatarInitial(m: Member): string {
   .member-card:hover::before { opacity: 1; }
 }
 
+/* Left-half copy trigger: avatar + name */
+.member-copy-trigger {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 12px;
+  transition: background 0.15s ease;
+  position: relative;
+  z-index: 1;
+}
+.member-copy-trigger:disabled { cursor: default; }
+@media (hover: hover) {
+  .member-copy-trigger:not(:disabled):hover { background: var(--glass-bg-hover); }
+}
+.member-copy-trigger:not(:disabled):active { background: var(--glass-bg-hover); }
+
 /* Avatar */
 .member-avatar {
   position: relative;
@@ -313,9 +335,7 @@ function avatarInitial(m: Member): string {
 
 /* Name area */
 .member-info {
-  position: relative;
-  z-index: 1;
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
