@@ -27,9 +27,11 @@ Architecture:
 
 ## Consequences
 
-- Riot Production app 834784 remains pending as a passive fallback — not actively pursued.
-- No RSO flow needed; the `/onboard` endpoint returns 503 temporarily until the `/link` command replaces it.
-- Privacy gate is `/link` opt-in only — no data collected from non-linked members.
+- Riot Production app 834784 effectively abandoned — closed as `wontfix` after pivot. RSO flow scrapped entirely.
+- Onboarding lives in the Mini App (`/onboard` form, Slice C #54). No `/link` chat command was built — the Mini App is the only entry point.
+- Privacy gate is opt-in via the Mini App onboarding form — no data collected from non-linked members.
 - Henrik's rate limits (30/min on free tier) are compatible with a 30-member group at 30-min poll intervals.
-- `src/web/public/riot.txt` kept for Riot domain verification (supports the fallback app).
+- Wave 2 (2026-05-10) extracted a design system at `docs/design-book.md` and restyled the Mini App (PRs #72–#75) under the new tokens.
+- `src/web/public/riot.txt` and the public `/about` landing were removed in PR #64 — no longer needed.
+- Permissive content stance adopted 2026-05-10: comparative stats, K/D, opponents' peak ranks all surfaced; opt-out toggle removed (Slice C #54).
 - Reference issue #51 for full research record (verified API responses, fixtures, slicing plan issues #52–#57).

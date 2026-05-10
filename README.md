@@ -2,9 +2,9 @@
 
 Telegram bot for a friend-group Valorant community. Watches for new matches via the HenrikDev API, posts real-time notifications and weekly digests to the group chat.
 
-## Variant A interim — completed
+## Publishing
 
-Events now publish in real time per friend, subject to existing antispam quotas (max 2 chat notifications per day per group, max 1 per player per day, quiet hours ≥12:00 Kyiv time, opt-out always honored). The `EVENTS_PUBLISHING_ENABLED_AFTER` environment variable should be left empty in production — an empty value means events post immediately. The silent-period mechanism remains in code as a safety valve; if you ever need to temporarily silence the bot, set this var to a future ISO 8601 timestamp and redeploy.
+Events publish in real time per friend, subject to antispam quotas (max 2 chat notifications per day per group, max 1 per player per day, quiet hours ≥12:00 Kyiv time). The `EVENTS_PUBLISHING_ENABLED_AFTER` environment variable should be left empty in production — events post immediately. The silent-period mechanism remains in code as a safety valve; to temporarily silence the bot set this var to a future ISO 8601 timestamp and redeploy.
 
 ## Getting started
 
