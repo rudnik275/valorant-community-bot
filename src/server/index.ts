@@ -41,12 +41,10 @@ if (botToken) {
   bot.use(scopeGuard);
   const lastMessageHandler = makeLastMessageHandler({ db, isAllowedChat });
   bot.on('message', lastMessageHandler);
-  bot.on('edited_message', lastMessageHandler);
-  bot.on('message_reaction', lastMessageHandler);
   bot.on('chat_member', makeChatMemberListener({ db, isAllowedChat }));
   bot.start({
     drop_pending_updates: true,
-    allowed_updates: ['message', 'edited_message', 'message_reaction', 'my_chat_member', 'chat_member'],
+    allowed_updates: ['message', 'my_chat_member', 'chat_member'],
   }).catch((err) => {
     logger.error({ module: 'bot', err }, 'grammY bot failed to start');
   });

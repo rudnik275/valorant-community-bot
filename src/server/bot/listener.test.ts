@@ -128,26 +128,22 @@ describe('makeLastMessageHandler', () => {
     expect(row.last_message_at).toBeLessThanOrEqual(Date.now());
   });
 
-  it('updates last_message_at on edited_message', async () => {
+  it('does NOT update last_message_at on edited_message', async () => {
     const handler = makeLastMessageHandler({ db, isAllowedChat });
-    const before = Date.now();
 
     await handler(makeCtx({ update: { edited_message: {} } }) as never);
 
     const rows = db.select().from(users).where(eq(users.telegram_id, 42)).all();
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.last_message_at).toBeGreaterThanOrEqual(before);
+    expect(rows).toHaveLength(0);
   });
 
-  it('updates last_message_at on message_reaction', async () => {
+  it('does NOT update last_message_at on message_reaction', async () => {
     const handler = makeLastMessageHandler({ db, isAllowedChat });
-    const before = Date.now();
 
     await handler(makeCtx({ update: { message_reaction: {} } }) as never);
 
     const rows = db.select().from(users).where(eq(users.telegram_id, 42)).all();
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.last_message_at).toBeGreaterThanOrEqual(before);
+    expect(rows).toHaveLength(0);
   });
 
   it('ignores messages where from.is_bot is true', async () => {
