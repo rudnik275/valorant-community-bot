@@ -1,0 +1,332 @@
+/* =============================================================
+   design-tokens.css — shared design language for Mini App
+   Source of truth: docs/design-book.md
+   Imported once in main.ts; all Vue pages reference these tokens.
+   ============================================================= */
+
+/* ------------------------------------------------------------------
+   1. CSS Custom Properties (design tokens)
+   ------------------------------------------------------------------ */
+:root {
+  /* Backgrounds */
+  --bg-0: #07070b;             /* near-black base */
+
+  /* Foreground */
+  --fg: #f1f1f7;               /* primary text (off-white) */
+  --muted: #8b8b9c;            /* secondary text (cool grey) */
+
+  /* Glass surfaces — semi-transparent layers stacked over background */
+  --glass-bg: rgba(255, 255, 255, 0.045);          /* surface */
+  --glass-bg-hover: rgba(255, 255, 255, 0.075);    /* surface hover */
+  --glass-border: rgba(255, 255, 255, 0.10);       /* default border */
+  --glass-border-strong: rgba(255, 255, 255, 0.18); /* emphasized border */
+
+  /* Accents — gradient pair, used together for ranges/icons/highlights */
+  --accent-a: #7383ff;         /* blue-purple, primary accent */
+  --accent-b: #b15eff;         /* pure purple, secondary accent */
+
+  /* Shadows */
+  --shadow-deep: 0 30px 80px -20px rgba(0, 0, 0, 0.7);
+
+  /* Status colors (ad-hoc, named usage only) */
+  --status-online: #5be3a4;    /* online dot, success */
+  --status-warn: rgba(255, 122, 79, 0.7); /* "no" / forbidden indicator */
+}
+
+/* ------------------------------------------------------------------
+   2. Global resets + base styles
+   ------------------------------------------------------------------ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-0);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  letter-spacing: -0.01em;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+/* ------------------------------------------------------------------
+   3. Background system (ambient glow + dotted texture)
+   ------------------------------------------------------------------ */
+body {
+  position: relative;
+  overflow-x: hidden;
+}
+
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Layer 1: ambient glow — two radial gradients (blue + purple) over a darker center */
+body::before {
+  background:
+    radial-gradient(ellipse 60% 50% at 30% 20%, rgba(115, 131, 255, 0.22), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 80% 90%, rgba(177, 94, 255, 0.18), transparent 60%),
+    radial-gradient(ellipse 80% 60% at 50% 50%, rgba(20, 22, 40, 1), var(--bg-0) 80%);
+}
+
+/* Layer 2: subtle dotted texture, masked to the upper-center for depth */
+body::after {
+  background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.04) 1px, transparent 0);
+  background-size: 28px 28px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black 30%, transparent 80%);
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black 30%, transparent 80%);
+  opacity: 0.5;
+}
+
+/* ------------------------------------------------------------------
+   4. Typography classes
+   ------------------------------------------------------------------ */
+.h1 {
+  font-size: clamp(36px, 6.4vw, 64px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  background: linear-gradient(135deg, var(--fg) 0%, #c8c9e0 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0;
+}
+
+.h2-section {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0;
+}
+
+.h3-card {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+  margin: 0;
+}
+
+.text-muted {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------------
+   5. Component classes
+   ------------------------------------------------------------------ */
+
+/* Badge (status indicator with optional dot) */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  padding: 6px 12px;
+  border-radius: 999px;
+}
+
+.badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--status-online);
+  box-shadow: 0 0 8px var(--status-online);
+  flex-shrink: 0;
+}
+
+/* Pill (metadata chip) */
+.pill {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  padding: 7px 13px;
+  border-radius: 999px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+/* Card (glass surface for content blocks) */
+.card {
+  position: relative;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border-radius: 18px;
+  padding: 22px 22px 20px;
+  box-shadow: var(--shadow-deep);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* Top-down sheen — subtle highlight that gives the card "weight" */
+.card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0) 40%);
+  pointer-events: none;
+}
+
+/* Card icon (gradient-tinted icon container) */
+.card-icon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  margin-bottom: 14px;
+  background: linear-gradient(135deg, rgba(115, 131, 255, 0.2), rgba(177, 94, 255, 0.15));
+  border: 1px solid var(--glass-border-strong);
+  color: var(--accent-a);
+  flex-shrink: 0;
+}
+
+/* Glass panel (section-level surface, larger radius) */
+.glass-panel {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border-radius: 22px;
+  padding: clamp(22px, 3.2vw, 32px);
+  margin-bottom: 40px;
+}
+
+/* List item with status dot (custom bullet) */
+.list-item-dotted {
+  position: relative;
+  padding-left: 22px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--fg);
+  list-style: none;
+}
+
+.list-item-dotted::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+  box-shadow: 0 0 10px rgba(115, 131, 255, 0.6);
+}
+
+.list-item-dotted--no::before {
+  background: var(--status-warn);
+  box-shadow: 0 0 10px rgba(255, 122, 79, 0.5);
+}
+
+/* Primary button */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+  background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+  border: 1px solid var(--glass-border-strong);
+  border-radius: 12px;
+  padding: 10px 20px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  text-decoration: none;
+  box-shadow: var(--shadow-deep);
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, var(--accent-b), var(--accent-a));
+  border-color: var(--glass-border-strong);
+}
+
+/* Glass text input */
+.input-glass {
+  display: block;
+  width: 100%;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--fg);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border-radius: 12px;
+  padding: 10px 14px;
+  outline: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  font-family: inherit;
+  letter-spacing: inherit;
+}
+
+.input-glass::placeholder {
+  color: var(--muted);
+}
+
+.input-glass:focus {
+  background: var(--glass-bg-hover);
+  border-color: var(--accent-a);
+  box-shadow: 0 0 0 2px rgba(115, 131, 255, 0.2);
+}
+
+/* ------------------------------------------------------------------
+   6. Layout helpers
+   ------------------------------------------------------------------ */
+.container {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 22px;
+}
+
+/* ------------------------------------------------------------------
+   7. Responsive — compact adjustments for narrow Mini App viewports
+   ------------------------------------------------------------------ */
+@media (max-width: 520px) {
+  .h1 {
+    letter-spacing: -0.02em;
+  }
+
+  .pill {
+    font-size: 11px;
+    padding: 6px 11px;
+  }
+}
