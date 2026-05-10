@@ -7,6 +7,7 @@ import { db } from './db/client.ts';
 import healthz from './api/healthz.ts';
 import { scopeGuard } from './bot/scope-guard.ts';
 import { makeLastMessageHandler } from './bot/listener.ts';
+import { makeChatMemberListener } from './bot/chat-member-listener.ts';
 import { isAllowedChat } from './lib/scope.ts';
 import { makeAuthMiddleware } from './api/auth.ts';
 import { makeMembersHandler } from './api/members.ts';
@@ -41,9 +42,10 @@ if (botToken) {
   bot.on('message', lastMessageHandler);
   bot.on('edited_message', lastMessageHandler);
   bot.on('message_reaction', lastMessageHandler);
+  bot.on('chat_member', makeChatMemberListener({ db, isAllowedChat }));
   bot.start({
     drop_pending_updates: true,
-    allowed_updates: ['message', 'edited_message', 'message_reaction', 'my_chat_member'],
+    allowed_updates: ['message', 'edited_message', 'message_reaction', 'my_chat_member', 'chat_member'],
   }).catch((err) => {
     logger.error({ module: 'bot', err }, 'grammY bot failed to start');
   });
