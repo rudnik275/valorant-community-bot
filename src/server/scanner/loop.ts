@@ -14,7 +14,7 @@
  */
 
 import { Cron } from 'croner';
-import { isNotNull } from 'drizzle-orm';
+import { isNotNull, sql } from 'drizzle-orm';
 import { users } from '../db/schema/users.ts';
 import { scannerEvents } from './events.ts';
 import { scanForPuuid as defaultScanForPuuid, type ScanResult } from './scan.ts';
@@ -47,11 +47,13 @@ export function startScanLoop(opts: StartScanLoopOpts): () => void {
   async function runTick(): Promise<void> {
     const tick_started_at = Date.now();
 
-    // Fetch all onboarded users
+    // Fetch all onboarded users — NULL mmr_fetched_at (never fetched) first,
+    // then oldest fetch, then most recent. Prevents stale users from starving.
     const allUsers = await db
       .select({ riot_puuid: users.riot_puuid })
       .from(users)
-      .where(isNotNull(users.riot_puuid));
+      .where(isNotNull(users.riot_puuid))
+      .orderBy(sql`${users.mmr_fetched_at} ASC NULLS FIRST`);
 
     let total_new_records = 0;
     let total_henrik_calls = 0;
