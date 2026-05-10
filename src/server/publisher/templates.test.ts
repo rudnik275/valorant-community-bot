@@ -132,6 +132,32 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).not.toContain('обновил');
   });
 
+  it('rank_promo: Diamond 3 → Ascendant 1 contains emoji tags for both ranks', () => {
+    const output = renderTemplate('rank_promo', { from: 'Diamond 3', to: 'Ascendant 1' }, safeUser);
+    expect(output).toContain('<tg-emoji emoji-id="5190612593059864801">💎</tg-emoji> Diamond 3');
+    expect(output).toContain('<tg-emoji emoji-id="5188550815484256589">💚</tg-emoji> Ascendant 1');
+    expect(output).toContain(' → ');
+    expect(output).toMatch(/!$/);
+  });
+
+  it('rank_promo: to-only with Immortal 1 contains emoji tag', () => {
+    const output = renderTemplate('rank_promo', { to: 'Immortal 1' }, safeUser);
+    expect(output).toContain('теперь <tg-emoji emoji-id="5188459714932943688">🔮</tg-emoji> Immortal 1!');
+  });
+
+  it('rank_promo: no-payload still produces апнул ранг! with no icon or extra spaces', () => {
+    const output = renderTemplate('rank_promo', {}, safeUser);
+    expect(output).toContain('апнул ранг!');
+    expect(output).not.toContain('<tg-emoji');
+    expect(output).not.toContain('  ');
+  });
+
+  it('rank_promo: unknown rank label renders plain text without broken tg-emoji', () => {
+    const output = renderTemplate('rank_promo', { to: 'MetaTier 1' }, safeUser);
+    expect(output).toContain('теперь MetaTier 1!');
+    expect(output).not.toContain('<tg-emoji');
+  });
+
   it('winstreak_9: shows streak count', () => {
     const output = renderTemplate('winstreak_9', { streak: 9 }, safeUser);
     expect(output).toContain('9');
