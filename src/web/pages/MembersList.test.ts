@@ -13,6 +13,7 @@ vi.mock('../lib/api.ts', () => ({
 import { apiFetch } from '../lib/api.ts';
 
 const mockOpenTelegramLink = vi.fn();
+const mockOpenLink = vi.fn();
 const mockWriteText = vi.fn().mockResolvedValue(undefined);
 
 const MOCK_MEMBERS: Member[] = [
@@ -61,9 +62,10 @@ describe('MembersList.vue', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockOpenTelegramLink.mockReset();
+    mockOpenLink.mockReset();
     mockWriteText.mockReset().mockResolvedValue(undefined);
     Object.defineProperty(window, 'Telegram', {
-      value: { WebApp: { openTelegramLink: mockOpenTelegramLink } },
+      value: { WebApp: { openTelegramLink: mockOpenTelegramLink, openLink: mockOpenLink } },
       writable: true,
       configurable: true,
     });
@@ -441,7 +443,7 @@ describe('MembersList.vue', () => {
     expect(wrapper.find('.toast-bubble').exists()).toBe(false);
   });
 
-  it('click .action-tg calls openTelegramLink with https://t.me/<username>', async () => {
+  it('click .action-tg calls openTelegramLink with https://t.me/<username> when username is set', async () => {
     (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_MEMBERS);
 
     const wrapper = mount(MembersList, { global: { plugins: [makeRouter()] } });
@@ -456,9 +458,10 @@ describe('MembersList.vue', () => {
     await tgBtn.trigger('click');
 
     expect(mockOpenTelegramLink).toHaveBeenCalledWith('https://t.me/alice');
+    expect(mockOpenLink).not.toHaveBeenCalled();
   });
 
-  it('member without telegramUsername does not render .action-tg', async () => {
+  it('.action-tg always renders (even without telegramUsername)', async () => {
     const memberNoUsername: Member = {
       telegramId: 99,
       telegramUsername: null,
@@ -480,7 +483,38 @@ describe('MembersList.vue', () => {
     await wrapper.vm.$nextTick();
 
     const card = wrapper.find('.member-card');
-    expect(card.find('.action-tg').exists()).toBe(false);
+    expect(card.find('.action-tg').exists()).toBe(true);
+  });
+
+  it('click .action-tg calls openLink with tg://user?id=<telegramId> when no username', async () => {
+    const memberNoUsername: Member = {
+      telegramId: 12345,
+      telegramUsername: null,
+      telegramAvatarUrl: null,
+      riotName: 'NoUser',
+      riotTag: '0000',
+      riotCardId: null,
+      currentTierId: null,
+      currentTierName: null,
+      peakTierId: null,
+      peakTierName: null,
+      peakSeasonShort: null,
+      lastMessageAt: null,
+    };
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue([memberNoUsername]);
+
+    const wrapper = mount(MembersList, { global: { plugins: [makeRouter()] } });
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    const card = wrapper.find('.member-card');
+    const tgBtn = card.find('.action-tg');
+    expect(tgBtn.exists()).toBe(true);
+
+    await tgBtn.trigger('click');
+
+    expect(mockOpenLink).toHaveBeenCalledWith('tg://user?id=12345');
+    expect(mockOpenTelegramLink).not.toHaveBeenCalled();
   });
 
   it('clicking card body does not trigger openTelegramLink', async () => {
