@@ -1,16 +1,16 @@
 <template>
-  <div class="onboard-page">
-    <h1 class="onboard-title">Привязать аккаунт Riot</h1>
+  <div class="container onboard-page">
+    <h1 class="h1">Привязка Riot ID</h1>
 
-    <p class="onboard-hint">
+    <p class="text-muted onboard-hint">
       Введи своё Riot имя и тег — бот найдёт твой аккаунт и начнёт отслеживать матчи.
     </p>
 
-    <form v-if="!success" class="onboard-form" @submit.prevent="onSubmit">
+    <form v-if="!success" class="card onboard-form" @submit.prevent="onSubmit">
       <div class="riot-id-row">
         <input
           v-model="name"
-          class="riot-input riot-name"
+          class="input-glass riot-name"
           type="text"
           placeholder="Riot Name"
           maxlength="16"
@@ -18,12 +18,13 @@
           autocomplete="off"
           autocorrect="off"
           spellcheck="false"
+          tabindex="1"
           data-testid="input-name"
         />
         <span class="riot-separator">#</span>
         <input
           v-model="tag"
-          class="riot-input riot-tag"
+          class="input-glass riot-tag"
           type="text"
           placeholder="1234"
           maxlength="5"
@@ -31,31 +32,35 @@
           autocomplete="off"
           autocorrect="off"
           spellcheck="false"
+          tabindex="2"
           data-testid="input-tag"
         />
       </div>
 
-      <p v-if="validationError" class="onboard-error" data-testid="validation-error">
+      <p v-if="validationError" class="list-item-dotted list-item-dotted--no onboard-error" data-testid="validation-error">
         {{ validationError }}
       </p>
 
       <button
         type="submit"
-        class="onboard-btn"
+        class="btn-primary onboard-btn"
+        :class="{ 'onboard-btn--loading': loading }"
         :disabled="loading"
+        tabindex="3"
         data-testid="submit-btn"
       >
         <span v-if="loading" class="spinner" aria-hidden="true"></span>
         {{ loading ? 'Проверяем…' : 'Привязать аккаунт' }}
       </button>
 
-      <p v-if="apiError" class="onboard-error" data-testid="api-error">
-        {{ apiError }}
-      </p>
+      <div v-if="apiError" class="glass-panel onboard-api-error" data-testid="api-error">
+        <p class="list-item-dotted list-item-dotted--no">{{ apiError }}</p>
+      </div>
     </form>
 
-    <div v-else class="onboard-success" data-testid="success-message">
-      Аккаунт привязан: {{ linkedName }}#{{ linkedTag }} ({{ linkedRegion }})
+    <div v-else class="card onboard-success" data-testid="success-message">
+      <p class="h2-section">Готово</p>
+      <p class="onboard-success-text">Аккаунт привязан: {{ linkedName }}#{{ linkedTag }} ({{ linkedRegion }})</p>
     </div>
   </div>
 </template>
@@ -145,103 +150,87 @@ async function onSubmit() {
 .onboard-page {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  padding: 24px 16px;
-  max-width: 480px;
-  margin: 0 auto;
-  background-color: var(--tg-theme-bg-color, #ffffff);
-  color: var(--tg-theme-text-color, #000000);
+  gap: 24px;
+  padding-top: 32px;
+  padding-bottom: 32px;
   min-height: 100vh;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
-}
-
-.onboard-title {
-  font-size: 20px;
-  font-weight: 600;
-  margin: 0;
 }
 
 .onboard-hint {
-  font-size: 14px;
-  line-height: 1.5;
-  color: var(--tg-theme-hint-color, #8e8e93);
   margin: 0;
 }
 
 .onboard-form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .riot-id-row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 
-.riot-input {
-  padding: 10px 12px;
-  border: 1px solid var(--tg-theme-hint-color, #ccc);
-  border-radius: 8px;
-  font-size: 15px;
-  background: var(--tg-theme-secondary-bg-color, #f2f2f7);
-  color: var(--tg-theme-text-color, #000000);
-  outline: none;
-}
-
-.riot-input:focus {
-  border-color: var(--tg-theme-button-color, #2481cc);
-}
-
-.riot-input:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
+/* Name input takes all remaining space */
 .riot-name {
   flex: 1;
   min-width: 0;
 }
 
+/* Tag input fixed narrow width */
 .riot-tag {
-  width: 80px;
+  width: 88px;
   flex-shrink: 0;
 }
 
 .riot-separator {
   font-size: 18px;
   font-weight: 600;
-  color: var(--tg-theme-hint-color, #8e8e93);
+  color: var(--muted);
   line-height: 1;
   user-select: none;
+  flex-shrink: 0;
 }
 
+/* Submit button — full width inside the card */
 .onboard-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 12px;
-  border: none;
-  border-radius: 10px;
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-  background-color: var(--tg-theme-button-color, #2481cc);
-  color: var(--tg-theme-button-text-color, #ffffff);
-  transition: opacity 0.15s;
+  width: 100%;
+  padding: 12px 20px;
+  font-size: 15px;
 }
 
-.onboard-btn:disabled {
-  opacity: 0.6;
+/* Loading pulse animation on the button */
+.onboard-btn--loading {
+  animation: btn-pulse 1.2s ease-in-out infinite;
   cursor: not-allowed;
 }
 
+@keyframes btn-pulse {
+  0%, 100% { opacity: 0.7; }
+  50%       { opacity: 0.45; }
+}
+
+.onboard-error {
+  margin: 0;
+}
+
+/* Error panel — no extra margin-bottom from .glass-panel default */
+.onboard-api-error {
+  margin-bottom: 0;
+  padding: 14px 16px;
+  border-radius: 14px;
+}
+
+.onboard-api-error p {
+  margin: 0;
+}
+
+/* Spinner inside button */
 .spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid rgba(255, 255, 255, 0.4);
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
   border-top-color: #fff;
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
@@ -252,19 +241,18 @@ async function onSubmit() {
   to { transform: rotate(360deg); }
 }
 
-.onboard-error {
-  font-size: 14px;
-  color: var(--tg-theme-destructive-text-color, #e53e3e);
-  margin: 0;
+/* Success card */
+.onboard-success {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: center;
 }
 
-.onboard-success {
+.onboard-success-text {
+  margin: 0;
   font-size: 15px;
   font-weight: 500;
-  color: #5be3a4;
-  padding: 16px;
-  border-radius: 10px;
-  background: rgba(91, 227, 164, 0.1);
-  text-align: center;
+  color: var(--status-online);
 }
 </style>
