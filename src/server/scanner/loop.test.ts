@@ -5,7 +5,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { join } from 'node:path';
 import { startScanLoop } from './loop.ts';
 import { scannerEvents } from './events.ts';
-import { __resetTokenBucketForTest } from '../lib/henrik.ts';
+import { __resetTokenBucketForTest, __resetBlockUntilForTest } from '../lib/henrik.ts';
 
 vi.mock('../lib/log.ts', () => ({
   default: {
@@ -36,6 +36,7 @@ describe('startScanLoop', () => {
     fetchMock = vi.fn().mockResolvedValue(new Response('ok', { status: 200 }));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     __resetTokenBucketForTest();
+    __resetBlockUntilForTest();
     vi.useFakeTimers();
   });
 
