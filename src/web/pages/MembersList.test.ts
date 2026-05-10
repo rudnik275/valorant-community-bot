@@ -370,6 +370,34 @@ describe('MembersList.vue', () => {
     expect(wrapper.find('.tg-avatar-overlay--placeholder').exists()).toBe(true);
   });
 
+  it('renders both current and peak icons when currentTierId === peakTierId', async () => {
+    const member: Member = {
+      telegramId: 50,
+      telegramUsername: 'equal_tier',
+      telegramAvatarUrl: null,
+      riotName: 'SameTier',
+      riotTag: '0001',
+      riotCardId: null,
+      currentTierId: 18,
+      currentTierName: 'Diamond 1',
+      peakTierId: 18,
+      peakTierName: 'Diamond 1',
+      peakSeasonShort: 'e11a2',
+      lastMessageAt: null,
+    };
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue([member]);
+
+    const wrapper = mount(MembersList, { global: { plugins: [makeRouter()] } });
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('img.rank-icon--current').exists()).toBe(true);
+    expect(wrapper.find('img.rank-icon--current').attributes('src')).toBe('/ranks/18.png');
+    expect(wrapper.find('img.rank-icon--peak').exists()).toBe(true);
+    expect(wrapper.find('img.rank-icon--peak').attributes('src')).toBe('/ranks/18.png');
+    expect(wrapper.findAll('img.rank-icon')).toHaveLength(2);
+  });
+
   // ─── Action button tests ──────────────────────────────────────────────────
 
   it('click .member-copy-trigger writes Name#TAG to clipboard and shows toast', async () => {
