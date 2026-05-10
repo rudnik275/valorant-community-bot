@@ -9,6 +9,8 @@ import {
   HenrikRateLimitError,
   HenrikUpstreamError,
   HenrikError,
+  acquireToken,
+  __resetTokenBucketForTest,
 } from './henrik.ts';
 import matchFixture from './__fixtures__/henrik/match_console_v4.json';
 import mmrFixture from './__fixtures__/henrik/mmr_console_v3.json';
@@ -51,6 +53,7 @@ describe('validateAccount', () => {
   beforeEach(() => {
     fetchMock = vi.fn();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
+    __resetTokenBucketForTest();
     delete process.env['HENRIK_API_KEY'];
   });
 
@@ -175,6 +178,7 @@ describe('getMatches', () => {
   beforeEach(() => {
     fetchMock = vi.fn();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
+    __resetTokenBucketForTest();
     delete process.env['HENRIK_API_KEY'];
   });
 
@@ -262,6 +266,7 @@ describe('getMmr', () => {
   beforeEach(() => {
     fetchMock = vi.fn();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
+    __resetTokenBucketForTest();
     delete process.env['HENRIK_API_KEY'];
   });
 
@@ -335,6 +340,7 @@ describe('getMmrByPuuid', () => {
   beforeEach(() => {
     fetchMock = vi.fn();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
+    __resetTokenBucketForTest();
     delete process.env['HENRIK_API_KEY'];
   });
 
@@ -400,6 +406,75 @@ describe('getMmrByPuuid', () => {
     const result = await getMmrByPuuid('abc', 'eu');
     expect(result.peak).toBeNull();
     expect(result.current.tier.id).toBe(3);
+  });
+});
+
+// ─── Token-bucket rate limiter ───────────────────────────────────────────────
+
+describe('token-bucket rate limiter (acquireToken)', () => {
+  // All tests use injectable now/sleep to avoid wall-clock slowness.
+
+  it('burst of BURST tokens fires immediately without waiting', async () => {
+    // Fresh bucket: tokens = BURST = 5.
+    const t0 = 1_000_000;
+    __resetTokenBucketForTest({ tokens: 5, now: t0 });
+    const nowFn = vi.fn(() => t0); // time frozen — no refill
+    const sleepFn = vi.fn((_ms: number) => Promise.resolve());
+
+    const burst = 5;
+    await Promise.all(Array.from({ length: burst }, () => acquireToken(nowFn, sleepFn)));
+
+    // All 5 tokens consumed without sleeping.
+    expect(sleepFn).not.toHaveBeenCalled();
+  });
+
+  it('sixth call waits when bucket is drained', async () => {
+    // Drain 5 tokens then call once more — sleepFn must be called.
+    const t0 = 2_000_000;
+    const TOKEN_REFILL_MS = 60_000 / 25; // 2400 ms
+    __resetTokenBucketForTest({ tokens: 5, now: t0 });
+
+    // First 5 calls: bucket drains, time stays frozen.
+    let currentTime = t0;
+    const nowFn = vi.fn(() => currentTime);
+
+    let resolveSlept: () => void;
+    const sleepFn = vi.fn((_ms: number): Promise<void> => {
+      // Advance time past one refill so the next acquireToken loop grants a token.
+      currentTime = t0 + TOKEN_REFILL_MS + 1;
+      resolveSlept!();
+      return Promise.resolve();
+    });
+
+    // Drain the burst
+    for (let i = 0; i < 5; i++) {
+      await acquireToken(nowFn, sleepFn);
+    }
+    expect(sleepFn).not.toHaveBeenCalled();
+
+    // 6th call should trigger sleep
+    resolveSlept = () => {}; // placeholder
+    await acquireToken(nowFn, sleepFn);
+    expect(sleepFn).toHaveBeenCalledTimes(1);
+    const waitArg = sleepFn.mock.calls[0]![0] as number;
+    expect(waitArg).toBeGreaterThan(0);
+  });
+
+  it('refill restores capacity after waiting TOKEN_REFILL_MS * BURST', async () => {
+    // Drain bucket, advance time by BURST * TOKEN_REFILL_MS, verify next BURST calls don't sleep.
+    const BURST = 5;
+    const TOKEN_REFILL_MS = 60_000 / 25;
+    const t0 = 3_000_000;
+    __resetTokenBucketForTest({ tokens: 0, now: t0 }); // already drained
+
+    // Time is advanced past a full refill cycle.
+    const currentTime = t0 + BURST * TOKEN_REFILL_MS + 1;
+    const nowFn = vi.fn(() => currentTime);
+    const sleepFn = vi.fn((_ms: number) => Promise.resolve());
+
+    // Should get BURST tokens without sleeping.
+    await Promise.all(Array.from({ length: BURST }, () => acquireToken(nowFn, sleepFn)));
+    expect(sleepFn).not.toHaveBeenCalled();
   });
 });
 

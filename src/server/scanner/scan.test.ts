@@ -5,6 +5,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { join } from 'node:path';
 import { scanForPuuid, CONSOLE_COMPETITIVE_QUEUE } from './scan.ts';
 import { scannerEvents } from './events.ts';
+import { __resetTokenBucketForTest } from '../lib/henrik.ts';
 
 vi.mock('../lib/log.ts', () => ({
   default: {
@@ -118,6 +119,7 @@ describe('scanForPuuid', () => {
     ({ db, sqlite } = makeTestDb());
     fetchMock = vi.fn();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
+    __resetTokenBucketForTest();
   });
 
   afterEach(() => {
