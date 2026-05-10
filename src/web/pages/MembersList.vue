@@ -266,15 +266,10 @@ function avatarInitial(m: Member): string {
   text-align: left;
   cursor: pointer;
   border-radius: 12px;
-  transition: background 0.15s ease;
   position: relative;
   z-index: 1;
 }
 .member-copy-trigger:disabled { cursor: default; }
-@media (hover: hover) {
-  .member-copy-trigger:not(:disabled):hover { background: var(--glass-bg-hover); }
-}
-.member-copy-trigger:not(:disabled):active { background: var(--glass-bg-hover); }
 
 /* Avatar */
 .member-avatar {
