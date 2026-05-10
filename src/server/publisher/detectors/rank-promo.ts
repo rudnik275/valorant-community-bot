@@ -30,31 +30,34 @@ function extractTier(rank: string | null | undefined): string | null {
 /**
  * Rank promotion detector.
  *
- * Fires when the player's tier increases (e.g., Diamond → Ascendant).
- * Does NOT fire on:
+ * Fires when the player's tier exceeds their season peak (e.g., Diamond → Ascendant
+ * for the first time this season). Does NOT fire on:
  *   - Division increases within same tier (Diamond 1 → Diamond 2)
  *   - Rank decreases
- *   - First match (no prev baseline)
- *   - Cross-season comparison (prev match started before current act)
+ *   - Re-achieving a tier already reached this season (drop + re-climb)
+ *   - First match (no prev baseline, handled via maxPrevTierNum = 0)
  */
 export const rankPromoDetector: Detector = {
   type: 'rank_promo',
   detect(record: MatchRecord, prevRecords: MatchRecord[]): DetectedEvent[] {
-    const prev = prevRecords[0];
-    if (!prev) return [];
+    const seasonStart = getCurrentActStart();
+    const seasonPrev = prevRecords.filter((r) => r.started_at >= seasonStart);
 
-    // Skip cross-season rank comparison
-    if (prev.started_at < getCurrentActStart()) return [];
+    // Empty seasonPrev → maxPrevTierNum = 0 (first competitive match this season fires correctly).
+    const maxPrevTierNum = seasonPrev
+      .map((r) => extractTier(r.rank_after))
+      .filter((t): t is string => t !== null)
+      .map((t) => TIER_ORDER[t]!)
+      .reduce((a, b) => Math.max(a, b), 0);
 
-    const prevTier = extractTier(prev.rank_after);
     const currTier = extractTier(record.rank_after);
-
-    if (!prevTier || !currTier) return [];
-
-    const prevNum = TIER_ORDER[prevTier]!;
+    if (!currTier) return [];
     const currNum = TIER_ORDER[currTier]!;
+    if (currNum <= maxPrevTierNum) return [];
 
-    if (currNum <= prevNum) return [];
+    // payload.from uses the immediate-prev rank (so message reads "Diamond 3 → Ascendant 1",
+    // not the season-max rank which could be older).
+    const immediatePrev = prevRecords[0];
 
     return [
       {
@@ -62,9 +65,9 @@ export const rankPromoDetector: Detector = {
         riot_puuid: record.riot_puuid ?? '',
         match_id: record.match_id,
         payload: {
-          from: prev.rank_after,
+          from: immediatePrev?.rank_after ?? null,
           to: record.rank_after,
-          from_tier: prevTier,
+          from_tier: extractTier(immediatePrev?.rank_after),
           to_tier: currTier,
         },
       },

@@ -111,10 +111,25 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('1v4');
   });
 
-  it('rank_promo: shows from and to', () => {
+  it('rank_promo: shows from and to with апнул wording', () => {
     const output = renderTemplate('rank_promo', { from: 'Gold 1', to: 'Gold 2' }, safeUser);
     expect(output).toContain('Gold 1');
     expect(output).toContain('Gold 2');
+    expect(output).toContain('апнул ранг');
+    expect(output).not.toContain('обновил');
+  });
+
+  it('rank_promo: to-only branch uses апнул wording', () => {
+    const output = renderTemplate('rank_promo', { to: 'Ascendant 1' }, safeUser);
+    expect(output).toContain('Ascendant 1');
+    expect(output).toContain('апнул ранг');
+    expect(output).not.toContain('обновил');
+  });
+
+  it('rank_promo: no-payload branch uses апнул wording', () => {
+    const output = renderTemplate('rank_promo', {}, safeUser);
+    expect(output).toContain('апнул ранг');
+    expect(output).not.toContain('обновил');
   });
 
   it('winstreak_9: shows streak count', () => {
