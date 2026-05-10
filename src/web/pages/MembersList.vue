@@ -79,7 +79,7 @@
           <span v-else class="pill rank-empty">—</span>
 
           <img
-            v-if="m.peakTierId !== null && m.peakTierId !== m.currentTierId"
+            v-if="m.peakTierId !== null"
             :src="`/ranks/${m.peakTierId}.png`"
             :alt="m.peakTierName ?? ''"
             :title="`Пиковый: ${m.peakTierName ?? '—'}${m.peakSeasonShort ? ` (${m.peakSeasonShort})` : ''}`"
