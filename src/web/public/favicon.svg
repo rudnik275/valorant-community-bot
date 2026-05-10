@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%" gradientTransform="rotate(135, 0.5, 0.5)">
+      <stop offset="0%" stop-color="#7383ff"/>
+      <stop offset="100%" stop-color="#b15eff"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <!-- Dark background rounded square -->
+  <rect width="64" height="64" rx="14" ry="14" fill="#07070b"/>
+  <!-- Subtle sheen overlay -->
+  <rect width="64" height="64" rx="14" ry="14" fill="url(#sheen)"/>
+  <!-- Bold "V" glyph with gradient fill -->
+  <text
+    x="32"
+    y="48"
+    text-anchor="middle"
+    font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif"
+    font-size="46"
+    font-weight="700"
+    fill="url(#accent)"
+    letter-spacing="-2"
+  >V</text>
+</svg>
