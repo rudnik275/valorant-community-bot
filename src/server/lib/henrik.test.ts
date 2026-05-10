@@ -4,6 +4,7 @@ import {
   getMatches,
   getMmr,
   getMmrByPuuid,
+  extractCardId,
   HenrikNotFoundError,
   HenrikRateLimitError,
   HenrikUpstreamError,
@@ -67,6 +68,7 @@ describe('validateAccount', () => {
       name: 'TestPlayer',
       tag: 'EU1',
       region: 'EU',
+      cardId: null,
     });
   });
 
@@ -398,5 +400,29 @@ describe('getMmrByPuuid', () => {
     const result = await getMmrByPuuid('abc', 'eu');
     expect(result.peak).toBeNull();
     expect(result.current.tier.id).toBe(3);
+  });
+});
+
+// ─── extractCardId ────────────────────────────────────────────────────────────
+
+describe('extractCardId', () => {
+  it('returns the string as-is when card is a string', () => {
+    expect(extractCardId('some-card-uuid')).toBe('some-card-uuid');
+  });
+
+  it('returns the id field when card is an object with id', () => {
+    expect(extractCardId({ id: 'card-id-from-object', small: 'https://…', large: 'https://…' })).toBe('card-id-from-object');
+  });
+
+  it('returns null when card is null', () => {
+    expect(extractCardId(null)).toBeNull();
+  });
+
+  it('returns null when card is undefined', () => {
+    expect(extractCardId(undefined)).toBeNull();
+  });
+
+  it('returns null when card is an object without id', () => {
+    expect(extractCardId({ small: 'https://…' })).toBeNull();
   });
 });

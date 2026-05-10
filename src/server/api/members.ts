@@ -29,6 +29,7 @@ export function makeMembersHandler(deps: MembersHandlerDeps) {
         u.riot_name,
         u.riot_tag,
         u.riot_puuid,
+        u.riot_card_id,
         u.last_message_at,
         u.joined_at,
         u.current_tier_id,
@@ -50,6 +51,7 @@ export function makeMembersHandler(deps: MembersHandlerDeps) {
       riot_name: string | null;
       riot_tag: string | null;
       riot_puuid: string | null;
+      riot_card_id: string | null;
       last_message_at: number | null;
       joined_at: number;
       current_tier_id: number | null;
@@ -75,6 +77,7 @@ export function makeMembersHandler(deps: MembersHandlerDeps) {
         telegramAvatarUrl: row.telegram_avatar_url,
         riotName: row.riot_puuid ? row.riot_name : null,
         riotTag: row.riot_puuid ? row.riot_tag : null,
+        riotCardId: row.riot_puuid ? row.riot_card_id : null,
         currentTierId: row.riot_puuid ? row.current_tier_id : null,
         currentTierName: row.riot_puuid ? row.current_tier_name : null,
         peakTierId: row.riot_puuid ? row.peak_tier_id : null,
