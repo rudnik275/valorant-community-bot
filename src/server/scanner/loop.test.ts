@@ -47,13 +47,15 @@ describe('startScanLoop', () => {
     scannerEvents.removeAllListeners();
   });
 
-  function seedUser(id: number, puuid: string | null, region = 'eu') {
+  function seedUser(id: number, puuid: string | null, region = 'eu', mmrFetchedAt?: number | null) {
+    const mmrCol = mmrFetchedAt !== undefined ? `, mmr_fetched_at` : '';
+    const mmrVal = mmrFetchedAt !== undefined ? `, ${mmrFetchedAt === null ? 'NULL' : mmrFetchedAt}` : '';
     if (puuid) {
-      sqlite.exec(`INSERT INTO users (telegram_id, riot_puuid, riot_name, riot_tag, riot_region, joined_at)
-        VALUES (${id}, '${puuid}', 'Player${id}', 'TAG', '${region}', ${Date.now()})`);
+      sqlite.exec(`INSERT INTO users (telegram_id, riot_puuid, riot_name, riot_tag, riot_region, joined_at${mmrCol})
+        VALUES (${id}, '${puuid}', 'Player${id}', 'TAG', '${region}', ${Date.now()}${mmrVal})`);
     } else {
-      sqlite.exec(`INSERT INTO users (telegram_id, joined_at)
-        VALUES (${id}, ${Date.now()})`);
+      sqlite.exec(`INSERT INTO users (telegram_id, joined_at${mmrCol})
+        VALUES (${id}, ${Date.now()}${mmrVal})`);
     }
   }
 
@@ -221,5 +223,41 @@ describe('startScanLoop', () => {
     await Promise.resolve();
 
     expect(scanForPuuid).not.toHaveBeenCalled();
+  });
+
+  it('scans users in NULL-first then oldest-fetch order', async () => {
+    // A: recently fetched (should go last)
+    // B: never fetched / null mmr_fetched_at (should go first)
+    // C: oldest fetch (should go second)
+    const now = Date.now();
+    seedUser(1, 'puuid-A', 'eu', now);          // recently fetched
+    seedUser(2, 'puuid-B', 'eu', null);          // never fetched (NULL)
+    seedUser(3, 'puuid-C', 'eu', 1000);          // oldest fetch
+
+    const callOrder: string[] = [];
+    const scanForPuuid = vi.fn().mockImplementation((puuid: string) => {
+      callOrder.push(puuid);
+      return Promise.resolve({ newRecords: [], skippedDuplicates: 0 });
+    });
+
+    const stop = startScanLoop({
+      db,
+      scanForPuuid,
+      intervalCron: '0 0 1 1 *', // effectively never — only warm-up tick fires
+    });
+
+    // Advance past 60s warm-up to trigger first tick
+    await vi.advanceTimersByTimeAsync(60_001);
+    // Flush microtasks + inter-user sleep for 3 users (2 sleeps of 2s)
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(2_001);
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(2_001);
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+
+    stop();
+
+    // NULL first, then oldest (1000), then most recent
+    expect(callOrder).toEqual(['puuid-B', 'puuid-C', 'puuid-A']);
   });
 });
