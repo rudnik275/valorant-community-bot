@@ -6,6 +6,7 @@ import {
   getMmrByPuuid,
   extractCardId,
   HenrikNotFoundError,
+  HenrikInactiveAccountError,
   HenrikRateLimitError,
   HenrikUpstreamError,
   HenrikError,
@@ -98,10 +99,28 @@ describe('validateAccount', () => {
     expect(callArgs[0]).toContain(encodeURIComponent('EU 1'));
   });
 
-  it('throws HenrikNotFoundError on 404', async () => {
+  it('throws HenrikNotFoundError on 404 without code:24', async () => {
     fetchMock.mockResolvedValue(makeResponse(404, { status: 404, errors: [{ message: 'Not found' }] }));
 
     await expect(validateAccount('NoSuch', 'TAG')).rejects.toThrow(HenrikNotFoundError);
+  });
+
+  it('throws HenrikInactiveAccountError on 404 with errors[0].code === 24', async () => {
+    fetchMock.mockResolvedValue(
+      makeResponse(404, {
+        errors: [
+          {
+            code: 24,
+            status: 404,
+            message: 'Error while fetching needed match data to get players account level and more data. Please ask the user to play a game (can be deathmatch or whatever)',
+          },
+        ],
+      }),
+    );
+
+    const err = await validateAccount('YarosBzdun', '2307').catch((e) => e);
+    expect(err).toBeInstanceOf(HenrikInactiveAccountError);
+    expect(err).not.toBeInstanceOf(HenrikNotFoundError);
   });
 
   it('throws HenrikRateLimitError on 429 with retryAfter from header', async () => {

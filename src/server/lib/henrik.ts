@@ -27,6 +27,13 @@ export class HenrikNotFoundError extends HenrikError {
   }
 }
 
+export class HenrikInactiveAccountError extends HenrikError {
+  constructor() {
+    super('Henrik cannot enrich — account exists but has no recent match data');
+    this.name = 'HenrikInactiveAccountError';
+  }
+}
+
 export class HenrikRateLimitError extends HenrikError {
   readonly retryAfter: number;
   constructor(retryAfter: number) {
@@ -190,6 +197,16 @@ async function fetchWithRetry<T>(
     }
 
     if (status === 404) {
+      let errorCode: number | undefined;
+      try {
+        const body = await response.json() as { errors?: Array<{ code?: number }> };
+        errorCode = body?.errors?.[0]?.code;
+      } catch {
+        // ignore parse errors — fall through to HenrikNotFoundError
+      }
+      if (errorCode === 24) {
+        throw new HenrikInactiveAccountError();
+      }
       throw new HenrikNotFoundError();
     }
 

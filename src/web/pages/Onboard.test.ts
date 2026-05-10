@@ -168,6 +168,23 @@ describe('Onboard.vue', () => {
 
   // ── Error states ─────────────────────────────────────────────────────────────
 
+  it('shows actionable "сыграй один матч" message for account_inactive', async () => {
+    fetchMock.mockResolvedValue(makeErrorResponse(404, {
+      error: 'account_inactive',
+      message: 'Аккаунт найден, но Riot не показывает по нему свежих матчей. Сыграй один матч (можно Deathmatch) и попробуй снова — после игры всё подтянется.',
+    }));
+
+    const wrapper = mountOnboard();
+    await wrapper.find('[data-testid="input-name"]').setValue('YarosBzdun');
+    await wrapper.find('[data-testid="input-tag"]').setValue('2307');
+    await wrapper.find('form').trigger('submit');
+
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-testid="api-error"]').text()).toContain('Сыграй один матч');
+  });
+
   it('shows "Аккаунт Riot не найден" for account_not_found', async () => {
     fetchMock.mockResolvedValue(makeErrorResponse(404, { error: 'account_not_found' }));
 
