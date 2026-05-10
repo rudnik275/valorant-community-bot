@@ -23,9 +23,6 @@ interface MeProfile {
   riotName: string | null;
   riotTag: string | null;
   riotPuuid: string | null;
-  currentRank: { tierId: number; tierName: string } | null;
-  peakRank: { tierId: number; tierName: string; seasonShort: string | null } | null;
-  region: string | null;
 }
 
 interface MeResponse {
@@ -117,7 +114,7 @@ describe('makeMeHandler', () => {
     expect(res.status).toBe(200);
     const body = await res.json() as MeResponse;
     expect(body.onboarded).toBe(true);
-    expect(body.profile).toMatchObject({
+    expect(body.profile).toEqual({
       telegramId: 12345,
       riotName: 'TestPlayer',
       riotTag: 'EU1',
@@ -141,49 +138,5 @@ describe('makeMeHandler', () => {
     const body = await res.json() as MeResponse;
     expect(body.profile?.riotName).toBe('RightPlayer');
     expect(body.profile?.riotPuuid).toBe('puuid-12345');
-  });
-
-  it('returns currentRank, peakRank, and region when rank columns are set', async () => {
-    const now = Date.now();
-    sqlite.exec(`
-      INSERT INTO users (
-        telegram_id, telegram_username, riot_puuid, riot_name, riot_tag,
-        onboarded_at, joined_at,
-        current_tier_id, current_tier_name,
-        peak_tier_id, peak_tier_name, peak_season_short,
-        riot_region
-      )
-      VALUES (
-        12345, 'testuser', 'puuid-abc', 'TestPlayer', 'EU1',
-        ${now}, ${now},
-        17, 'Platinum 3',
-        21, 'Ascendant 1', 'e11a2',
-        'eu'
-      )
-    `);
-
-    const app = makeApp(db);
-    const res = await app.request('/api/me');
-    expect(res.status).toBe(200);
-    const body = await res.json() as MeResponse;
-    expect(body.profile?.currentRank).toEqual({ tierId: 17, tierName: 'Platinum 3' });
-    expect(body.profile?.peakRank).toEqual({ tierId: 21, tierName: 'Ascendant 1', seasonShort: 'e11a2' });
-    expect(body.profile?.region).toBe('eu');
-  });
-
-  it('returns null currentRank, peakRank, and region when rank columns are null', async () => {
-    const now = Date.now();
-    sqlite.exec(`
-      INSERT INTO users (telegram_id, telegram_username, riot_puuid, riot_name, riot_tag, onboarded_at, joined_at)
-      VALUES (12345, 'testuser', 'puuid-abc', 'TestPlayer', 'EU1', ${now}, ${now})
-    `);
-
-    const app = makeApp(db);
-    const res = await app.request('/api/me');
-    expect(res.status).toBe(200);
-    const body = await res.json() as MeResponse;
-    expect(body.profile?.currentRank).toBeNull();
-    expect(body.profile?.peakRank).toBeNull();
-    expect(body.profile?.region).toBeNull();
   });
 });

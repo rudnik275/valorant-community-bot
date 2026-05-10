@@ -27,12 +27,6 @@ export function makeMeHandler(deps: MeHandlerDeps) {
         riot_tag: users.riot_tag,
         riot_puuid: users.riot_puuid,
         onboarded_at: users.onboarded_at,
-        current_tier_id: users.current_tier_id,
-        current_tier_name: users.current_tier_name,
-        peak_tier_id: users.peak_tier_id,
-        peak_tier_name: users.peak_tier_name,
-        peak_season_short: users.peak_season_short,
-        riot_region: users.riot_region,
       })
       .from(users)
       .where(eq(users.telegram_id, telegramId))
@@ -53,13 +47,6 @@ export function makeMeHandler(deps: MeHandlerDeps) {
         riotName: row.riot_name,
         riotTag: row.riot_tag,
         riotPuuid: row.riot_puuid,
-        currentRank: row.current_tier_id !== null && row.current_tier_name !== null
-          ? { tierId: row.current_tier_id, tierName: row.current_tier_name }
-          : null,
-        peakRank: row.peak_tier_id !== null && row.peak_tier_name !== null
-          ? { tierId: row.peak_tier_id, tierName: row.peak_tier_name, seasonShort: row.peak_season_short }
-          : null,
-        region: row.riot_region,
       },
     });
   };

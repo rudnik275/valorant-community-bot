@@ -4,7 +4,6 @@ import { createRouter, createWebHistory } from 'vue-router';
 import App from './App.vue';
 import MembersList from './pages/MembersList.vue';
 import Onboard from './pages/Onboard.vue';
-import Settings from './pages/Settings.vue';
 
 // Try to initialise Telegram Mini App SDK — no-op when running outside Telegram
 function initTelegramSdk(): void {
@@ -26,7 +25,6 @@ const router = createRouter({
   routes: [
     { path: '/', name: 'members', component: MembersList },
     { path: '/onboard', name: 'onboard', component: Onboard },
-    { path: '/settings', name: 'settings', component: Settings },
   ],
 });
 

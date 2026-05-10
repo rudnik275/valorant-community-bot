@@ -24,8 +24,6 @@ const MOCK_MEMBERS: Member[] = [
     peakTierId: 18,
     peakTierName: 'Diamond 1',
     peakSeasonShort: 'e11a2',
-    lastMatch: { startedAt: '2026-05-09T10:00:00.000Z', result: 'win', agent: 'Jett' },
-    kdRatioLast10: 1.42,
     lastMessageAt: '2026-05-09T10:00:00.000Z',
   },
   {
@@ -39,8 +37,6 @@ const MOCK_MEMBERS: Member[] = [
     peakTierId: null,
     peakTierName: null,
     peakSeasonShort: null,
-    lastMatch: null,
-    kdRatioLast10: null,
     lastMessageAt: null,
   },
 ];
@@ -51,7 +47,7 @@ function makeRouter() {
     history: createWebHistory(),
     routes: [
       { path: '/', component: MembersList },
-      { path: '/settings', component: { template: '<div />' } },
+      { path: '/onboard', component: { template: '<div />' } },
     ],
   });
 }
@@ -148,7 +144,7 @@ describe('MembersList.vue', () => {
     expect(wrapper.text()).not.toContain('10:00');
   });
 
-  it('shows K/D, agent and match result for alice, no stats for bob', async () => {
+  it('does NOT render .member-stats element', async () => {
     (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_MEMBERS);
 
     const wrapper = mount(MembersList, {
@@ -158,15 +154,44 @@ describe('MembersList.vue', () => {
     await new Promise((r) => setTimeout(r, 0));
     await wrapper.vm.$nextTick();
 
-    const html = wrapper.html();
-    // alice should have stats
-    expect(html).toContain('K/D 1.42');
-    expect(html).toContain('Jett');
-    expect(html).toContain('win');
+    expect(wrapper.find('.member-stats').exists()).toBe(false);
+  });
 
-    // only alice's card should have member-stats
-    const statsLines = wrapper.findAll('.member-stats');
-    expect(statsLines).toHaveLength(1);
+  it('renders two-row layout: .member-riot above .member-username when both are set', async () => {
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_MEMBERS);
+
+    const wrapper = mount(MembersList, {
+      global: { plugins: [makeRouter()] },
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    // alice has both riotName and telegramUsername
+    const cards = wrapper.findAll('.member-card');
+    const aliceCard = cards[0]!;
+    expect(aliceCard.find('.member-riot').exists()).toBe(true);
+    expect(aliceCard.find('.member-riot').text()).toContain('Alice#1337');
+    expect(aliceCard.find('.member-username').exists()).toBe(true);
+    expect(aliceCard.find('.member-username').text()).toContain('@alice');
+  });
+
+  it('renders only .member-username when no riot name', async () => {
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_MEMBERS);
+
+    const wrapper = mount(MembersList, {
+      global: { plugins: [makeRouter()] },
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    // bob has no riotName, only telegramUsername
+    const cards = wrapper.findAll('.member-card');
+    const bobCard = cards[1]!;
+    expect(bobCard.find('.member-riot').exists()).toBe(false);
+    expect(bobCard.find('.member-username').exists()).toBe(true);
+    expect(bobCard.find('.member-username').text()).toContain('@bob');
   });
 
   it('shows empty state when members list is empty', async () => {
