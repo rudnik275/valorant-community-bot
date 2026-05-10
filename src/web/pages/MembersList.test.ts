@@ -73,7 +73,7 @@ describe('MembersList.vue', () => {
     await new Promise((r) => setTimeout(r, 0));
     await wrapper.vm.$nextTick();
 
-    const items = wrapper.findAll('li');
+    const items = wrapper.findAll('.member-card');
     expect(items).toHaveLength(2);
   });
 
