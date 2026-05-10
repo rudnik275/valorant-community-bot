@@ -85,11 +85,11 @@ export function extractCardId(card: unknown): string | null {
 }
 
 // ─── Token-bucket rate limiter ────────────────────────────────────────────────
-// Henrik free tier: 30 req/min. We target 25 req/min for headroom.
+// Henrik free tier: 30 req/min. We target 20 req/min for headroom.
 
-const TOKENS_PER_MINUTE = 25;
-const BURST = 5;
-const TOKEN_REFILL_MS = 60_000 / TOKENS_PER_MINUTE; // 2400ms per token
+const TOKENS_PER_MINUTE = 20;
+const BURST = 1;
+const TOKEN_REFILL_MS = 60_000 / TOKENS_PER_MINUTE; // 3000ms per token
 
 let _tokens = BURST;
 let _lastRefill = Date.now();

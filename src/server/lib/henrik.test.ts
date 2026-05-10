@@ -53,7 +53,8 @@ describe('validateAccount', () => {
   beforeEach(() => {
     fetchMock = vi.fn();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
-    __resetTokenBucketForTest();
+    // Give plenty of tokens so multi-call tests (e.g. 5xx retries) don't hit real sleep.
+    __resetTokenBucketForTest({ tokens: 30 });
     delete process.env['HENRIK_API_KEY'];
   });
 
@@ -178,7 +179,8 @@ describe('getMatches', () => {
   beforeEach(() => {
     fetchMock = vi.fn();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
-    __resetTokenBucketForTest();
+    // Give plenty of tokens so multi-call tests (e.g. 5xx retries) don't hit real sleep.
+    __resetTokenBucketForTest({ tokens: 30 });
     delete process.env['HENRIK_API_KEY'];
   });
 
@@ -266,7 +268,7 @@ describe('getMmr', () => {
   beforeEach(() => {
     fetchMock = vi.fn();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
-    __resetTokenBucketForTest();
+    __resetTokenBucketForTest({ tokens: 30 });
     delete process.env['HENRIK_API_KEY'];
   });
 
@@ -340,7 +342,7 @@ describe('getMmrByPuuid', () => {
   beforeEach(() => {
     fetchMock = vi.fn();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
-    __resetTokenBucketForTest();
+    __resetTokenBucketForTest({ tokens: 30 });
     delete process.env['HENRIK_API_KEY'];
   });
 
@@ -415,26 +417,26 @@ describe('token-bucket rate limiter (acquireToken)', () => {
   // All tests use injectable now/sleep to avoid wall-clock slowness.
 
   it('burst of BURST tokens fires immediately without waiting', async () => {
-    // Fresh bucket: tokens = BURST = 5.
+    // Fresh bucket: tokens = BURST = 1.
     const t0 = 1_000_000;
-    __resetTokenBucketForTest({ tokens: 5, now: t0 });
+    __resetTokenBucketForTest({ tokens: 1, now: t0 });
     const nowFn = vi.fn(() => t0); // time frozen — no refill
     const sleepFn = vi.fn((_ms: number) => Promise.resolve());
 
-    const burst = 5;
+    const burst = 1;
     await Promise.all(Array.from({ length: burst }, () => acquireToken(nowFn, sleepFn)));
 
-    // All 5 tokens consumed without sleeping.
+    // 1 token consumed without sleeping.
     expect(sleepFn).not.toHaveBeenCalled();
   });
 
-  it('sixth call waits when bucket is drained', async () => {
-    // Drain 5 tokens then call once more — sleepFn must be called.
+  it('second call waits when bucket is drained', async () => {
+    // Drain 1 token then call once more — sleepFn must be called.
     const t0 = 2_000_000;
-    const TOKEN_REFILL_MS = 60_000 / 25; // 2400 ms
-    __resetTokenBucketForTest({ tokens: 5, now: t0 });
+    const TOKEN_REFILL_MS = 60_000 / 20; // 3000 ms
+    __resetTokenBucketForTest({ tokens: 1, now: t0 });
 
-    // First 5 calls: bucket drains, time stays frozen.
+    // First call: bucket drains, time stays frozen.
     let currentTime = t0;
     const nowFn = vi.fn(() => currentTime);
 
@@ -446,13 +448,11 @@ describe('token-bucket rate limiter (acquireToken)', () => {
       return Promise.resolve();
     });
 
-    // Drain the burst
-    for (let i = 0; i < 5; i++) {
-      await acquireToken(nowFn, sleepFn);
-    }
+    // Drain the burst (1 token)
+    await acquireToken(nowFn, sleepFn);
     expect(sleepFn).not.toHaveBeenCalled();
 
-    // 6th call should trigger sleep
+    // 2nd call should trigger sleep
     resolveSlept = () => {}; // placeholder
     await acquireToken(nowFn, sleepFn);
     expect(sleepFn).toHaveBeenCalledTimes(1);
@@ -462,8 +462,8 @@ describe('token-bucket rate limiter (acquireToken)', () => {
 
   it('refill restores capacity after waiting TOKEN_REFILL_MS * BURST', async () => {
     // Drain bucket, advance time by BURST * TOKEN_REFILL_MS, verify next BURST calls don't sleep.
-    const BURST = 5;
-    const TOKEN_REFILL_MS = 60_000 / 25;
+    const BURST = 1;
+    const TOKEN_REFILL_MS = 60_000 / 20; // 3000 ms
     const t0 = 3_000_000;
     __resetTokenBucketForTest({ tokens: 0, now: t0 }); // already drained
 
