@@ -1,6 +1,6 @@
 import type { Context } from 'hono';
 import { z } from 'zod';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 import { users } from '../db/schema/users.ts';
 import {
   validateAccount as defaultValidateAccount,
@@ -11,6 +11,7 @@ import {
 } from '../lib/henrik.ts';
 import { scanForPuuid as defaultScanForPuuid } from '../scanner/index.ts';
 import logger from '../lib/log.ts';
+import { FULL_PERMISSIONS } from '../cron/restrict-grace.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
@@ -21,12 +22,17 @@ export interface OnboardHandlerDeps {
   validateAccount?: (name: string, tag: string) => Promise<RiotAccount>;
   /** Fire-and-forget per-puuid scan, already bound to db. Injected for testing. */
   scanForPuuid?: (puuid: string, opts: { detection: boolean }) => Promise<unknown>;
-  /** Telegram Bot API instance — reserved for future notifications, unused in this slice. */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  botApi?: any;
-  /** Returns allowed Telegram chat IDs — reserved for future use, unused in this slice. */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getAllowedChatIds?: any;
+  /**
+   * Telegram Bot API: restrict a chat member.
+   * Used to lift read-only restriction after successful onboard.
+   */
+  restrictChatMember?: (
+    chatId: number,
+    userId: number,
+    permissions: typeof FULL_PERMISSIONS,
+  ) => Promise<void>;
+  /** Returns allowed Telegram chat IDs — used to lift restrictions after onboard. */
+  getAllowedChatIds?: () => Set<number>;
 }
 
 const OnboardBodySchema = z.object({
@@ -44,6 +50,8 @@ const OnboardBodySchema = z.object({
 export function makeOnboardHandler(deps: OnboardHandlerDeps) {
   const validate = deps.validateAccount ?? defaultValidateAccount;
   const scan = deps.scanForPuuid ?? ((puuid, opts) => defaultScanForPuuid(deps.db, puuid, opts));
+  const restrictChatMember = deps.restrictChatMember;
+  const getAllowedChatIds = deps.getAllowedChatIds;
 
   return async (c: Context) => {
     const telegramUser = c.get('telegramUser');
@@ -126,6 +134,43 @@ export function makeOnboardHandler(deps: OnboardHandlerDeps) {
       { module: 'onboard', telegramId, riot_name, riot_tag, riot_region, puuid },
       'User onboarded',
     );
+
+    // Auto-unrestrict: if user was previously restricted, lift restriction now
+    if (restrictChatMember && getAllowedChatIds) {
+      const [currentRow] = await deps.db
+        .select({ restricted_at: users.restricted_at })
+        .from(users)
+        .where(and(isNotNull(users.restricted_at), eq(users.telegram_id, telegramId)))
+        .limit(1);
+
+      if (currentRow) {
+        const chatIds = getAllowedChatIds();
+        let anyUnrestrictFailed = false;
+
+        for (const chatId of chatIds) {
+          try {
+            await restrictChatMember(chatId, telegramId, FULL_PERMISSIONS);
+          } catch (err) {
+            logger.warn(
+              { module: 'onboard', telegram_id: telegramId, chat_id: chatId, err },
+              'Failed to unrestrict user in chat — will retry on next onboard',
+            );
+            anyUnrestrictFailed = true;
+          }
+        }
+
+        if (!anyUnrestrictFailed) {
+          await deps.db
+            .update(users)
+            .set({ restricted_at: null })
+            .where(eq(users.telegram_id, telegramId));
+          logger.info(
+            { module: 'onboard', telegram_id: telegramId },
+            'User restriction lifted after onboard',
+          );
+        }
+      }
+    }
 
     // Fire-and-forget backfill scan — don't await, return success immediately
     void scan(puuid, { detection: false }).catch((err) => {

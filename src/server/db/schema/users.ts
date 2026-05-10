@@ -24,6 +24,7 @@ export const users = sqliteTable(
     peak_tier_name: text('peak_tier_name'),
     peak_season_short: text('peak_season_short'),
     mmr_fetched_at: integer('mmr_fetched_at'),
+    restricted_at: integer('restricted_at'),
   },
   (table) => [
     uniqueIndex('idx_users_riot_puuid').on(table.riot_puuid),
