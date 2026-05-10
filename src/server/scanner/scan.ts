@@ -94,19 +94,24 @@ export async function scanForPuuid(
 
   // 2.5. Fetch current + peak rank from Henrik MMR (fire-and-forget UPDATE).
   // We don't block the scan on MMR errors — match scan can continue.
+  // Never overwrite an existing DB value with null — last-known-good wins until
+  // Henrik returns a real new value. True "unranked" is tier_id 0, not null.
+  // mmr_fetched_at always updates as a liveness probe.
   try {
     const mmr = await getMmrByPuuid(puuid, region, 'console');
-    await db
-      .update(users)
-      .set({
-        current_tier_id: mmr.current.tier.id ?? null,
-        current_tier_name: mmr.current.tier.name ?? null,
-        peak_tier_id: mmr.peak?.tier?.id ?? null,
-        peak_tier_name: mmr.peak?.tier?.name ?? null,
-        peak_season_short: mmr.peak?.season ?? null,
-        mmr_fetched_at: Date.now(),
-      })
-      .where(eq(users.riot_puuid, puuid));
+    const mmrUpdate: Partial<typeof users.$inferInsert> = {
+      mmr_fetched_at: Date.now(),
+    };
+    if (mmr.current?.tier?.id != null) {
+      mmrUpdate.current_tier_id = mmr.current.tier.id;
+      mmrUpdate.current_tier_name = mmr.current.tier.name ?? null;
+    }
+    if (mmr.peak?.tier?.id != null) {
+      mmrUpdate.peak_tier_id = mmr.peak.tier.id;
+      mmrUpdate.peak_tier_name = mmr.peak.tier.name ?? null;
+      mmrUpdate.peak_season_short = mmr.peak.season ?? null;
+    }
+    await db.update(users).set(mmrUpdate).where(eq(users.riot_puuid, puuid));
   } catch (err) {
     if (
       err instanceof HenrikRateLimitError ||
@@ -120,12 +125,15 @@ export async function scanForPuuid(
   }
 
   // 2.6. Refresh account info (riot_card_id) on every scan tick.
+  // Only write if Henrik returned a non-null cardId — preserve last-known-good otherwise.
   try {
     const account = await getAccountByPuuid(puuid);
-    await db
-      .update(users)
-      .set({ riot_card_id: account.cardId })
-      .where(eq(users.riot_puuid, puuid));
+    if (account.cardId != null) {
+      await db
+        .update(users)
+        .set({ riot_card_id: account.cardId })
+        .where(eq(users.riot_puuid, puuid));
+    }
   } catch (err) {
     if (
       err instanceof HenrikRateLimitError ||

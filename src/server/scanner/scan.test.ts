@@ -5,7 +5,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { join } from 'node:path';
 import { scanForPuuid, CONSOLE_COMPETITIVE_QUEUE } from './scan.ts';
 import { scannerEvents } from './events.ts';
-import { __resetTokenBucketForTest } from '../lib/henrik.ts';
+import * as henrik from '../lib/henrik.ts';
 
 vi.mock('../lib/log.ts', () => ({
   default: {
@@ -120,7 +120,7 @@ describe('scanForPuuid', () => {
     fetchMock = vi.fn();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     // Give plenty of tokens so multi-call tests (5xx retries etc.) don't hit real sleep.
-    __resetTokenBucketForTest({ tokens: 30 });
+    henrik.__resetTokenBucketForTest({ tokens: 30 });
   });
 
   afterEach(() => {
@@ -332,5 +332,169 @@ describe('scanForPuuid', () => {
     await expect(
       scanForPuuid(db, TARGET_PUUID, { detection: false }),
     ).rejects.toThrow('Network catastrophe');
+  });
+
+  // ── Preserve known-good on partial Henrik response ──────────────────────────
+
+  it('preserves existing tier fields when MMR response has no current.tier.id', async () => {
+    seedUser();
+    // Seed existing rank data that must be preserved
+    sqlite.exec(`UPDATE users SET current_tier_id = 18, current_tier_name = 'Diamond 1',
+      peak_tier_id = 21, peak_tier_name = 'Immortal 1', peak_season_short = 'e8a1'
+      WHERE riot_puuid = '${TARGET_PUUID}'`);
+
+    // getMmrByPuuid returns sparse data: current exists but tier.id is undefined at runtime
+    const mmrSpy = vi.spyOn(henrik, 'getMmrByPuuid').mockResolvedValueOnce({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      current: { tier: { id: undefined as any, name: undefined as any }, rr: 0, last_change: 0 },
+      peak: null,
+    });
+    // getAccountByPuuid — return minimal valid account so card step doesn't throw
+    const accountSpy = vi.spyOn(henrik, 'getAccountByPuuid').mockResolvedValue({
+      puuid: TARGET_PUUID,
+      region: 'eu',
+      name: 'TestPlayer',
+      tag: 'EU1',
+      cardId: null,
+    });
+    // getMatches — return empty list so scan continues cleanly
+    const matchesSpy = vi.spyOn(henrik, 'getMatches').mockResolvedValueOnce([]);
+
+    await scanForPuuid(db, TARGET_PUUID, { detection: false });
+
+    const row = sqlite.prepare(
+      'SELECT current_tier_id, current_tier_name, peak_tier_id, peak_tier_name, peak_season_short FROM users WHERE riot_puuid = ?',
+    ).get(TARGET_PUUID) as {
+      current_tier_id: number;
+      current_tier_name: string;
+      peak_tier_id: number;
+      peak_tier_name: string;
+      peak_season_short: string;
+    };
+    // Existing values must be intact
+    expect(row.current_tier_id).toBe(18);
+    expect(row.current_tier_name).toBe('Diamond 1');
+    expect(row.peak_tier_id).toBe(21);
+    expect(row.peak_tier_name).toBe('Immortal 1');
+    expect(row.peak_season_short).toBe('e8a1');
+
+    mmrSpy.mockRestore();
+    accountSpy.mockRestore();
+    matchesSpy.mockRestore();
+  });
+
+  it('updates tier fields when MMR response returns full current data', async () => {
+    seedUser();
+    // Seed stale rank
+    sqlite.exec(`UPDATE users SET current_tier_id = 10, current_tier_name = 'Silver 1' WHERE riot_puuid = '${TARGET_PUUID}'`);
+
+    const mmrSpy = vi.spyOn(henrik, 'getMmrByPuuid').mockResolvedValueOnce({
+      current: { tier: { id: 21, name: 'Immortal 1' }, rr: 55, last_change: -10 },
+      peak: { tier: { id: 24, name: 'Radiant' }, rr: 100, season: 'e8a1' },
+    });
+    const accountSpy = vi.spyOn(henrik, 'getAccountByPuuid').mockResolvedValue({
+      puuid: TARGET_PUUID,
+      region: 'eu',
+      name: 'TestPlayer',
+      tag: 'EU1',
+      cardId: null,
+    });
+    const matchesSpy = vi.spyOn(henrik, 'getMatches').mockResolvedValueOnce([]);
+
+    await scanForPuuid(db, TARGET_PUUID, { detection: false });
+
+    const row = sqlite.prepare(
+      'SELECT current_tier_id, current_tier_name, peak_tier_id, peak_tier_name, peak_season_short FROM users WHERE riot_puuid = ?',
+    ).get(TARGET_PUUID) as {
+      current_tier_id: number;
+      current_tier_name: string;
+      peak_tier_id: number;
+      peak_tier_name: string;
+      peak_season_short: string;
+    };
+    expect(row.current_tier_id).toBe(21);
+    expect(row.current_tier_name).toBe('Immortal 1');
+    expect(row.peak_tier_id).toBe(24);
+    expect(row.peak_tier_name).toBe('Radiant');
+    expect(row.peak_season_short).toBe('e8a1');
+
+    mmrSpy.mockRestore();
+    accountSpy.mockRestore();
+    matchesSpy.mockRestore();
+  });
+
+  it('preserves existing riot_card_id when account returns cardId: null', async () => {
+    seedUser();
+    // Seed existing card id
+    sqlite.exec(`UPDATE users SET riot_card_id = 'existing-card-abc' WHERE riot_puuid = '${TARGET_PUUID}'`);
+
+    const mmrSpy = vi.spyOn(henrik, 'getMmrByPuuid').mockResolvedValueOnce({
+      current: { tier: { id: 18, name: 'Diamond 1' }, rr: 40, last_change: 5 },
+      peak: null,
+    });
+    const accountSpy = vi.spyOn(henrik, 'getAccountByPuuid').mockResolvedValue({
+      puuid: TARGET_PUUID,
+      region: 'eu',
+      name: 'TestPlayer',
+      tag: 'EU1',
+      cardId: null, // Henrik returned no card — must NOT overwrite
+    });
+    const matchesSpy = vi.spyOn(henrik, 'getMatches').mockResolvedValueOnce([]);
+
+    await scanForPuuid(db, TARGET_PUUID, { detection: false });
+
+    const row = sqlite.prepare('SELECT riot_card_id FROM users WHERE riot_puuid = ?').get(TARGET_PUUID) as {
+      riot_card_id: string;
+    };
+    expect(row.riot_card_id).toBe('existing-card-abc');
+
+    mmrSpy.mockRestore();
+    accountSpy.mockRestore();
+    matchesSpy.mockRestore();
+  });
+
+  it('preserves all known-good fields when both current and peak arrive null', async () => {
+    seedUser();
+    sqlite.exec(`UPDATE users SET current_tier_id = 15, current_tier_name = 'Platinum 3',
+      peak_tier_id = 18, peak_tier_name = 'Diamond 1', peak_season_short = 'e7a3',
+      riot_card_id = 'card-xyz'
+      WHERE riot_puuid = '${TARGET_PUUID}'`);
+
+    const mmrSpy = vi.spyOn(henrik, 'getMmrByPuuid').mockResolvedValueOnce({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      current: { tier: { id: undefined as any, name: undefined as any }, rr: 0, last_change: 0 },
+      peak: null,
+    });
+    const accountSpy = vi.spyOn(henrik, 'getAccountByPuuid').mockResolvedValue({
+      puuid: TARGET_PUUID,
+      region: 'eu',
+      name: 'TestPlayer',
+      tag: 'EU1',
+      cardId: null,
+    });
+    const matchesSpy = vi.spyOn(henrik, 'getMatches').mockResolvedValueOnce([]);
+
+    await scanForPuuid(db, TARGET_PUUID, { detection: false });
+
+    const row = sqlite.prepare(
+      'SELECT current_tier_id, current_tier_name, peak_tier_id, peak_tier_name, peak_season_short, riot_card_id FROM users WHERE riot_puuid = ?',
+    ).get(TARGET_PUUID) as {
+      current_tier_id: number;
+      current_tier_name: string;
+      peak_tier_id: number;
+      peak_tier_name: string;
+      peak_season_short: string;
+      riot_card_id: string;
+    };
+    expect(row.current_tier_id).toBe(15);
+    expect(row.current_tier_name).toBe('Platinum 3');
+    expect(row.peak_tier_id).toBe(18);
+    expect(row.peak_tier_name).toBe('Diamond 1');
+    expect(row.peak_season_short).toBe('e7a3');
+    expect(row.riot_card_id).toBe('card-xyz');
+
+    mmrSpy.mockRestore();
+    accountSpy.mockRestore();
+    matchesSpy.mockRestore();
   });
 });
