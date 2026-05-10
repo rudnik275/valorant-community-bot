@@ -228,7 +228,7 @@ const KillV4Schema = z.object({
   killer: z.object({ puuid: z.string().optional(), name: z.string().optional(), tag: z.string().optional(), team: z.string().optional() }).passthrough().optional(),
   victim: z.object({ puuid: z.string().optional(), name: z.string().optional(), tag: z.string().optional(), team: z.string().optional() }).passthrough().optional(),
   assistants: z.unknown().optional(),
-  weapon: z.object({ id: z.string().optional(), name: z.string().optional(), type: z.string().optional() }).passthrough().optional(),
+  weapon: z.object({ id: z.string().nullable().optional(), name: z.string().nullable().optional(), type: z.string().nullable().optional() }).passthrough().optional(),
   location: z.object({ x: z.number().optional(), y: z.number().optional() }).passthrough().optional(),
 }).passthrough();
 
