@@ -24,6 +24,8 @@ const MOCK_MEMBERS: Member[] = [
     peakTierId: 18,
     peakTierName: 'Diamond 1',
     peakSeasonShort: 'e11a2',
+    lastMatch: { startedAt: '2026-05-09T10:00:00.000Z', result: 'win', agent: 'Jett' },
+    kdRatioLast10: 1.42,
     lastMessageAt: '2026-05-09T10:00:00.000Z',
   },
   {
@@ -37,6 +39,8 @@ const MOCK_MEMBERS: Member[] = [
     peakTierId: null,
     peakTierName: null,
     peakSeasonShort: null,
+    lastMatch: null,
+    kdRatioLast10: null,
     lastMessageAt: null,
   },
 ];
@@ -144,7 +148,7 @@ describe('MembersList.vue', () => {
     expect(wrapper.text()).not.toContain('10:00');
   });
 
-  it('does NOT show K/D or winrate in the DOM', async () => {
+  it('shows K/D, agent and match result for alice, no stats for bob', async () => {
     (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_MEMBERS);
 
     const wrapper = mount(MembersList, {
@@ -155,11 +159,14 @@ describe('MembersList.vue', () => {
     await wrapper.vm.$nextTick();
 
     const html = wrapper.html();
-    expect(html).not.toContain('kills');
-    expect(html).not.toContain('deaths');
-    expect(html).not.toContain('winrate');
-    expect(html).not.toContain('K/D');
-    expect(html).not.toContain('Win');
+    // alice should have stats
+    expect(html).toContain('K/D 1.42');
+    expect(html).toContain('Jett');
+    expect(html).toContain('win');
+
+    // only alice's card should have member-stats
+    const statsLines = wrapper.findAll('.member-stats');
+    expect(statsLines).toHaveLength(1);
   });
 
   it('shows empty state when members list is empty', async () => {

@@ -43,7 +43,7 @@ export function makeMembersHandler(deps: MembersHandlerDeps) {
 
     const now = Date.now();
 
-    const members = rows.map((row: {
+    type UserRow = {
       telegram_id: number;
       telegram_username: string | null;
       telegram_avatar_url: string | null;
@@ -58,13 +58,58 @@ export function makeMembersHandler(deps: MembersHandlerDeps) {
       peak_tier_id: number | null;
       peak_tier_name: string | null;
       peak_season_short: string | null;
-    }) => {
+    };
+
+    const members = await Promise.all(rows.map(async (row: UserRow) => {
       // Fire-and-forget avatar refresh if stale
       if (deps.refreshAvatarIfStale) {
         const fetchedAt = row.telegram_avatar_fetched_at;
         const isStale = fetchedAt === null || now - fetchedAt >= AVATAR_STALE_MS;
         if (isStale) {
           deps.refreshAvatarIfStale(row.telegram_id);
+        }
+      }
+
+      let lastMatch: { startedAt: string; result: 'win' | 'loss' | 'draw'; agent: string } | null = null;
+      let kdRatioLast10: number | null = null;
+
+      if (row.riot_puuid) {
+        // Last match
+        const lastMatchRows = await deps.db.all(sql`
+          SELECT started_at, result, agent
+          FROM match_records
+          WHERE riot_puuid = ${row.riot_puuid}
+          ORDER BY started_at DESC
+          LIMIT 1
+        `);
+        if (lastMatchRows.length > 0) {
+          const lm = lastMatchRows[0] as { started_at: number; result: string; agent: string };
+          lastMatch = {
+            startedAt: new Date(lm.started_at).toISOString(),
+            result: lm.result as 'win' | 'loss' | 'draw',
+            agent: lm.agent,
+          };
+        }
+
+        // K/D last 10
+        const kdRows = await deps.db.all(sql`
+          SELECT
+            COALESCE(SUM(kills), 0) AS k,
+            COALESCE(SUM(deaths), 0) AS d,
+            COUNT(*) AS n
+          FROM (
+            SELECT kills, deaths
+            FROM match_records
+            WHERE riot_puuid = ${row.riot_puuid}
+            ORDER BY started_at DESC
+            LIMIT 10
+          )
+        `);
+        if (kdRows.length > 0) {
+          const kd = kdRows[0] as { k: number; d: number; n: number };
+          if (kd.n > 0) {
+            kdRatioLast10 = Math.round((kd.k / Math.max(kd.d, 1)) * 100) / 100;
+          }
         }
       }
 
@@ -79,9 +124,11 @@ export function makeMembersHandler(deps: MembersHandlerDeps) {
         peakTierId: row.riot_puuid ? row.peak_tier_id : null,
         peakTierName: row.riot_puuid ? row.peak_tier_name : null,
         peakSeasonShort: row.riot_puuid ? row.peak_season_short : null,
+        lastMatch,
+        kdRatioLast10,
         lastMessageAt: row.last_message_at ? new Date(row.last_message_at).toISOString() : null,
       };
-    });
+    }));
 
     const validated = MembersResponseSchema.parse(members);
     return c.json(validated);

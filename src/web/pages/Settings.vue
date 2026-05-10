@@ -12,7 +12,19 @@
       <p class="h3-card" data-testid="riot-name-tag">
         {{ me.profile.riotName }}#{{ me.profile.riotTag }}
       </p>
-      <!-- TODO: surface current rank here once /api/me includes Henrik MMR lookup -->
+      <div v-if="me.profile.currentRank || me.profile.peakRank" class="rank-row" data-testid="rank-row">
+        <div v-if="me.profile.currentRank" class="rank-pill" data-testid="current-rank">
+          <img :src="`/ranks/${me.profile.currentRank.tierId}.png`" :alt="me.profile.currentRank.tierName" class="rank-icon" />
+          <span>{{ me.profile.currentRank.tierName }}</span>
+        </div>
+        <div v-if="me.profile.peakRank && me.profile.peakRank.tierId !== me.profile.currentRank?.tierId" class="rank-pill rank-pill--peak" data-testid="peak-rank">
+          <img :src="`/ranks/${me.profile.peakRank.tierId}.png`" :alt="me.profile.peakRank.tierName" class="rank-icon" />
+          <span>Пик: {{ me.profile.peakRank.tierName }}<template v-if="me.profile.peakRank.seasonShort"> ({{ me.profile.peakRank.seasonShort }})</template></span>
+        </div>
+      </div>
+      <p v-if="me.profile.region" class="text-muted region-label" data-testid="region-label">
+        Регион: {{ me.profile.region.toUpperCase() }}
+      </p>
     </div>
 
     <div v-else class="card" data-testid="not-linked">
@@ -89,4 +101,24 @@ onUnmounted(() => {
   font-size: 14px;
   margin-top: 12px;
 }
+
+.rank-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.rank-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  font-size: 13px;
+}
+.rank-pill--peak { opacity: 0.75; }
+.rank-pill .rank-icon { width: 22px; height: 22px; object-fit: contain; }
+.region-label { font-size: 12px; margin-top: 8px; }
 </style>
