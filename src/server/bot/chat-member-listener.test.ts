@@ -239,4 +239,45 @@ describe('makeChatMemberListener', () => {
     const rows = db.select().from(users).all();
     expect(rows).toHaveLength(0);
   });
+
+  // COALESCE preservation tests
+  it('preserves existing telegram_username when join update delivers no username', async () => {
+    const handler = makeChatMemberListener({ db, isAllowedChat });
+
+    // Pre-insert row with known username
+    db.insert(users).values({
+      telegram_id: 110,
+      telegram_username: 'ivan',
+      riot_puuid: 'puuid-ivan',
+    }).run();
+
+    // Simulate join update where Telegram omits username (privacy setting)
+    const update = makeChatMember(110, 'member');
+    // Explicitly delete username so it's absent from the update (not just undefined)
+    delete (update.new_chat_member.user as Partial<FakeUser>).username;
+
+    await handler(makeCtx(update) as never);
+
+    const rows = db.select().from(users).where(eq(users.telegram_id, 110)).all();
+    expect(rows).toHaveLength(1);
+    // Known-good username must be preserved
+    expect(rows[0]!.telegram_username).toBe('ivan');
+    expect(rows[0]!.riot_puuid).toBe('puuid-ivan');
+  });
+
+  it('updates telegram_username when join update delivers a non-null value', async () => {
+    const handler = makeChatMemberListener({ db, isAllowedChat });
+
+    // Pre-insert row with old username
+    db.insert(users).values({
+      telegram_id: 111,
+      telegram_username: 'judy_old',
+    }).run();
+
+    await handler(makeCtx(makeChatMember(111, 'member', { username: 'judy_new' })) as never);
+
+    const rows = db.select().from(users).where(eq(users.telegram_id, 111)).all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.telegram_username).toBe('judy_new');
+  });
 });
