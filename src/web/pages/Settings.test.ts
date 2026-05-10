@@ -22,6 +22,21 @@ function makeRouter() {
   });
 }
 
+const linkedMeResponse = {
+  onboarded: true,
+  profile: {
+    telegramId: 123456,
+    riotName: 'Player',
+    riotTag: 'EUW',
+    riotPuuid: 'some-puuid',
+  },
+};
+
+const unlinkedMeResponse = {
+  onboarded: false,
+  profile: null,
+};
+
 describe('Settings.vue', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -34,9 +49,6 @@ describe('Settings.vue', () => {
           onClick: vi.fn(),
           offClick: vi.fn(),
         },
-        HapticFeedback: {
-          impactOccurred: vi.fn(),
-        },
       },
     };
   });
@@ -45,8 +57,8 @@ describe('Settings.vue', () => {
     delete (window as Window & { Telegram?: unknown }).Telegram;
   });
 
-  it('renders with switch unchecked when API returns chatRealtimeDisabled: false', async () => {
-    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue({ chatRealtimeDisabled: false });
+  it('renders the "Настройки" heading', async () => {
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue(linkedMeResponse);
 
     const wrapper = mount(Settings, {
       global: { plugins: [makeRouter()] },
@@ -55,13 +67,11 @@ describe('Settings.vue', () => {
     await new Promise((r) => setTimeout(r, 0));
     await wrapper.vm.$nextTick();
 
-    const checkbox = wrapper.find('input[type="checkbox"]');
-    expect(checkbox.exists()).toBe(true);
-    expect((checkbox.element as HTMLInputElement).checked).toBe(false);
+    expect(wrapper.text()).toContain('Настройки');
   });
 
-  it('renders with switch checked when API returns chatRealtimeDisabled: true', async () => {
-    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue({ chatRealtimeDisabled: true });
+  it('renders linked-account card when /api/me returns linked user', async () => {
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue(linkedMeResponse);
 
     const wrapper = mount(Settings, {
       global: { plugins: [makeRouter()] },
@@ -70,15 +80,13 @@ describe('Settings.vue', () => {
     await new Promise((r) => setTimeout(r, 0));
     await wrapper.vm.$nextTick();
 
-    const checkbox = wrapper.find('input[type="checkbox"]');
-    expect((checkbox.element as HTMLInputElement).checked).toBe(true);
+    expect(wrapper.find('[data-testid="linked-account"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="not-linked"]').exists()).toBe(false);
+    expect(wrapper.text()).toContain('Привязанный аккаунт');
   });
 
-  it('calls PATCH with chatRealtimeDisabled: true when switch is clicked (unchecked → checked)', async () => {
-    // First call is GET, second is PATCH
-    (apiFetch as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce({ chatRealtimeDisabled: false })
-      .mockResolvedValueOnce({ chatRealtimeDisabled: true });
+  it('renders riot name#tag when user is linked', async () => {
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue(linkedMeResponse);
 
     const wrapper = mount(Settings, {
       global: { plugins: [makeRouter()] },
@@ -87,26 +95,13 @@ describe('Settings.vue', () => {
     await new Promise((r) => setTimeout(r, 0));
     await wrapper.vm.$nextTick();
 
-    const checkbox = wrapper.find('input[type="checkbox"]');
-    // In jsdom, trigger('change') does not automatically toggle checked.
-    // We must set the checked property before triggering the event.
-    (checkbox.element as HTMLInputElement).checked = true;
-    await checkbox.trigger('change');
-
-    await new Promise((r) => setTimeout(r, 0));
-    await wrapper.vm.$nextTick();
-
-    // Verify PATCH was called with correct args
-    expect(apiFetch).toHaveBeenCalledTimes(2);
-    const [, , patchOpts] = (apiFetch as ReturnType<typeof vi.fn>).mock.calls[1] as [string, unknown, RequestInit];
-    expect(patchOpts.method).toBe('PATCH');
-    expect(JSON.parse(patchOpts.body as string)).toEqual({ chatRealtimeDisabled: true });
+    const nameTag = wrapper.find('[data-testid="riot-name-tag"]');
+    expect(nameTag.exists()).toBe(true);
+    expect(nameTag.text()).toContain('Player#EUW');
   });
 
-  it('reverts switch and shows error when PATCH throws', async () => {
-    (apiFetch as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce({ chatRealtimeDisabled: false })
-      .mockRejectedValueOnce(new Error('API /api/me/settings failed: 500'));
+  it('renders "not linked" CTA when /api/me returns no linkage', async () => {
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue(unlinkedMeResponse);
 
     const wrapper = mount(Settings, {
       global: { plugins: [makeRouter()] },
@@ -115,23 +110,14 @@ describe('Settings.vue', () => {
     await new Promise((r) => setTimeout(r, 0));
     await wrapper.vm.$nextTick();
 
-    const checkbox = wrapper.find('input[type="checkbox"]');
-    await checkbox.trigger('change');
-
-    await new Promise((r) => setTimeout(r, 0));
-    await wrapper.vm.$nextTick();
-
-    // Switch should have reverted to unchecked
-    expect((checkbox.element as HTMLInputElement).checked).toBe(false);
-
-    // Error message should be shown
-    const errorEl = wrapper.find('[data-testid="settings-error"]');
-    expect(errorEl.exists()).toBe(true);
-    expect(errorEl.text()).toContain('Ошибка');
+    expect(wrapper.find('[data-testid="not-linked"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="linked-account"]').exists()).toBe(false);
+    expect(wrapper.text()).toContain('Аккаунт не привязан');
+    expect(wrapper.text()).toContain('Открыть онбординг');
   });
 
-  it('shows the explanatory hint text', async () => {
-    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue({ chatRealtimeDisabled: false });
+  it('shows "Аккаунт не привязан" when onboarded is false', async () => {
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue(unlinkedMeResponse);
 
     const wrapper = mount(Settings, {
       global: { plugins: [makeRouter()] },
@@ -140,13 +126,11 @@ describe('Settings.vue', () => {
     await new Promise((r) => setTimeout(r, 0));
     await wrapper.vm.$nextTick();
 
-    expect(wrapper.text()).toContain('Эйсы');
-    expect(wrapper.text()).toContain('групповой чат');
-    expect(wrapper.text()).toContain('weekly digest');
+    expect(wrapper.text()).toContain('Аккаунт не привязан');
   });
 
   it('shows BackButton on mount and hides on unmount', async () => {
-    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue({ chatRealtimeDisabled: false });
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue(linkedMeResponse);
 
     const twa = (window as Window & { Telegram?: { WebApp?: { BackButton?: { show: ReturnType<typeof vi.fn>; hide: ReturnType<typeof vi.fn>; onClick: ReturnType<typeof vi.fn>; offClick: ReturnType<typeof vi.fn> } } } }).Telegram?.WebApp?.BackButton;
 
@@ -161,5 +145,18 @@ describe('Settings.vue', () => {
 
     wrapper.unmount();
     expect(twa?.hide).toHaveBeenCalled();
+  });
+
+  it('does not render a toggle checkbox (opt-out removed)', async () => {
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue(linkedMeResponse);
+
+    const wrapper = mount(Settings, {
+      global: { plugins: [makeRouter()] },
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('input[type="checkbox"]').exists()).toBe(false);
   });
 });
