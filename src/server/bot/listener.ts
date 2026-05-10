@@ -2,7 +2,8 @@
  * listener.ts — grammY handler that tracks the last time a user was active
  * in the group.
  *
- * Fires on: message, edited_message, message_reaction.
+ * Fires on: message only. Edited messages and reactions are intentionally
+ * ignored so that only fresh posts move a user up the Mini App list.
  * UPSERTs a skeleton user row with last_message_at = now().
  * joined_at is preserved on conflict (not included in the SET clause).
  * Uses MAX(COALESCE(...)) so out-of-order event delivery never goes backwards.
@@ -28,11 +29,10 @@ export interface LastMessageHandlerDeps {
 
 /**
  * Determine which update kind this context represents.
+ * Only fresh messages count — edited messages and reactions are ignored.
  */
-function updateKind(ctx: Context): 'message' | 'edited_message' | 'message_reaction' | null {
+function updateKind(ctx: Context): 'message' | null {
   if (ctx.update.message) return 'message';
-  if (ctx.update.edited_message) return 'edited_message';
-  if (ctx.update.message_reaction) return 'message_reaction';
   return null;
 }
 
