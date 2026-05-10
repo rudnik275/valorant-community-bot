@@ -29,33 +29,25 @@
         >
           <!-- Avatar -->
           <div class="member-avatar">
-            <!-- Primary: Valorant card if available, else TG avatar fallback -->
+            <!-- Primary: Valorant card or ? placeholder -->
             <img
               v-if="m.riotCardId"
               :src="valorantCardUrl(m.riotCardId)"
               :alt="m.riotName ?? ''"
               class="avatar-img avatar-img--card"
             />
+            <div v-else class="avatar-placeholder avatar-placeholder--unlinked">?</div>
+
+            <!-- Corner: always rendered. TG avatar or initial-letter circle. -->
             <img
-              v-else-if="m.telegramAvatarUrl"
+              v-if="m.telegramAvatarUrl"
               :src="m.telegramAvatarUrl"
               :alt="m.telegramUsername ?? ''"
-              class="avatar-img"
+              class="tg-avatar-overlay"
             />
-            <div v-else class="avatar-placeholder">{{ avatarInitial(m) }}</div>
-
-            <!-- Corner: TG avatar OR initial-circle, ONLY when primary is the Valorant card -->
-            <template v-if="m.riotCardId">
-              <img
-                v-if="m.telegramAvatarUrl"
-                :src="m.telegramAvatarUrl"
-                :alt="m.telegramUsername ?? ''"
-                class="tg-avatar-overlay"
-              />
-              <div v-else class="tg-avatar-overlay tg-avatar-overlay--placeholder">
-                {{ avatarInitial(m) }}
-              </div>
-            </template>
+            <div v-else class="tg-avatar-overlay tg-avatar-overlay--placeholder">
+              {{ avatarInitial(m) }}
+            </div>
           </div>
 
           <!-- Name + username -->
@@ -326,6 +318,13 @@ function avatarInitial(m: Member): string {
   font-size: 18px;
   font-weight: 600;
   letter-spacing: -0.01em;
+}
+
+.avatar-placeholder--unlinked {
+  background: linear-gradient(135deg, rgba(115, 131, 255, 0.15), rgba(177, 94, 255, 0.10));
+  color: var(--muted);
+  font-size: 32px;
+  font-weight: 400;
 }
 
 /* Name area */
