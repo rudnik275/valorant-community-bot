@@ -111,50 +111,30 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('1v4');
   });
 
-  it('rank_promo: shows from and to with апнул wording', () => {
-    const output = renderTemplate('rank_promo', { from: 'Gold 1', to: 'Gold 2' }, safeUser);
-    expect(output).toContain('Gold 1');
-    expect(output).toContain('Gold 2');
-    expect(output).toContain('апнул ранг');
-    expect(output).not.toContain('обновил');
-  });
-
-  it('rank_promo: to-only branch uses апнул wording', () => {
-    const output = renderTemplate('rank_promo', { to: 'Ascendant 1' }, safeUser);
-    expect(output).toContain('Ascendant 1');
-    expect(output).toContain('апнул ранг');
-    expect(output).not.toContain('обновил');
-  });
-
-  it('rank_promo: no-payload branch uses апнул wording', () => {
-    const output = renderTemplate('rank_promo', {}, safeUser);
-    expect(output).toContain('апнул ранг');
-    expect(output).not.toContain('обновил');
-  });
-
-  it('rank_promo: Diamond 3 → Ascendant 1 contains emoji tags for both ranks', () => {
+  it('rank_promo: from + to known rank — only new rank icon, no old rank or arrow', () => {
     const output = renderTemplate('rank_promo', { from: 'Diamond 3', to: 'Ascendant 1' }, safeUser);
-    expect(output).toContain('<tg-emoji emoji-id="5190612593059864801">💎</tg-emoji> Diamond 3');
-    expect(output).toContain('<tg-emoji emoji-id="5188550815484256589">💚</tg-emoji> Ascendant 1');
-    expect(output).toContain(' → ');
-    expect(output).toMatch(/!$/);
+    expect(output).toBe('📈 <b>Player#TAG</b> апнул ранг — <tg-emoji emoji-id="5188550815484256589">💚</tg-emoji>');
+    expect(output).not.toContain('Diamond 3');
+    expect(output).not.toContain('Ascendant 1');
+    expect(output).not.toContain(' → ');
+    expect(output).not.toContain('!');
   });
 
-  it('rank_promo: to-only with Immortal 1 contains emoji tag', () => {
+  it('rank_promo: to-only with Immortal 1 shows icon only', () => {
     const output = renderTemplate('rank_promo', { to: 'Immortal 1' }, safeUser);
-    expect(output).toContain('теперь <tg-emoji emoji-id="5188459714932943688">🔮</tg-emoji> Immortal 1!');
+    expect(output).toBe('📈 <b>Player#TAG</b> апнул ранг — <tg-emoji emoji-id="5188459714932943688">🔮</tg-emoji>');
   });
 
-  it('rank_promo: no-payload still produces апнул ранг! with no icon or extra spaces', () => {
+  it('rank_promo: no-payload produces апнул ранг with no trailing punctuation', () => {
     const output = renderTemplate('rank_promo', {}, safeUser);
-    expect(output).toContain('апнул ранг!');
+    expect(output).toBe('📈 <b>Player#TAG</b> апнул ранг');
     expect(output).not.toContain('<tg-emoji');
-    expect(output).not.toContain('  ');
+    expect(output).not.toContain('!');
   });
 
-  it('rank_promo: unknown rank label renders plain text without broken tg-emoji', () => {
+  it('rank_promo: unknown rank label renders escaped plain text without tg-emoji', () => {
     const output = renderTemplate('rank_promo', { to: 'MetaTier 1' }, safeUser);
-    expect(output).toContain('теперь MetaTier 1!');
+    expect(output).toBe('📈 <b>Player#TAG</b> апнул ранг — MetaTier 1');
     expect(output).not.toContain('<tg-emoji');
   });
 

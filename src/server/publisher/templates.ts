@@ -107,20 +107,17 @@ const templates: Record<EventType, TemplateFn> = {
   },
 
   rank_promo: (payload, user, _match) => {
-    const fromRank = payload['from'] != null ? String(payload['from']) : null;
-    const toRank   = payload['to']   != null ? String(payload['to'])   : null;
-    const fromIcon = rankToEmojiHtml(fromRank);
-    const toIcon   = rankToEmojiHtml(toRank);
-    const fromPart = fromRank ? `${fromIcon}${fromIcon ? ' ' : ''}${esc(fromRank)}` : '';
-    const toPart   = toRank   ? `${toIcon}${toIcon ? ' ' : ''}${esc(toRank)}`     : '';
+    const toRank = payload['to'] != null ? String(payload['to']) : null;
+    const toIcon = rankToEmojiHtml(toRank);
 
-    if (fromRank && toRank) {
-      return `📈 ${playerTag(user)} апнул ранг — ${fromPart} → ${toPart}!`;
+    if (toRank && toIcon) {
+      return `📈 ${playerTag(user)} апнул ранг — ${toIcon}`;
     }
     if (toRank) {
-      return `📈 ${playerTag(user)} апнул ранг — теперь ${toPart}!`;
+      // Unknown rank label (rank-emoji map miss) → fall back to plain text
+      return `📈 ${playerTag(user)} апнул ранг — ${esc(toRank)}`;
     }
-    return `📈 ${playerTag(user)} апнул ранг!`;
+    return `📈 ${playerTag(user)} апнул ранг`;
   },
 
   winstreak_9: (payload, user, _match) => {
