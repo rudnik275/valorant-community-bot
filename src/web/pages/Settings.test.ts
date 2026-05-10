@@ -29,6 +29,22 @@ const linkedMeResponse = {
     riotName: 'Player',
     riotTag: 'EUW',
     riotPuuid: 'some-puuid',
+    currentRank: { tierId: 17, tierName: 'Platinum 3' },
+    peakRank: { tierId: 21, tierName: 'Ascendant 1', seasonShort: 'e11a2' },
+    region: 'eu',
+  },
+};
+
+const linkedMeResponseNoRank = {
+  onboarded: true,
+  profile: {
+    telegramId: 123456,
+    riotName: 'Player',
+    riotTag: 'EUW',
+    riotPuuid: 'some-puuid',
+    currentRank: null,
+    peakRank: null,
+    region: null,
   },
 };
 
@@ -158,5 +174,35 @@ describe('Settings.vue', () => {
     await wrapper.vm.$nextTick();
 
     expect(wrapper.find('input[type="checkbox"]').exists()).toBe(false);
+  });
+
+  it('shows rank pills and region when rank fields are set', async () => {
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue(linkedMeResponse);
+
+    const wrapper = mount(Settings, {
+      global: { plugins: [makeRouter()] },
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-testid="current-rank"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="current-rank"]').text()).toContain('Platinum 3');
+    expect(wrapper.find('[data-testid="region-label"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="region-label"]').text()).toContain('Регион: EU');
+  });
+
+  it('does not show rank-row or region-label when rank fields are null', async () => {
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue(linkedMeResponseNoRank);
+
+    const wrapper = mount(Settings, {
+      global: { plugins: [makeRouter()] },
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-testid="rank-row"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="region-label"]').exists()).toBe(false);
   });
 });

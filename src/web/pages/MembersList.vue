@@ -47,6 +47,17 @@
             <span v-else>@{{ m.telegramUsername ?? 'unknown' }}</span>
             <span v-if="m.riotName && m.telegramUsername" class="text-muted member-username">@{{ m.telegramUsername }}</span>
           </div>
+          <div
+            v-if="m.kdRatioLast10 !== null || m.lastMatch !== null"
+            class="member-stats text-muted"
+          >
+            <span v-if="m.kdRatioLast10 !== null">K/D {{ m.kdRatioLast10.toFixed(2) }}</span>
+            <span v-if="m.kdRatioLast10 !== null && m.lastMatch !== null"> · </span>
+            <span v-if="m.lastMatch">
+              {{ m.lastMatch.agent }} ·
+              <span :class="resultClass(m.lastMatch.result)">{{ resultLabel(m.lastMatch.result) }}</span>
+            </span>
+          </div>
         </div>
 
         <!-- Rank icons: current + peak -->
@@ -101,6 +112,18 @@ function avatarInitial(m: Member): string {
   if (m.riotName) return m.riotName.charAt(0).toUpperCase();
   if (m.telegramUsername) return m.telegramUsername.charAt(0).toUpperCase();
   return '?';
+}
+
+function resultClass(result: 'win' | 'loss' | 'draw'): string {
+  if (result === 'win') return 'result-win';
+  if (result === 'loss') return 'result-loss';
+  return 'text-muted';
+}
+
+function resultLabel(result: 'win' | 'loss' | 'draw'): string {
+  if (result === 'win') return 'win';
+  if (result === 'loss') return 'loss';
+  return 'draw';
 }
 </script>
 
@@ -242,4 +265,16 @@ function avatarInitial(m: Member): string {
   font-size: 13px;
   color: var(--muted);
 }
+
+.member-stats {
+  font-size: 12px;
+  margin-top: 2px;
+  display: flex;
+  gap: 4px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.result-win { color: var(--status-ok, #4ade80); }
+.result-loss { color: var(--status-warn, #f87171); }
 </style>
