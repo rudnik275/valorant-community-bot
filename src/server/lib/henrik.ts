@@ -84,6 +84,50 @@ export function extractCardId(card: unknown): string | null {
   return null;
 }
 
+// ─── Token-bucket rate limiter ────────────────────────────────────────────────
+// Henrik free tier: 30 req/min. We target 25 req/min for headroom.
+
+const TOKENS_PER_MINUTE = 25;
+const BURST = 5;
+const TOKEN_REFILL_MS = 60_000 / TOKENS_PER_MINUTE; // 2400ms per token
+
+let _tokens = BURST;
+let _lastRefill = Date.now();
+
+/** Reset token bucket state — for tests only. */
+export function __resetTokenBucketForTest(
+  opts: { tokens?: number; now?: number } = {},
+): void {
+  _tokens = opts.tokens ?? BURST;
+  _lastRefill = opts.now ?? Date.now();
+}
+
+/**
+ * Acquire a token from the bucket before each HTTP call.
+ * Accepts injectable `now` and `sleep` for deterministic testing.
+ */
+export async function acquireToken(
+  nowFn: () => number = Date.now,
+  sleepFn: (ms: number) => Promise<void> = sleep,
+): Promise<void> {
+  while (true) {
+    const now = nowFn();
+    const elapsed = now - _lastRefill;
+    if (elapsed >= TOKEN_REFILL_MS) {
+      const refill = Math.floor(elapsed / TOKEN_REFILL_MS);
+      _tokens = Math.min(BURST, _tokens + refill);
+      _lastRefill = _lastRefill + refill * TOKEN_REFILL_MS;
+    }
+    if (_tokens > 0) {
+      _tokens -= 1;
+      return;
+    }
+    // Wait until the next token arrives
+    const waitMs = TOKEN_REFILL_MS - (nowFn() - _lastRefill);
+    await sleepFn(Math.max(50, waitMs));
+  }
+}
+
 // ─── Client internals ────────────────────────────────────────────────────────
 
 const BASE_URL = 'https://api.henrikdev.xyz';
@@ -118,6 +162,8 @@ async function fetchWithRetry<T>(
   let attempt = 0;
 
   while (true) {
+    await acquireToken();
+
     const start = Date.now();
     let response: Response;
 
