@@ -17,11 +17,6 @@
         v-for="m in members"
         :key="m.telegramId"
         class="card member-card"
-        role="button"
-        tabindex="0"
-        @click="openProfile(m.telegramId)"
-        @keydown.enter="openProfile(m.telegramId)"
-        @keydown.space.prevent="openProfile(m.telegramId)"
       >
         <!-- Avatar -->
         <div class="member-avatar">
@@ -89,8 +84,41 @@
             class="rank-icon rank-icon--peak"
           />
         </div>
+
+        <!-- Action buttons -->
+        <div class="member-actions">
+          <button
+            v-if="m.riotName"
+            type="button"
+            class="action-btn action-copy"
+            aria-label="Скопировать Riot ID"
+            @click="copyRiotId(m, $event)"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+          </button>
+          <button
+            v-if="m.telegramUsername"
+            type="button"
+            class="action-btn action-tg"
+            aria-label="Открыть чат в Telegram"
+            @click="openTgChat(m.telegramUsername!, $event)"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"/>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
+
+    <!-- Toast -->
+    <transition name="toast-fade">
+      <div v-if="toastMsg" class="toast-bubble">{{ toastMsg }}</div>
+    </transition>
   </div>
 </template>
 
@@ -102,6 +130,8 @@ import { MembersResponseSchema, type Member } from '../../shared/schemas/members
 const members = ref<Member[]>([]);
 const loading = ref(true);
 const error = ref<string | null>(null);
+const toastMsg = ref<string | null>(null);
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
 onMounted(async () => {
   try {
@@ -113,9 +143,48 @@ onMounted(async () => {
   }
 });
 
-function openProfile(telegramId: number) {
-  const url = `tg://user?id=${telegramId}`;
-  (window as Window & { Telegram?: { WebApp?: { openTelegramLink?: (url: string) => void } } }).Telegram?.WebApp?.openTelegramLink?.(url);
+function showToast(msg: string) {
+  if (toastTimer !== null) {
+    clearTimeout(toastTimer);
+    toastTimer = null;
+  }
+  toastMsg.value = msg;
+  toastTimer = setTimeout(() => {
+    toastMsg.value = null;
+    toastTimer = null;
+  }, 1500);
+}
+
+function hapticImpact(style: 'light' | 'medium') {
+  type WebApp = { HapticFeedback?: { impactOccurred?: (s: string) => void } };
+  const wa = (window as Window & { Telegram?: { WebApp?: WebApp } }).Telegram?.WebApp;
+  wa?.HapticFeedback?.impactOccurred?.(style);
+}
+
+async function copyRiotId(m: Member, evt: Event) {
+  evt.stopPropagation();
+  if (!m.riotName || !m.riotTag) return;
+  const id = `${m.riotName}#${m.riotTag}`;
+  try {
+    await navigator.clipboard.writeText(id);
+    showToast(`Скопировано: ${id}`);
+    hapticImpact('light');
+  } catch {
+    showToast('Не удалось скопировать');
+  }
+}
+
+function openTgChat(username: string, evt: Event) {
+  evt.stopPropagation();
+  const url = `https://t.me/${username}`;
+  type WebApp = { openTelegramLink?: (url: string) => void };
+  const wa = (window as Window & { Telegram?: { WebApp?: WebApp } }).Telegram?.WebApp;
+  if (wa?.openTelegramLink) {
+    wa.openTelegramLink(url);
+  } else {
+    window.open(url, '_blank');
+  }
+  hapticImpact('light');
 }
 
 function valorantCardUrl(id: string | null): string | null {
@@ -150,13 +219,7 @@ function avatarInitial(m: Member): string {
   gap: 14px;
   padding: 12px 16px;
   border-radius: 14px;
-  cursor: pointer;
-  transition: background 0.15s ease;
   text-decoration: none;
-}
-
-.member-card:hover {
-  background: var(--glass-bg-hover);
 }
 
 /* Avatar */
@@ -246,7 +309,6 @@ function avatarInitial(m: Member): string {
 /* Rank icons (current + peak) */
 .member-rank {
   flex-shrink: 0;
-  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -269,5 +331,62 @@ function avatarInitial(m: Member): string {
 .rank-empty {
   font-size: 13px;
   color: var(--muted);
+}
+
+/* Action buttons */
+.member-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+}
+
+.action-btn {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.action-btn:hover,
+.action-btn:active {
+  background: var(--glass-bg-hover);
+  color: var(--fg);
+}
+
+/* Toast */
+.toast-bubble {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  padding: 10px 18px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-radius: 999px;
+  color: var(--fg);
+  font-size: 13px;
+  z-index: 100;
+  box-shadow: var(--shadow-deep);
+}
+
+.toast-fade-enter-active,
+.toast-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.toast-fade-enter-from,
+.toast-fade-leave-to {
+  opacity: 0;
 }
 </style>

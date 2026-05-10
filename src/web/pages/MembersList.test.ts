@@ -12,6 +12,9 @@ vi.mock('../lib/api.ts', () => ({
 
 import { apiFetch } from '../lib/api.ts';
 
+const mockOpenTelegramLink = vi.fn();
+const mockWriteText = vi.fn().mockResolvedValue(undefined);
+
 const MOCK_MEMBERS: Member[] = [
   {
     telegramId: 1,
@@ -57,6 +60,18 @@ function makeRouter() {
 describe('MembersList.vue', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockOpenTelegramLink.mockReset();
+    mockWriteText.mockReset().mockResolvedValue(undefined);
+    Object.defineProperty(window, 'Telegram', {
+      value: { WebApp: { openTelegramLink: mockOpenTelegramLink } },
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: mockWriteText },
+      writable: true,
+      configurable: true,
+    });
   });
 
   it('shows loading state initially', async () => {
@@ -347,5 +362,95 @@ describe('MembersList.vue', () => {
     expect(wrapper.find('img.avatar-img--card').exists()).toBe(false);
     expect(wrapper.find('.tg-avatar-overlay').exists()).toBe(false);
     expect(wrapper.find('.tg-avatar-overlay--placeholder').exists()).toBe(false);
+  });
+
+  // ─── Action button tests ──────────────────────────────────────────────────
+
+  it('click .action-copy writes Name#TAG to clipboard and shows toast', async () => {
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_MEMBERS);
+
+    const wrapper = mount(MembersList, { global: { plugins: [makeRouter()] } });
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    const cards = wrapper.findAll('.member-card');
+    const aliceCard = cards[0]!;
+    const copyBtn = aliceCard.find('.action-copy');
+    expect(copyBtn.exists()).toBe(true);
+
+    await copyBtn.trigger('click');
+    await wrapper.vm.$nextTick();
+
+    expect(mockWriteText).toHaveBeenCalledWith('Alice#1337');
+    expect(wrapper.find('.toast-bubble').exists()).toBe(true);
+    expect(wrapper.find('.toast-bubble').text()).toContain('Скопировано: Alice#1337');
+  });
+
+  it('member without riotName does not render .action-copy', async () => {
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_MEMBERS);
+
+    const wrapper = mount(MembersList, { global: { plugins: [makeRouter()] } });
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    // bob (index 1) has no riotName
+    const cards = wrapper.findAll('.member-card');
+    const bobCard = cards[1]!;
+    expect(bobCard.find('.action-copy').exists()).toBe(false);
+  });
+
+  it('click .action-tg calls openTelegramLink with https://t.me/<username>', async () => {
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_MEMBERS);
+
+    const wrapper = mount(MembersList, { global: { plugins: [makeRouter()] } });
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    const cards = wrapper.findAll('.member-card');
+    const aliceCard = cards[0]!;
+    const tgBtn = aliceCard.find('.action-tg');
+    expect(tgBtn.exists()).toBe(true);
+
+    await tgBtn.trigger('click');
+
+    expect(mockOpenTelegramLink).toHaveBeenCalledWith('https://t.me/alice');
+  });
+
+  it('member without telegramUsername does not render .action-tg', async () => {
+    const memberNoUsername: Member = {
+      telegramId: 99,
+      telegramUsername: null,
+      telegramAvatarUrl: null,
+      riotName: 'NoUser',
+      riotTag: '0000',
+      riotCardId: null,
+      currentTierId: null,
+      currentTierName: null,
+      peakTierId: null,
+      peakTierName: null,
+      peakSeasonShort: null,
+      lastMessageAt: null,
+    };
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue([memberNoUsername]);
+
+    const wrapper = mount(MembersList, { global: { plugins: [makeRouter()] } });
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    const card = wrapper.find('.member-card');
+    expect(card.find('.action-tg').exists()).toBe(false);
+  });
+
+  it('clicking card body does not trigger openTelegramLink', async () => {
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_MEMBERS);
+
+    const wrapper = mount(MembersList, { global: { plugins: [makeRouter()] } });
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    const card = wrapper.find('.member-card');
+    await card.trigger('click');
+
+    expect(mockOpenTelegramLink).not.toHaveBeenCalled();
   });
 });
