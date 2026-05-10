@@ -366,7 +366,7 @@ describe('MembersList.vue', () => {
 
   // ─── Action button tests ──────────────────────────────────────────────────
 
-  it('click .action-copy writes Name#TAG to clipboard and shows toast', async () => {
+  it('click .member-copy-trigger writes Name#TAG to clipboard and shows toast', async () => {
     (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_MEMBERS);
 
     const wrapper = mount(MembersList, { global: { plugins: [makeRouter()] } });
@@ -375,18 +375,18 @@ describe('MembersList.vue', () => {
 
     const cards = wrapper.findAll('.member-card');
     const aliceCard = cards[0]!;
-    const copyBtn = aliceCard.find('.action-copy');
-    expect(copyBtn.exists()).toBe(true);
+    const copyTrigger = aliceCard.find('.member-copy-trigger');
+    expect(copyTrigger.exists()).toBe(true);
 
-    await copyBtn.trigger('click');
+    await copyTrigger.trigger('click');
     await wrapper.vm.$nextTick();
 
     expect(mockWriteText).toHaveBeenCalledWith('Alice#1337');
     expect(wrapper.find('.toast-bubble').exists()).toBe(true);
-    expect(wrapper.find('.toast-bubble').text()).toContain('Скопировано: Alice#1337');
+    expect(wrapper.find('.toast-bubble').text()).toContain('Alice#1337 скопирован');
   });
 
-  it('member without riotName does not render .action-copy', async () => {
+  it('.member-copy-trigger for member without riotName is disabled and click does not write clipboard', async () => {
     (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_MEMBERS);
 
     const wrapper = mount(MembersList, { global: { plugins: [makeRouter()] } });
@@ -396,7 +396,15 @@ describe('MembersList.vue', () => {
     // bob (index 1) has no riotName
     const cards = wrapper.findAll('.member-card');
     const bobCard = cards[1]!;
-    expect(bobCard.find('.action-copy').exists()).toBe(false);
+    const copyTrigger = bobCard.find('.member-copy-trigger');
+    expect(copyTrigger.exists()).toBe(true);
+    expect(copyTrigger.attributes('disabled')).toBeDefined();
+
+    await copyTrigger.trigger('click');
+    await wrapper.vm.$nextTick();
+
+    expect(mockWriteText).not.toHaveBeenCalled();
+    expect(wrapper.find('.toast-bubble').exists()).toBe(false);
   });
 
   it('click .action-tg calls openTelegramLink with https://t.me/<username>', async () => {
