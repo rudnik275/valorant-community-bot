@@ -29,6 +29,13 @@
       "when": 1778337088770,
       "tag": "0003_abandoned_madame_web",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1778394615282,
+      "tag": "0004_keen_iron_patriot",
+      "breakpoints": true
     }
   ]
 }

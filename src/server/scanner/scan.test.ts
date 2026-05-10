@@ -139,8 +139,7 @@ describe('scanForPuuid', () => {
 
   it('inserts new match records and returns them', async () => {
     seedUser();
-    fetchMock.mockResolvedValue(
-      new Response(JSON.stringify(makeFakeMatchResponse('new-match-111')), { status: 200 }),
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify(makeFakeMatchResponse('new-match-111')), { status: 200 }),
     );
 
     const result = await scanForPuuid(db, TARGET_PUUID, { detection: false });
@@ -161,8 +160,7 @@ describe('scanForPuuid', () => {
       (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result, rounds_played, kill_events_compact)
       VALUES ('${TARGET_PUUID}', 'existing-match-222', 1700000000000, 'Ascent', 'Jett', 20, 10, 5, 'win', 25, '[]')`);
 
-    fetchMock.mockResolvedValue(
-      new Response(JSON.stringify(makeFakeMatchResponse('existing-match-222')), { status: 200 }),
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify(makeFakeMatchResponse('existing-match-222')), { status: 200 }),
     );
 
     const result = await scanForPuuid(db, TARGET_PUUID, { detection: false });
@@ -173,8 +171,7 @@ describe('scanForPuuid', () => {
 
   it('returns gracefully on HenrikRateLimitError (429)', async () => {
     seedUser();
-    fetchMock.mockResolvedValue(
-      new Response('{}', {
+    fetchMock.mockImplementation(async () => new Response('{}', {
         status: 429,
         headers: { 'Retry-After': '30' },
       }),
@@ -188,7 +185,7 @@ describe('scanForPuuid', () => {
 
   it('returns gracefully on HenrikNotFoundError (404)', async () => {
     seedUser();
-    fetchMock.mockResolvedValue(new Response('{}', { status: 404 }));
+    fetchMock.mockImplementation(async () => new Response('{}', { status: 404 }));
 
     const result = await scanForPuuid(db, TARGET_PUUID, { detection: false });
 
@@ -199,7 +196,7 @@ describe('scanForPuuid', () => {
   it('returns gracefully on HenrikUpstreamError (5xx)', async () => {
     seedUser();
     // getMatches retries 2x on 5xx → 3 total calls
-    fetchMock.mockResolvedValue(new Response('Internal Error', { status: 500 }));
+    fetchMock.mockImplementation(async () => new Response('Internal Error', { status: 500 }));
 
     const result = await scanForPuuid(db, TARGET_PUUID, { detection: false });
 
@@ -220,8 +217,7 @@ describe('scanForPuuid', () => {
 
   it('filters out matches where queue.id !== console_competitive', async () => {
     seedUser();
-    fetchMock.mockResolvedValue(
-      new Response(JSON.stringify(makeFakeDeathmatchResponse('deathmatch-333')), { status: 200 }),
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify(makeFakeDeathmatchResponse('deathmatch-333')), { status: 200 }),
     );
 
     const result = await scanForPuuid(db, TARGET_PUUID, { detection: false });
@@ -233,25 +229,26 @@ describe('scanForPuuid', () => {
 
   it('calls getMatches with puuid, region, and platform=console', async () => {
     seedUser();
-    fetchMock.mockResolvedValue(
-      new Response(JSON.stringify(makeFakeMatchResponse('call-check-match')), { status: 200 }),
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify(makeFakeMatchResponse('call-check-match')), { status: 200 }),
     );
 
     await scanForPuuid(db, TARGET_PUUID, { detection: false });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const calledUrl: string = (fetchMock.mock.calls[0] as [string])[0];
-    expect(calledUrl).toContain('/v4/by-puuid/matches/');
-    expect(calledUrl).toContain('/console/');
-    expect(calledUrl).toContain(TARGET_PUUID);
+    // 2 calls expected: MMR fetch (will silently fail because mock returns matches shape) + matches fetch
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const matchesUrl = (fetchMock.mock.calls.find((c: unknown[]) =>
+      typeof c[0] === 'string' && (c[0] as string).includes('/v4/by-puuid/matches/'),
+    )?.[0] as string | undefined);
+    expect(matchesUrl).toBeDefined();
+    expect(matchesUrl!).toContain('/console/');
+    expect(matchesUrl!).toContain(TARGET_PUUID);
   });
 
   // ── detection mode ──────────────────────────────────────────────────────────
 
   it('emits newRecord events when detection=true', async () => {
     seedUser();
-    fetchMock.mockResolvedValue(
-      new Response(JSON.stringify(makeFakeMatchResponse('detect-match-444')), { status: 200 }),
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify(makeFakeMatchResponse('detect-match-444')), { status: 200 }),
     );
 
     const emittedRecords: unknown[] = [];
@@ -265,8 +262,7 @@ describe('scanForPuuid', () => {
 
   it('does NOT emit newRecord events when detection=false', async () => {
     seedUser();
-    fetchMock.mockResolvedValue(
-      new Response(JSON.stringify(makeFakeMatchResponse('silent-match-555')), { status: 200 }),
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify(makeFakeMatchResponse('silent-match-555')), { status: 200 }),
     );
 
     const emittedRecords: unknown[] = [];
@@ -282,13 +278,14 @@ describe('scanForPuuid', () => {
   it('backfills riot_region when null by calling getAccountByPuuid', async () => {
     seedUser(null); // no region
 
-    // First call → getAccountByPuuid
-    fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify(makeAccountResponse()), { status: 200 }),
+    // First call → getAccountByPuuid (region backfill)
+    fetchMock.mockImplementationOnce(async () => new Response(JSON.stringify(makeAccountResponse()), { status: 200 }),
     );
-    // Second call → getMatches
-    fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify(makeFakeMatchResponse('backfill-match-666')), { status: 200 }),
+    // Second call → getMmrByPuuid (will fail to parse as MMR — that's OK, scan continues)
+    fetchMock.mockImplementationOnce(async () => new Response(JSON.stringify(makeFakeMatchResponse('mmr-noise')), { status: 200 }),
+    );
+    // Third call → getMatches
+    fetchMock.mockImplementationOnce(async () => new Response(JSON.stringify(makeFakeMatchResponse('backfill-match-666')), { status: 200 }),
     );
 
     const result = await scanForPuuid(db, TARGET_PUUID, { detection: false });
@@ -306,8 +303,7 @@ describe('scanForPuuid', () => {
     seedUser(null); // no region
 
     // getAccountByPuuid → 429
-    fetchMock.mockResolvedValueOnce(
-      new Response('{}', {
+    fetchMock.mockImplementationOnce(async () => new Response('{}', {
         status: 429,
         headers: { 'Retry-After': '60' },
       }),

@@ -7,6 +7,7 @@ import { eq, inArray } from 'drizzle-orm';
 import {
   getMatches,
   getAccountByPuuid,
+  getMmrByPuuid,
   HenrikRateLimitError,
   HenrikNotFoundError,
   HenrikUpstreamError,
@@ -88,6 +89,33 @@ export async function scanForPuuid(
         return { newRecords: [], skippedDuplicates: 0 };
       }
       throw err;
+    }
+  }
+
+  // 2.5. Fetch current + peak rank from Henrik MMR (fire-and-forget UPDATE).
+  // We don't block the scan on MMR errors — match scan can continue.
+  try {
+    const mmr = await getMmrByPuuid(puuid, region, 'console');
+    await db
+      .update(users)
+      .set({
+        current_tier_id: mmr.current.tier.id ?? null,
+        current_tier_name: mmr.current.tier.name ?? null,
+        peak_tier_id: mmr.peak?.tier?.id ?? null,
+        peak_tier_name: mmr.peak?.tier?.name ?? null,
+        peak_season_short: mmr.peak?.season ?? null,
+        mmr_fetched_at: Date.now(),
+      })
+      .where(eq(users.riot_puuid, puuid));
+  } catch (err) {
+    if (
+      err instanceof HenrikRateLimitError ||
+      err instanceof HenrikNotFoundError ||
+      err instanceof HenrikUpstreamError
+    ) {
+      logger.warn({ module: 'scanner', puuid, err: (err as Error).message }, 'MMR fetch failed — continuing with match scan');
+    } else {
+      logger.warn({ module: 'scanner', puuid, err }, 'unexpected MMR error — continuing');
     }
   }
 

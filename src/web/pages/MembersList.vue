@@ -49,9 +49,24 @@
           </div>
         </div>
 
-        <!-- Rank pill -->
+        <!-- Rank icons: current + peak -->
         <div class="member-rank">
-          <span class="pill">{{ m.currentRank ?? '—' }}</span>
+          <img
+            v-if="m.currentTierId !== null"
+            :src="`/ranks/${m.currentTierId}.png`"
+            :alt="m.currentTierName ?? ''"
+            :title="`Текущий: ${m.currentTierName ?? '—'}`"
+            class="rank-icon rank-icon--current"
+          />
+          <span v-else class="pill rank-empty">—</span>
+
+          <img
+            v-if="m.peakTierId !== null && m.peakTierId !== m.currentTierId"
+            :src="`/ranks/${m.peakTierId}.png`"
+            :alt="m.peakTierName ?? ''"
+            :title="`Пиковый: ${m.peakTierName ?? '—'}${m.peakSeasonShort ? ` (${m.peakSeasonShort})` : ''}`"
+            class="rank-icon rank-icon--peak"
+          />
         </div>
       </div>
     </div>
@@ -200,9 +215,31 @@ function avatarInitial(m: Member): string {
   font-weight: 400;
 }
 
-/* Rank pill */
+/* Rank icons (current + peak) */
 .member-rank {
   flex-shrink: 0;
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rank-icon {
+  display: block;
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+}
+
+.rank-icon--peak {
+  width: 26px;
+  height: 26px;
+  opacity: 0.55;
+  filter: saturate(0.8);
+}
+
+.rank-empty {
+  font-size: 13px;
+  color: var(--muted);
 }
 </style>

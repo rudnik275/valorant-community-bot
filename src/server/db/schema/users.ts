@@ -17,6 +17,12 @@ export const users = sqliteTable(
     joined_at: integer('joined_at').notNull().default(sql`(unixepoch() * 1000)`),
     onboarded_at: integer('onboarded_at'),
     riot_lookup_failed_since: integer('riot_lookup_failed_since'),
+    current_tier_id: integer('current_tier_id'),
+    current_tier_name: text('current_tier_name'),
+    peak_tier_id: integer('peak_tier_id'),
+    peak_tier_name: text('peak_tier_name'),
+    peak_season_short: text('peak_season_short'),
+    mmr_fetched_at: integer('mmr_fetched_at'),
   },
   (table) => [
     uniqueIndex('idx_users_riot_puuid').on(table.riot_puuid),
