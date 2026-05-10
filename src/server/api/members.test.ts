@@ -185,4 +185,22 @@ describe('makeMembersHandler', () => {
     expect(refreshMock).not.toHaveBeenCalled();
   });
 
+  it('includes riotCardId in response for onboarded users', async () => {
+    const now = Date.now();
+    sqlite.exec(`
+      INSERT INTO users (
+        telegram_id, telegram_username, riot_puuid, riot_name, riot_tag, riot_card_id,
+        last_message_at, joined_at
+      )
+      VALUES (1, 'alice', 'puuid-abc', 'Alice', '1337', 'abc-uuid', ${now}, ${now})
+    `);
+
+    const app = makeApp();
+    const res = await app.request('/api/members');
+    expect(res.status).toBe(200);
+    const body = await res.json() as Member[];
+    expect(body).toHaveLength(1);
+    expect(body[0]!.riotCardId).toBe('abc-uuid');
+  });
+
 });

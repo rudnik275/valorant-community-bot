@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `riot_card_id` text;

@@ -34,6 +34,7 @@ const MOCK_ACCOUNT: RiotAccount = {
   name: 'TestPlayer',
   tag: 'EU1',
   region: 'eu',
+  cardId: null,
 };
 
 function makeApp(
@@ -132,7 +133,7 @@ describe('POST /api/onboard', () => {
     await postOnboard(app, { name: 'TestPlayer', tag: 'EU1' });
 
     // Second onboard with different account
-    const newAccount: RiotAccount = { puuid: 'puuid-xyz-999', name: 'NewName', tag: 'NA1', region: 'na' };
+    const newAccount: RiotAccount = { puuid: 'puuid-xyz-999', name: 'NewName', tag: 'NA1', region: 'na', cardId: null };
     const app2 = makeApp(db, { validateAccount: vi.fn().mockResolvedValue(newAccount) });
     const res2 = await postOnboard(app2, { name: 'NewName', tag: 'NA1' });
 

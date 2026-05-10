@@ -53,7 +53,15 @@ const AccountDataSchema = z.object({
   account_level: z.number().optional(),
   name: z.string(),
   tag: z.string(),
-  card: z.unknown().optional(),
+  card: z.union([
+    z.string(),
+    z.object({
+      id: z.string().optional(),
+      small: z.string().url().optional(),
+      large: z.string().url().optional(),
+      wide: z.string().url().optional(),
+    }),
+  ]).nullish(),
   last_update: z.string().optional(),
 });
 
@@ -67,6 +75,13 @@ export interface RiotAccount {
   name: string;
   tag: string;
   region: string;
+  cardId: string | null;
+}
+
+export function extractCardId(card: unknown): string | null {
+  if (typeof card === 'string') return card;
+  if (card && typeof card === 'object' && 'id' in card && typeof (card as Record<string, unknown>).id === 'string') return (card as Record<string, unknown>).id as string;
+  return null;
 }
 
 // ─── Client internals ────────────────────────────────────────────────────────
@@ -173,6 +188,7 @@ function parseAccountResponse(json: unknown): RiotAccount {
     name: data.name,
     tag: data.tag,
     region: data.region,
+    cardId: extractCardId(data.card),
   };
 }
 

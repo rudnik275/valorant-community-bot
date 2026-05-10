@@ -25,15 +25,33 @@
       >
         <!-- Avatar -->
         <div class="member-avatar">
+          <!-- Primary: Valorant card if available, else TG avatar fallback -->
           <img
-            v-if="m.telegramAvatarUrl"
+            v-if="m.riotCardId"
+            :src="valorantCardUrl(m.riotCardId)"
+            :alt="m.riotName ?? ''"
+            class="avatar-img avatar-img--card"
+          />
+          <img
+            v-else-if="m.telegramAvatarUrl"
             :src="m.telegramAvatarUrl"
             :alt="m.telegramUsername ?? ''"
             class="avatar-img"
           />
-          <div v-else class="avatar-placeholder">
-            {{ avatarInitial(m) }}
-          </div>
+          <div v-else class="avatar-placeholder">{{ avatarInitial(m) }}</div>
+
+          <!-- Corner: TG avatar OR initial-circle, ONLY when primary is the Valorant card -->
+          <template v-if="m.riotCardId">
+            <img
+              v-if="m.telegramAvatarUrl"
+              :src="m.telegramAvatarUrl"
+              :alt="m.telegramUsername ?? ''"
+              class="tg-avatar-overlay"
+            />
+            <div v-else class="tg-avatar-overlay tg-avatar-overlay--placeholder">
+              {{ avatarInitial(m) }}
+            </div>
+          </template>
         </div>
 
         <!-- Name + username -->
@@ -100,6 +118,11 @@ function openProfile(telegramId: number) {
   (window as Window & { Telegram?: { WebApp?: { openTelegramLink?: (url: string) => void } } }).Telegram?.WebApp?.openTelegramLink?.(url);
 }
 
+function valorantCardUrl(id: string | null): string | null {
+  if (!id) return null;
+  return `https://media.valorant-api.com/playercards/${id}/smallart.png`;
+}
+
 function avatarInitial(m: Member): string {
   if (m.riotName) return m.riotName.charAt(0).toUpperCase();
   if (m.telegramUsername) return m.telegramUsername.charAt(0).toUpperCase();
@@ -138,11 +161,12 @@ function avatarInitial(m: Member): string {
 
 /* Avatar */
 .member-avatar {
+  position: relative;
   flex-shrink: 0;
   width: 44px;
   height: 44px;
   border-radius: 10px;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid var(--glass-border-strong);
 }
 
@@ -151,6 +175,32 @@ function avatarInitial(m: Member): string {
   height: 100%;
   object-fit: cover;
   display: block;
+  border-radius: 9px;
+}
+
+.avatar-img--card {
+  object-fit: cover;
+}
+
+.tg-avatar-overlay {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--bg, #0e0e15);
+  object-fit: cover;
+}
+
+.tg-avatar-overlay--placeholder {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, rgba(115, 131, 255, 0.6), rgba(177, 94, 255, 0.5));
+  color: var(--fg);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
 }
 
 .avatar-placeholder {

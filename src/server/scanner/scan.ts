@@ -119,6 +119,25 @@ export async function scanForPuuid(
     }
   }
 
+  // 2.6. Refresh account info (riot_card_id) on every scan tick.
+  try {
+    const account = await getAccountByPuuid(puuid);
+    await db
+      .update(users)
+      .set({ riot_card_id: account.cardId })
+      .where(eq(users.riot_puuid, puuid));
+  } catch (err) {
+    if (
+      err instanceof HenrikRateLimitError ||
+      err instanceof HenrikNotFoundError ||
+      err instanceof HenrikUpstreamError
+    ) {
+      logger.warn({ module: 'scanner', puuid, err: (err as Error).message }, 'Account info refresh failed — continuing');
+    } else {
+      logger.warn({ module: 'scanner', puuid, err }, 'unexpected account info error — continuing');
+    }
+  }
+
   // 3. Fetch matches from Henrik v4 (console platform)
   let rawMatches;
   try {

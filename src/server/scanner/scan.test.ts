@@ -235,8 +235,8 @@ describe('scanForPuuid', () => {
 
     await scanForPuuid(db, TARGET_PUUID, { detection: false });
 
-    // 2 calls expected: MMR fetch (will silently fail because mock returns matches shape) + matches fetch
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // 3 calls expected: MMR fetch + account card refresh + matches fetch
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     const matchesUrl = (fetchMock.mock.calls.find((c: unknown[]) =>
       typeof c[0] === 'string' && (c[0] as string).includes('/v4/by-puuid/matches/'),
     )?.[0] as string | undefined);
@@ -285,7 +285,10 @@ describe('scanForPuuid', () => {
     // Second call → getMmrByPuuid (will fail to parse as MMR — that's OK, scan continues)
     fetchMock.mockImplementationOnce(async () => new Response(JSON.stringify(makeFakeMatchResponse('mmr-noise')), { status: 200 }),
     );
-    // Third call → getMatches
+    // Third call → getAccountByPuuid (card refresh — will fail to parse account response, that's OK)
+    fetchMock.mockImplementationOnce(async () => new Response(JSON.stringify(makeAccountResponse()), { status: 200 }),
+    );
+    // Fourth call → getMatches
     fetchMock.mockImplementationOnce(async () => new Response(JSON.stringify(makeFakeMatchResponse('backfill-match-666')), { status: 200 }),
     );
 

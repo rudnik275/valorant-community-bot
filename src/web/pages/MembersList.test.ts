@@ -19,6 +19,7 @@ const MOCK_MEMBERS: Member[] = [
     telegramAvatarUrl: 'https://example.com/alice.jpg',
     riotName: 'Alice',
     riotTag: '1337',
+    riotCardId: null,
     currentTierId: 15,
     currentTierName: 'Platinum 1',
     peakTierId: 18,
@@ -32,6 +33,7 @@ const MOCK_MEMBERS: Member[] = [
     telegramAvatarUrl: null,
     riotName: null,
     riotTag: null,
+    riotCardId: null,
     currentTierId: null,
     currentTierName: null,
     peakTierId: null,
@@ -231,8 +233,119 @@ describe('MembersList.vue', () => {
     await wrapper.vm.$nextTick();
 
     const avatarImgs = wrapper.findAll('img.avatar-img');
-    // Only alice has a Telegram avatar
+    // Only alice has a Telegram avatar (both have riotCardId: null)
     expect(avatarImgs).toHaveLength(1);
     expect(avatarImgs[0]!.attributes('src')).toBe('https://example.com/alice.jpg');
+  });
+
+  // ─── Avatar combination tests ─────────────────────────────────────────────
+
+  it('avatar combo: riotCardId + telegramAvatarUrl → Valorant card primary + TG overlay (img)', async () => {
+    const member: Member = {
+      telegramId: 10,
+      telegramUsername: 'combo1',
+      telegramAvatarUrl: 'https://example.com/tg.jpg',
+      riotName: 'Player',
+      riotTag: '001',
+      riotCardId: 'abc-uuid',
+      currentTierId: null,
+      currentTierName: null,
+      peakTierId: null,
+      peakTierName: null,
+      peakSeasonShort: null,
+      lastMessageAt: null,
+    };
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue([member]);
+
+    const wrapper = mount(MembersList, { global: { plugins: [makeRouter()] } });
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('img.avatar-img--card').exists()).toBe(true);
+    expect(wrapper.find('img.avatar-img--card').attributes('src')).toContain('abc-uuid');
+    expect(wrapper.find('img.tg-avatar-overlay').exists()).toBe(true);
+    expect(wrapper.find('img.tg-avatar-overlay').attributes('src')).toBe('https://example.com/tg.jpg');
+    expect(wrapper.find('.tg-avatar-overlay--placeholder').exists()).toBe(false);
+  });
+
+  it('avatar combo: riotCardId + no telegramAvatarUrl → Valorant card + placeholder overlay', async () => {
+    const member: Member = {
+      telegramId: 11,
+      telegramUsername: 'combo2',
+      telegramAvatarUrl: null,
+      riotName: 'Player',
+      riotTag: '002',
+      riotCardId: 'abc-uuid',
+      currentTierId: null,
+      currentTierName: null,
+      peakTierId: null,
+      peakTierName: null,
+      peakSeasonShort: null,
+      lastMessageAt: null,
+    };
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue([member]);
+
+    const wrapper = mount(MembersList, { global: { plugins: [makeRouter()] } });
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('img.avatar-img--card').exists()).toBe(true);
+    expect(wrapper.find('.tg-avatar-overlay--placeholder').exists()).toBe(true);
+    expect(wrapper.find('.tg-avatar-overlay--placeholder').text()).toBe('P');
+    expect(wrapper.find('img.tg-avatar-overlay').exists()).toBe(false);
+  });
+
+  it('avatar combo: no riotCardId + telegramAvatarUrl → TG avatar, NO overlay', async () => {
+    const member: Member = {
+      telegramId: 12,
+      telegramUsername: 'combo3',
+      telegramAvatarUrl: 'https://example.com/tg.jpg',
+      riotName: null,
+      riotTag: null,
+      riotCardId: null,
+      currentTierId: null,
+      currentTierName: null,
+      peakTierId: null,
+      peakTierName: null,
+      peakSeasonShort: null,
+      lastMessageAt: null,
+    };
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue([member]);
+
+    const wrapper = mount(MembersList, { global: { plugins: [makeRouter()] } });
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('img.avatar-img').exists()).toBe(true);
+    expect(wrapper.find('img.avatar-img--card').exists()).toBe(false);
+    expect(wrapper.find('.tg-avatar-overlay').exists()).toBe(false);
+    expect(wrapper.find('.tg-avatar-overlay--placeholder').exists()).toBe(false);
+  });
+
+  it('avatar combo: no riotCardId + no telegramAvatarUrl → avatar-placeholder, NO overlay', async () => {
+    const member: Member = {
+      telegramId: 13,
+      telegramUsername: 'combo4',
+      telegramAvatarUrl: null,
+      riotName: null,
+      riotTag: null,
+      riotCardId: null,
+      currentTierId: null,
+      currentTierName: null,
+      peakTierId: null,
+      peakTierName: null,
+      peakSeasonShort: null,
+      lastMessageAt: null,
+    };
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue([member]);
+
+    const wrapper = mount(MembersList, { global: { plugins: [makeRouter()] } });
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('.avatar-placeholder').exists()).toBe(true);
+    expect(wrapper.find('img.avatar-img--card').exists()).toBe(false);
+    expect(wrapper.find('.tg-avatar-overlay').exists()).toBe(false);
+    expect(wrapper.find('.tg-avatar-overlay--placeholder').exists()).toBe(false);
   });
 });

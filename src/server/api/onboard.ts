@@ -84,7 +84,7 @@ export function makeOnboardHandler(deps: OnboardHandlerDeps) {
       throw err;
     }
 
-    const { puuid, name: riot_name, tag: riot_tag, region: riot_region } = account;
+    const { puuid, name: riot_name, tag: riot_tag, region: riot_region, cardId: riot_card_id } = account;
     const onboarded_at = Date.now();
 
     // Persist to DB (UPSERT keyed on telegram_id)
@@ -97,11 +97,12 @@ export function makeOnboardHandler(deps: OnboardHandlerDeps) {
           riot_name,
           riot_tag,
           riot_region,
+          riot_card_id,
           onboarded_at,
         })
         .onConflictDoUpdate({
           target: users.telegram_id,
-          set: { riot_puuid: puuid, riot_name, riot_tag, riot_region, onboarded_at },
+          set: { riot_puuid: puuid, riot_name, riot_tag, riot_region, riot_card_id, onboarded_at },
         });
     } catch (err) {
       // SQLite UNIQUE constraint on riot_puuid — another Telegram account already linked
