@@ -92,14 +92,21 @@ export function extractCardId(card: unknown): string | null {
 }
 
 // ─── Token-bucket rate limiter ────────────────────────────────────────────────
-// Henrik free tier: 30 req/min. We target 20 req/min for headroom.
+// Henrik free tier: observed 429s even at 20/min. Drop to 10/min for headroom.
+// 60 calls per scan tick → 360s ≈ 6 min; fits in 30-min cron interval.
 
-const TOKENS_PER_MINUTE = 20;
+const TOKENS_PER_MINUTE = 10;
 const BURST = 1;
-const TOKEN_REFILL_MS = 60_000 / TOKENS_PER_MINUTE; // 3000ms per token
+const TOKEN_REFILL_MS = 60_000 / TOKENS_PER_MINUTE; // 6000ms per token
 
 let _tokens = BURST;
 let _lastRefill = Date.now();
+
+/**
+ * Global lockout timestamp (ms). Set when a 429 response includes Retry-After.
+ * All acquireToken calls wait until this timestamp before proceeding.
+ */
+let _blockedUntilMs = 0;
 
 /** Reset token bucket state — for tests only. */
 export function __resetTokenBucketForTest(
@@ -109,9 +116,15 @@ export function __resetTokenBucketForTest(
   _lastRefill = opts.now ?? Date.now();
 }
 
+/** Reset the 429 lockout block — for tests only. */
+export function __resetBlockUntilForTest(): void {
+  _blockedUntilMs = 0;
+}
+
 /**
  * Acquire a token from the bucket before each HTTP call.
  * Accepts injectable `now` and `sleep` for deterministic testing.
+ * If a Retry-After lockout is active, sleeps until it expires first.
  */
 export async function acquireToken(
   nowFn: () => number = Date.now,
@@ -119,6 +132,10 @@ export async function acquireToken(
 ): Promise<void> {
   while (true) {
     const now = nowFn();
+    if (now < _blockedUntilMs) {
+      await sleepFn(_blockedUntilMs - now + 50);
+      continue;
+    }
     const elapsed = now - _lastRefill;
     if (elapsed >= TOKEN_REFILL_MS) {
       const refill = Math.floor(elapsed / TOKEN_REFILL_MS);
@@ -211,9 +228,11 @@ async function fetchWithRetry<T>(
     }
 
     if (status === 429) {
-      const retryAfterHeader = response.headers.get('Retry-After');
-      const retryAfter = retryAfterHeader ? parseInt(retryAfterHeader, 10) : 60;
-      throw new HenrikRateLimitError(isNaN(retryAfter) ? 60 : retryAfter);
+      const retryAfterHeader = response.headers.get('retry-after') ?? response.headers.get('Retry-After');
+      const parsed = retryAfterHeader ? parseInt(retryAfterHeader, 10) : NaN;
+      const retryAfter = isNaN(parsed) ? 60 : parsed;
+      _blockedUntilMs = Date.now() + retryAfter * 1000;
+      throw new HenrikRateLimitError(retryAfter);
     }
 
     if (status >= 500) {

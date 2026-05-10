@@ -12,6 +12,7 @@ import {
   HenrikError,
   acquireToken,
   __resetTokenBucketForTest,
+  __resetBlockUntilForTest,
 } from './henrik.ts';
 import matchFixture from './__fixtures__/henrik/match_console_v4.json';
 import mmrFixture from './__fixtures__/henrik/mmr_console_v3.json';
@@ -56,6 +57,7 @@ describe('validateAccount', () => {
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     // Give plenty of tokens so multi-call tests (e.g. 5xx retries) don't hit real sleep.
     __resetTokenBucketForTest({ tokens: 30 });
+    __resetBlockUntilForTest();
     delete process.env['HENRIK_API_KEY'];
   });
 
@@ -200,6 +202,7 @@ describe('getMatches', () => {
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     // Give plenty of tokens so multi-call tests (e.g. 5xx retries) don't hit real sleep.
     __resetTokenBucketForTest({ tokens: 30 });
+    __resetBlockUntilForTest();
     delete process.env['HENRIK_API_KEY'];
   });
 
@@ -288,6 +291,7 @@ describe('getMmr', () => {
     fetchMock = vi.fn();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     __resetTokenBucketForTest({ tokens: 30 });
+    __resetBlockUntilForTest();
     delete process.env['HENRIK_API_KEY'];
   });
 
@@ -362,6 +366,7 @@ describe('getMmrByPuuid', () => {
     fetchMock = vi.fn();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     __resetTokenBucketForTest({ tokens: 30 });
+    __resetBlockUntilForTest();
     delete process.env['HENRIK_API_KEY'];
   });
 
@@ -452,7 +457,7 @@ describe('token-bucket rate limiter (acquireToken)', () => {
   it('second call waits when bucket is drained', async () => {
     // Drain 1 token then call once more — sleepFn must be called.
     const t0 = 2_000_000;
-    const TOKEN_REFILL_MS = 60_000 / 20; // 3000 ms
+    const TOKEN_REFILL_MS = 60_000 / 10; // 6000 ms
     __resetTokenBucketForTest({ tokens: 1, now: t0 });
 
     // First call: bucket drains, time stays frozen.
@@ -482,7 +487,7 @@ describe('token-bucket rate limiter (acquireToken)', () => {
   it('refill restores capacity after waiting TOKEN_REFILL_MS * BURST', async () => {
     // Drain bucket, advance time by BURST * TOKEN_REFILL_MS, verify next BURST calls don't sleep.
     const BURST = 1;
-    const TOKEN_REFILL_MS = 60_000 / 20; // 3000 ms
+    const TOKEN_REFILL_MS = 60_000 / 10; // 6000 ms
     const t0 = 3_000_000;
     __resetTokenBucketForTest({ tokens: 0, now: t0 }); // already drained
 
@@ -493,6 +498,72 @@ describe('token-bucket rate limiter (acquireToken)', () => {
 
     // Should get BURST tokens without sleeping.
     await Promise.all(Array.from({ length: BURST }, () => acquireToken(nowFn, sleepFn)));
+    expect(sleepFn).not.toHaveBeenCalled();
+  });
+});
+
+// ─── 429 lockout (Retry-After block) ─────────────────────────────────────────
+
+describe('429 Retry-After lockout', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    __resetTokenBucketForTest({ tokens: 30 });
+    __resetBlockUntilForTest();
+    delete process.env['HENRIK_API_KEY'];
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('429 response sets block and next acquireToken waits out the lockout', async () => {
+    // Trigger a 429 — this sets _blockedUntilMs = now + 30*1000
+    fetchMock.mockResolvedValue(
+      makeResponse(429, { status: 429 }, { 'retry-after': '30' }),
+    );
+    await expect(validateAccount('TestPlayer', 'EU1')).rejects.toBeInstanceOf(HenrikRateLimitError);
+
+    // Now call acquireToken directly with injectable clock/sleep.
+    // Time is still within the lockout window.
+    const t0 = Date.now();
+    const nowFn = vi.fn(() => t0); // time frozen inside the lockout
+    const sleepFn = vi.fn((_ms: number) => Promise.resolve());
+
+    // acquireToken should call sleepFn (to wait out the block) at least once.
+    // We advance nowFn past the block on the second iteration by making sleepFn advance time.
+    let callCount = 0;
+    const advancingNow = vi.fn(() => {
+      callCount++;
+      // After the first sleep call, report time past the lockout.
+      return callCount <= 1 ? t0 : t0 + 31_000;
+    });
+    const advancingSleep = vi.fn((_ms: number) => Promise.resolve());
+
+    await acquireToken(advancingNow, advancingSleep);
+    expect(advancingSleep).toHaveBeenCalledTimes(1);
+    const sleepArg = advancingSleep.mock.calls[0]![0] as number;
+    expect(sleepArg).toBeGreaterThan(0); // slept for the remaining lockout + 50ms buffer
+  });
+
+  it('after block expires, normal token flow resumes without extra sleep', async () => {
+    // Trigger 429 with retry-after:1 (shortest possible lockout)
+    fetchMock.mockResolvedValue(
+      makeResponse(429, { status: 429 }, { 'retry-after': '1' }),
+    );
+    await expect(validateAccount('TestPlayer', 'EU1')).rejects.toBeInstanceOf(HenrikRateLimitError);
+
+    // Reset bucket with 1 token, advance time well past the 1s lockout.
+    const tPast = Date.now() + 2_000;
+    __resetTokenBucketForTest({ tokens: 1, now: tPast });
+
+    const nowFn = vi.fn(() => tPast + 1);
+    const sleepFn = vi.fn((_ms: number) => Promise.resolve());
+
+    // Should succeed without sleeping — block has expired.
+    await acquireToken(nowFn, sleepFn);
     expect(sleepFn).not.toHaveBeenCalled();
   });
 });

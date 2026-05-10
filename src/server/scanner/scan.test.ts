@@ -121,6 +121,7 @@ describe('scanForPuuid', () => {
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     // Give plenty of tokens so multi-call tests (5xx retries etc.) don't hit real sleep.
     henrik.__resetTokenBucketForTest({ tokens: 30 });
+    henrik.__resetBlockUntilForTest();
   });
 
   afterEach(() => {
@@ -174,9 +175,12 @@ describe('scanForPuuid', () => {
 
   it('returns gracefully on HenrikRateLimitError (429)', async () => {
     seedUser();
+    // Use Retry-After: 0 so _blockedUntilMs = now+0 — block expires immediately
+    // and subsequent acquireToken calls within the same scanForPuuid invocation
+    // don't hang for a real 30s window.
     fetchMock.mockImplementation(async () => new Response('{}', {
         status: 429,
-        headers: { 'Retry-After': '30' },
+        headers: { 'Retry-After': '0' },
       }),
     );
 
