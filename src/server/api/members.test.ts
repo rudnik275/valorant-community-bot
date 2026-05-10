@@ -52,6 +52,28 @@ describe('makeMembersHandler', () => {
     expect(body).toEqual([]);
   });
 
+  it('sorts linked users (riot_puuid IS NOT NULL) above unlinked regardless of last_message_at', async () => {
+    const now = Date.now();
+
+    // linked-A: linked, recent message
+    // unlinked: no riot_puuid, MOST recent message (should still sort last)
+    // linked-B: linked, older message
+    sqlite.exec(`
+      INSERT INTO users (telegram_id, telegram_username, riot_puuid, last_message_at, joined_at) VALUES
+        (1, 'linked-a', 'puuid-A', ${now - 1000},  ${now - 5000}),
+        (2, 'unlinked',  NULL,      ${now - 100},   ${now - 4000}),
+        (3, 'linked-b', 'puuid-B', ${now - 10000}, ${now - 3000})
+    `);
+
+    const app = makeApp();
+    const res = await app.request('/api/members');
+    expect(res.status).toBe(200);
+    const body = await res.json() as Member[];
+    const ids = body.map((m) => m.telegramId);
+    // linked-A (most recent among linked), linked-B (older linked), unlinked (most recent overall but no puuid)
+    expect(ids).toEqual([1, 3, 2]);
+  });
+
   it('returns users sorted: last_message_at DESC NULLS LAST, then joined_at ASC', async () => {
     const now = Date.now();
 
