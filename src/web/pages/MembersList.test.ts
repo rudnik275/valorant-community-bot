@@ -453,4 +453,28 @@ describe('MembersList.vue', () => {
 
     expect(mockOpenTelegramLink).not.toHaveBeenCalled();
   });
+
+  // ─── Hover spotlight tests ────────────────────────────────────────────────
+
+  it('pointermove on .member-card updates --mouse-x and --mouse-y inline styles', async () => {
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_MEMBERS);
+
+    const wrapper = mount(MembersList, { global: { plugins: [makeRouter()] } });
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    const card = wrapper.find('.member-card');
+    const cardEl = card.element as HTMLElement;
+
+    // Simulate a pointermove event at a specific offset within the card.
+    // jsdom clientWidth/clientHeight are 0 in unit tests, so offsetX=0, clientWidth=0
+    // avoids division by zero — we test that setProperty is called correctly.
+    Object.defineProperty(cardEl, 'clientWidth', { value: 200, configurable: true });
+    Object.defineProperty(cardEl, 'clientHeight', { value: 80, configurable: true });
+
+    await card.trigger('pointermove', { offsetX: 100, offsetY: 40 });
+
+    expect(cardEl.style.getPropertyValue('--mouse-x')).toBe('50%');
+    expect(cardEl.style.getPropertyValue('--mouse-y')).toBe('50%');
+  });
 });

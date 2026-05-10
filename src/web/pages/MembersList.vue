@@ -17,6 +17,7 @@
         v-for="m in members"
         :key="m.telegramId"
         class="card member-card"
+        @pointermove="onCardPointerMove"
       >
         <!-- Avatar -->
         <div class="member-avatar">
@@ -187,6 +188,14 @@ function openTgChat(username: string, evt: Event) {
   hapticImpact('light');
 }
 
+function onCardPointerMove(event: PointerEvent) {
+  const target = event.currentTarget as HTMLElement;
+  const x = (event.offsetX / target.clientWidth) * 100;
+  const y = (event.offsetY / target.clientHeight) * 100;
+  target.style.setProperty('--mouse-x', `${x}%`);
+  target.style.setProperty('--mouse-y', `${y}%`);
+}
+
 function valorantCardUrl(id: string | null): string | null {
   if (!id) return null;
   return `https://media.valorant-api.com/playercards/${id}/smallart.png`;
@@ -214,6 +223,8 @@ function avatarInitial(m: Member): string {
 
 /* Override card padding for list items — more compact */
 .member-card {
+  --mouse-x: 50%;
+  --mouse-y: 50%;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -222,9 +233,31 @@ function avatarInitial(m: Member): string {
   text-decoration: none;
 }
 
+/* Cursor-tracking spotlight overlay — sits behind card content */
+.member-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    circle 220px at var(--mouse-x, 50%) var(--mouse-y, 50%),
+    rgba(115, 131, 255, 0.18),
+    transparent 60%
+  );
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+  z-index: 0;
+}
+
+@media (hover: hover) {
+  .member-card:hover::before { opacity: 1; }
+}
+
 /* Avatar */
 .member-avatar {
   position: relative;
+  z-index: 1;
   flex-shrink: 0;
   width: 44px;
   height: 44px;
@@ -280,6 +313,8 @@ function avatarInitial(m: Member): string {
 
 /* Name area */
 .member-info {
+  position: relative;
+  z-index: 1;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -308,6 +343,8 @@ function avatarInitial(m: Member): string {
 
 /* Rank icons (current + peak) */
 .member-rank {
+  position: relative;
+  z-index: 1;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -335,6 +372,8 @@ function avatarInitial(m: Member): string {
 
 /* Action buttons */
 .member-actions {
+  position: relative;
+  z-index: 1;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -388,5 +427,10 @@ function avatarInitial(m: Member): string {
 .toast-fade-enter-from,
 .toast-fade-leave-to {
   opacity: 0;
+}
+
+/* Reduced-motion: disable spotlight transition */
+@media (prefers-reduced-motion: reduce) {
+  .member-card::before { transition: none; }
 }
 </style>
