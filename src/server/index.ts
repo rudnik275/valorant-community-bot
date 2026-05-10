@@ -164,22 +164,6 @@ const settingsHandlers = makeSettingsHandlers({ db });
 app.get('/api/me/settings', settingsHandlers.getSettings);
 app.patch('/api/me/settings', settingsHandlers.patchSettings);
 
-// Public landing page at /about — visible to non-Telegram visitors
-// (browsers, partner reviewers). Mini App stays at /.
-app.get('/about', (c) => {
-  const file = Bun.file('./dist/web/about.html');
-  return new Response(file, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
-});
-
-// Riot Production-key domain ownership verification — file must be reachable
-// at the same path as the Product URL (/about). The static /riot.txt at root
-// is served automatically by serveStatic below; this route mirrors it under
-// /about/ so verification succeeds either way.
-app.get('/about/riot.txt', (c) => {
-  const file = Bun.file('./dist/web/riot.txt');
-  return new Response(file, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
-});
-
 // Serve Vite build static files (dist/web) — API routes above take precedence
 app.use('/*', serveStatic({ root: './dist/web' }));
 
