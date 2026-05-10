@@ -17,18 +17,18 @@ export const RANK_EMOJI: Record<number, { id: string; fallback: string }> = {
   12: { id: '5190945942651574433', fallback: '🥇' }, // Gold 1
   13: { id: '5188245529208854398', fallback: '🥇' }, // Gold 2
   14: { id: '5188211435758458280', fallback: '🥇' }, // Gold 3
-  15: { id: '5188347676416056675', fallback: '🪙' }, // Platinum 1
-  16: { id: '5188190789850666271', fallback: '🪙' }, // Platinum 2
-  17: { id: '5190917604457357406', fallback: '🪙' }, // Platinum 3
+  15: { id: '5188347676416056675', fallback: '🐳' }, // Platinum 1
+  16: { id: '5188190789850666271', fallback: '🐳' }, // Platinum 2
+  17: { id: '5190917604457357406', fallback: '🐳' }, // Platinum 3
   18: { id: '5190476275092855352', fallback: '💎' }, // Diamond 1
   19: { id: '5190805578825376762', fallback: '💎' }, // Diamond 2
   20: { id: '5190612593059864801', fallback: '💎' }, // Diamond 3
-  21: { id: '5188550815484256589', fallback: '💚' }, // Ascendant 1
-  22: { id: '5190617957474017123', fallback: '💚' }, // Ascendant 2
-  23: { id: '5188300646524165600', fallback: '💚' }, // Ascendant 3
-  24: { id: '5188459714932943688', fallback: '🔮' }, // Immortal 1
-  25: { id: '5190871815811012515', fallback: '🔮' }, // Immortal 2
-  26: { id: '5188596617015497449', fallback: '🔮' }, // Immortal 3
+  21: { id: '5188550815484256589', fallback: '🟩' }, // Ascendant 1
+  22: { id: '5190617957474017123', fallback: '🟩' }, // Ascendant 2
+  23: { id: '5188300646524165600', fallback: '🟩' }, // Ascendant 3
+  24: { id: '5188459714932943688', fallback: '♦️' }, // Immortal 1
+  25: { id: '5190871815811012515', fallback: '♦️' }, // Immortal 2
+  26: { id: '5188596617015497449', fallback: '♦️' }, // Immortal 3
   27: { id: '5190818141604715555', fallback: '🌟' }, // Radiant
 };
 
