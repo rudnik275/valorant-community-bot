@@ -15,8 +15,10 @@ export interface MembersHandlerDeps {
 /**
  * Factory: returns a Hono handler for GET /api/members.
  *
- * Returns all registered users sorted by last_message_at DESC NULLS LAST,
- * joined_at ASC. Fires-and-forgets avatar refresh for stale entries (>24h or never fetched).
+ * Returns all registered users sorted linked-first: users with a Riot account
+ * (riot_puuid IS NOT NULL) appear before unlinked users. Within each bucket the
+ * existing sort applies: last_message_at DESC NULLS LAST, joined_at ASC.
+ * Fires-and-forgets avatar refresh for stale entries (>24h or never fetched).
  */
 export function makeMembersHandler(deps: MembersHandlerDeps) {
   return async (c: Context) => {
@@ -38,7 +40,7 @@ export function makeMembersHandler(deps: MembersHandlerDeps) {
         u.peak_tier_name,
         u.peak_season_short
       FROM users u
-      ORDER BY u.last_message_at DESC NULLS LAST, u.joined_at ASC
+      ORDER BY (u.riot_puuid IS NULL), u.last_message_at DESC NULLS LAST, u.joined_at ASC
     `);
 
     const now = Date.now();
