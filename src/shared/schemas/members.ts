@@ -11,12 +11,6 @@ export const MemberSchema = z.object({
   peakTierId: z.number().nullable(),
   peakTierName: z.string().nullable(),
   peakSeasonShort: z.string().nullable(),
-  lastMatch: z.object({
-    startedAt: z.string().datetime(),
-    result: z.enum(['win', 'loss', 'draw']),
-    agent: z.string(),
-  }).nullable(),
-  kdRatioLast10: z.number().nullable(),
   lastMessageAt: z.string().datetime().nullable(),
 });
 

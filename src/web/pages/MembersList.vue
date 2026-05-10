@@ -1,9 +1,5 @@
 <template>
   <div class="container">
-    <div class="members-header">
-      <router-link to="/settings" class="settings-gear" aria-label="Настройки">⚙</router-link>
-    </div>
-
     <div v-if="loading" class="state-center">
       <span class="text-muted">Загрузка...</span>
     </div>
@@ -40,23 +36,19 @@
           </div>
         </div>
 
-        <!-- Name + tag -->
+        <!-- Name + username -->
         <div class="member-info">
-          <div class="member-name">
-            <span v-if="m.riotName">{{ m.riotName }}#{{ m.riotTag }}</span>
-            <span v-else>@{{ m.telegramUsername ?? 'unknown' }}</span>
-            <span v-if="m.riotName && m.telegramUsername" class="text-muted member-username">@{{ m.telegramUsername }}</span>
+          <div class="member-riot" v-if="m.riotName">
+            {{ m.riotName }}#{{ m.riotTag }}
           </div>
           <div
-            v-if="m.kdRatioLast10 !== null || m.lastMatch !== null"
-            class="member-stats text-muted"
+            class="member-username"
+            v-if="m.telegramUsername"
           >
-            <span v-if="m.kdRatioLast10 !== null">K/D {{ m.kdRatioLast10.toFixed(2) }}</span>
-            <span v-if="m.kdRatioLast10 !== null && m.lastMatch !== null"> · </span>
-            <span v-if="m.lastMatch">
-              {{ m.lastMatch.agent }} ·
-              <span :class="resultClass(m.lastMatch.result)">{{ resultLabel(m.lastMatch.result) }}</span>
-            </span>
+            @{{ m.telegramUsername }}
+          </div>
+          <div class="member-username" v-if="!m.riotName && !m.telegramUsername">
+            unknown
           </div>
         </div>
 
@@ -113,49 +105,9 @@ function avatarInitial(m: Member): string {
   if (m.telegramUsername) return m.telegramUsername.charAt(0).toUpperCase();
   return '?';
 }
-
-function resultClass(result: 'win' | 'loss' | 'draw'): string {
-  if (result === 'win') return 'result-win';
-  if (result === 'loss') return 'result-loss';
-  return 'text-muted';
-}
-
-function resultLabel(result: 'win' | 'loss' | 'draw'): string {
-  if (result === 'win') return 'win';
-  if (result === 'loss') return 'loss';
-  return 'draw';
-}
 </script>
 
 <style scoped>
-.members-header {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 16px;
-}
-
-.settings-gear {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 999px;
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  color: var(--muted);
-  font-size: 16px;
-  text-decoration: none;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.settings-gear:hover {
-  background: var(--glass-bg-hover);
-  color: var(--fg);
-}
-
 .state-center {
   display: flex;
   justify-content: center;
@@ -217,13 +169,12 @@ function resultLabel(result: 'win' | 'loss' | 'draw'): string {
 .member-info {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.member-name {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  flex-wrap: wrap;
+.member-riot {
   font-size: 14px;
   font-weight: 500;
   color: var(--fg);
@@ -236,6 +187,10 @@ function resultLabel(result: 'win' | 'loss' | 'draw'): string {
 .member-username {
   font-size: 12px;
   font-weight: 400;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Rank icons (current + peak) */
@@ -265,16 +220,4 @@ function resultLabel(result: 'win' | 'loss' | 'draw'): string {
   font-size: 13px;
   color: var(--muted);
 }
-
-.member-stats {
-  font-size: 12px;
-  margin-top: 2px;
-  display: flex;
-  gap: 4px;
-  align-items: baseline;
-  flex-wrap: wrap;
-}
-
-.result-win { color: var(--status-ok, #4ade80); }
-.result-loss { color: var(--status-warn, #f87171); }
 </style>
