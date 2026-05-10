@@ -32,13 +32,11 @@ export function makeMembersHandler(deps: MembersHandlerDeps) {
         u.riot_puuid,
         u.last_message_at,
         u.joined_at,
-        (
-          SELECT mr.rank_after
-          FROM match_records mr
-          WHERE mr.riot_puuid = u.riot_puuid
-          ORDER BY mr.started_at DESC
-          LIMIT 1
-        ) AS current_rank
+        u.current_tier_id,
+        u.current_tier_name,
+        u.peak_tier_id,
+        u.peak_tier_name,
+        u.peak_season_short
       FROM users u
       ORDER BY u.last_message_at DESC NULLS LAST, u.joined_at ASC
     `);
@@ -55,7 +53,11 @@ export function makeMembersHandler(deps: MembersHandlerDeps) {
       riot_puuid: string | null;
       last_message_at: number | null;
       joined_at: number;
-      current_rank: string | null;
+      current_tier_id: number | null;
+      current_tier_name: string | null;
+      peak_tier_id: number | null;
+      peak_tier_name: string | null;
+      peak_season_short: string | null;
     }) => {
       // Fire-and-forget avatar refresh if stale
       if (deps.refreshAvatarIfStale) {
@@ -72,7 +74,11 @@ export function makeMembersHandler(deps: MembersHandlerDeps) {
         telegramAvatarUrl: row.telegram_avatar_url,
         riotName: row.riot_puuid ? row.riot_name : null,
         riotTag: row.riot_puuid ? row.riot_tag : null,
-        currentRank: row.riot_puuid ? (row.current_rank ?? null) : null,
+        currentTierId: row.riot_puuid ? row.current_tier_id : null,
+        currentTierName: row.riot_puuid ? row.current_tier_name : null,
+        peakTierId: row.riot_puuid ? row.peak_tier_id : null,
+        peakTierName: row.riot_puuid ? row.peak_tier_name : null,
+        peakSeasonShort: row.riot_puuid ? row.peak_season_short : null,
         lastMessageAt: row.last_message_at ? new Date(row.last_message_at).toISOString() : null,
       };
     });

@@ -19,7 +19,11 @@ const MOCK_MEMBERS: Member[] = [
     telegramAvatarUrl: 'https://example.com/alice.jpg',
     riotName: 'Alice',
     riotTag: '1337',
-    currentRank: 'Platinum 1',
+    currentTierId: 15,
+    currentTierName: 'Platinum 1',
+    peakTierId: 18,
+    peakTierName: 'Diamond 1',
+    peakSeasonShort: 'e11a2',
     lastMessageAt: '2026-05-09T10:00:00.000Z',
   },
   {
@@ -28,7 +32,11 @@ const MOCK_MEMBERS: Member[] = [
     telegramAvatarUrl: null,
     riotName: null,
     riotTag: null,
-    currentRank: null,
+    currentTierId: null,
+    currentTierName: null,
+    peakTierId: null,
+    peakTierName: null,
+    peakSeasonShort: null,
     lastMessageAt: null,
   },
 ];
@@ -113,7 +121,11 @@ describe('MembersList.vue', () => {
     await new Promise((r) => setTimeout(r, 0));
     await wrapper.vm.$nextTick();
 
-    expect(wrapper.text()).toContain('Platinum 1');
+    // Rank is rendered as an <img src="/ranks/{tierId}.png">, not as text
+    const rankImgs = wrapper.findAll('img.rank-icon');
+    expect(rankImgs.length).toBeGreaterThanOrEqual(1);
+    const currentRankSrc = rankImgs.map(i => i.attributes('src'));
+    expect(currentRankSrc).toContain('/ranks/15.png'); // Platinum 1 = tier id 15
   });
 
   it('does NOT show lastMessageAt in the DOM', async () => {
@@ -186,9 +198,9 @@ describe('MembersList.vue', () => {
     await new Promise((r) => setTimeout(r, 0));
     await wrapper.vm.$nextTick();
 
-    const imgs = wrapper.findAll('img');
-    // Only alice has an avatar
-    expect(imgs).toHaveLength(1);
-    expect(imgs[0]!.attributes('src')).toBe('https://example.com/alice.jpg');
+    const avatarImgs = wrapper.findAll('img.avatar-img');
+    // Only alice has a Telegram avatar
+    expect(avatarImgs).toHaveLength(1);
+    expect(avatarImgs[0]!.attributes('src')).toBe('https://example.com/alice.jpg');
   });
 });

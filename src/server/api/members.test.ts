@@ -87,22 +87,25 @@ describe('makeMembersHandler', () => {
     const member = body[0]!;
     expect(member.riotName).toBeNull();
     expect(member.riotTag).toBeNull();
-    expect(member.currentRank).toBeNull();
+    expect(member.currentTierId).toBeNull();
+    expect(member.currentTierName).toBeNull();
+    expect(member.peakTierId).toBeNull();
+    expect(member.peakTierName).toBeNull();
   });
 
-  it('returns riotName/riotTag/currentRank for onboarded users', async () => {
+  it('returns riotName/riotTag/tier fields for onboarded users', async () => {
     const now = Date.now();
     sqlite.exec(`
-      INSERT INTO users (telegram_id, telegram_username, riot_puuid, riot_name, riot_tag, last_message_at, joined_at)
-      VALUES (1, 'alice', 'puuid-abc', 'Alice', '1337', ${now}, ${now})
-    `);
-    sqlite.exec(`
-      INSERT INTO match_records (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result, rounds_played, rank_before, rank_after, kill_events_compact)
-      VALUES ('puuid-abc', 'match-1', ${now - 2000}, 'Bind', 'Jett', 10, 5, 3, 'win', 25, 'Gold 1', 'Gold 2', '[]')
-    `);
-    sqlite.exec(`
-      INSERT INTO match_records (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result, rounds_played, rank_before, rank_after, kill_events_compact)
-      VALUES ('puuid-abc', 'match-2', ${now - 1000}, 'Ascent', 'Sage', 8, 4, 6, 'win', 20, 'Gold 2', 'Platinum 1', '[]')
+      INSERT INTO users (
+        telegram_id, telegram_username, riot_puuid, riot_name, riot_tag,
+        current_tier_id, current_tier_name, peak_tier_id, peak_tier_name, peak_season_short, mmr_fetched_at,
+        last_message_at, joined_at
+      )
+      VALUES (
+        1, 'alice', 'puuid-abc', 'Alice', '1337',
+        17, 'Platinum 3', 21, 'Ascendant 1', 'e11a2', ${now},
+        ${now}, ${now}
+      )
     `);
 
     const app = makeApp();
@@ -112,8 +115,11 @@ describe('makeMembersHandler', () => {
     const member = body[0]!;
     expect(member.riotName).toBe('Alice');
     expect(member.riotTag).toBe('1337');
-    // Should return rank from the most recent match
-    expect(member.currentRank).toBe('Platinum 1');
+    expect(member.currentTierId).toBe(17);
+    expect(member.currentTierName).toBe('Platinum 3');
+    expect(member.peakTierId).toBe(21);
+    expect(member.peakTierName).toBe('Ascendant 1');
+    expect(member.peakSeasonShort).toBe('e11a2');
   });
 
   it('response validates against MembersResponseSchema', async () => {

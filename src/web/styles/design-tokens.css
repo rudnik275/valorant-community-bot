@@ -42,11 +42,14 @@
   box-sizing: border-box;
 }
 
+html {
+  background-color: var(--bg-0);
+}
+
 html,
 body {
   margin: 0;
   padding: 0;
-  background-color: var(--bg-0);
   color: var(--fg);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -62,6 +65,8 @@ body {
 body {
   position: relative;
   overflow-x: hidden;
+  /* transparent so body::before gradient shows through (html has bg-0) */
+  background-color: transparent;
 }
 
 body::before,

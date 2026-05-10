@@ -6,7 +6,11 @@ export const MemberSchema = z.object({
   telegramAvatarUrl: z.string().url().nullable(),
   riotName: z.string().nullable(),
   riotTag: z.string().nullable(),
-  currentRank: z.string().nullable(),
+  currentTierId: z.number().nullable(),
+  currentTierName: z.string().nullable(),
+  peakTierId: z.number().nullable(),
+  peakTierName: z.string().nullable(),
+  peakSeasonShort: z.string().nullable(),
   lastMessageAt: z.string().datetime().nullable(),
 });
 
