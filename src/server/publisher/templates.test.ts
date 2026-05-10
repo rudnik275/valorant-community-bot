@@ -113,7 +113,7 @@ describe('renderTemplate — payload-specific behavior', () => {
 
   it('rank_promo: Ascendant 1 shows icon + family name without sub-tier number', () => {
     const output = renderTemplate('rank_promo', { from: 'Diamond 3', to: 'Ascendant 1' }, safeUser);
-    expect(output).toBe('📈 <b>Player#TAG</b> апнул ранг — <tg-emoji emoji-id="5188550815484256589">💚</tg-emoji> Ascendant');
+    expect(output).toBe('📈 <b>Player#TAG</b> апнул ранг — <tg-emoji emoji-id="5188550815484256589">🟩</tg-emoji> Ascendant');
     expect(output).not.toContain('Diamond 3');
     expect(output).not.toContain('Ascendant 1');
     expect(output).not.toContain(' → ');
@@ -122,7 +122,7 @@ describe('renderTemplate — payload-specific behavior', () => {
 
   it('rank_promo: Immortal 1 (to-only branch) shows icon + family name', () => {
     const output = renderTemplate('rank_promo', { to: 'Immortal 1' }, safeUser);
-    expect(output).toBe('📈 <b>Player#TAG</b> апнул ранг — <tg-emoji emoji-id="5188459714932943688">🔮</tg-emoji> Immortal');
+    expect(output).toBe('📈 <b>Player#TAG</b> апнул ранг — <tg-emoji emoji-id="5188459714932943688">♦️</tg-emoji> Immortal');
   });
 
   it('rank_promo: Radiant (single-word family) shows icon + Radiant', () => {
