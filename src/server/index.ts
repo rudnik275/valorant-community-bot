@@ -22,6 +22,7 @@ import { startRiotIdTrackerLoop } from './scanner/riot-id-tracker.ts';
 import { startDetectionListener } from './publisher/detect.ts';
 import { startPublisherLoop } from './publisher/loop.ts';
 import { startDigestLoop } from './digest/loop.ts';
+import { startRestrictGraceLoop } from './cron/restrict-grace.ts';
 import { safeSendMessage, safeSetCustomTitle } from './lib/safe-telegram.ts';
 import { isPublishingEnabled } from './lib/silent-period.ts';
 
@@ -147,6 +148,16 @@ if (process.env['SCANNER_DISABLED'] !== 'true') {
         safeSetCustomTitle(bot!.api, chatId, telegramId, title).then(() => undefined),
       getAllowedChatIds: loadAllowedChatIds,
     });
+
+    startRestrictGraceLoop({
+      db,
+      getAllowedChatIds: loadAllowedChatIds,
+      getBotId: () => bot!.botInfo.id,
+      restrictChatMember: (chatId, userId, permissions) =>
+        bot!.api.restrictChatMember(chatId, userId, permissions).then(() => undefined),
+      getChatAdministrators: (chatId) =>
+        bot!.api.getChatAdministrators(chatId),
+    });
   }
 }
 
@@ -154,8 +165,13 @@ const onboardHandler = makeOnboardHandler({
   db,
   validateAccount,
   scanForPuuid, // wired in #9 (henrik-scanner-loop)
-  botApi: bot?.api,
-  getAllowedChatIds: loadAllowedChatIds,
+  ...(bot
+    ? {
+        restrictChatMember: (chatId: number, userId: number, permissions: Parameters<typeof bot.api.restrictChatMember>[2]) =>
+          bot!.api.restrictChatMember(chatId, userId, permissions).then(() => undefined),
+        getAllowedChatIds: loadAllowedChatIds,
+      }
+    : {}),
 });
 const meHandler = makeMeHandler({ db });
 app.post('/api/onboard', onboardHandler);

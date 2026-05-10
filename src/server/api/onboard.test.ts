@@ -12,6 +12,8 @@ import {
   type RiotAccount,
 } from '../lib/henrik.ts';
 import type { TelegramUser } from '../lib/init-data.ts';
+import { FULL_PERMISSIONS } from '../cron/restrict-grace.ts';
+import logger from '../lib/log.ts';
 
 vi.mock('../lib/log.ts', () => ({
   default: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -37,12 +39,16 @@ const MOCK_ACCOUNT: RiotAccount = {
   cardId: null,
 };
 
+const ALLOWED_CHAT_ID = -100100;
+
 function makeApp(
   db: ReturnType<typeof makeTestDb>['db'],
   overrides: {
     telegramUser?: TelegramUser;
     validateAccount?: (name: string, tag: string) => Promise<RiotAccount>;
     scanForPuuid?: (puuid: string, opts: { detection: boolean }) => Promise<unknown>;
+    restrictChatMember?: (chatId: number, userId: number, permissions: typeof FULL_PERMISSIONS) => Promise<void>;
+    getAllowedChatIds?: () => Set<number>;
   } = {},
 ) {
   const app = new Hono();
@@ -57,6 +63,8 @@ function makeApp(
       db,
       validateAccount: overrides.validateAccount ?? vi.fn().mockResolvedValue(MOCK_ACCOUNT),
       scanForPuuid: overrides.scanForPuuid ?? vi.fn().mockResolvedValue(undefined),
+      ...(overrides.restrictChatMember !== undefined ? { restrictChatMember: overrides.restrictChatMember } : {}),
+      ...(overrides.getAllowedChatIds !== undefined ? { getAllowedChatIds: overrides.getAllowedChatIds } : {}),
     }),
   );
   return app;
@@ -85,6 +93,7 @@ describe('POST /api/onboard', () => {
 
   afterEach(() => {
     sqlite.close();
+    vi.resetAllMocks();
   });
 
   // ── Happy path ──────────────────────────────────────────────────────────────
@@ -243,5 +252,89 @@ describe('POST /api/onboard', () => {
     });
 
     expect(res.status).toBe(400);
+  });
+
+  // ── Auto-unrestrict on onboard ───────────────────────────────────────────────
+
+  it('previously-restricted user → restrictChatMember (full permissions) called for each allowed chat; restricted_at cleared', async () => {
+    // Mark the user seeded in beforeEach as restricted
+    const RESTRICTED_AT = Date.now() - 86_400_000;
+    sqlite.exec(`UPDATE users SET restricted_at = ${RESTRICTED_AT} WHERE telegram_id = 42`);
+
+    const restrictChatMember = vi.fn().mockResolvedValue(undefined);
+    const app = makeApp(db, {
+      restrictChatMember,
+      getAllowedChatIds: () => new Set([ALLOWED_CHAT_ID, -100200]),
+    });
+
+    const res = await postOnboard(app, { name: 'TestPlayer', tag: 'EU1' });
+    expect(res.status).toBe(200);
+
+    // Allow async ops to flush
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Should be called once per chat
+    expect(restrictChatMember).toHaveBeenCalledTimes(2);
+    expect(restrictChatMember).toHaveBeenCalledWith(ALLOWED_CHAT_ID, 42, FULL_PERMISSIONS);
+    expect(restrictChatMember).toHaveBeenCalledWith(-100200, 42, FULL_PERMISSIONS);
+
+    // restricted_at should be cleared
+    const row = sqlite
+      .prepare('SELECT restricted_at FROM users WHERE telegram_id = 42')
+      .get() as { restricted_at: number | null };
+    expect(row.restricted_at).toBeNull();
+  });
+
+  it('never-restricted user → no restrictChatMember call; restricted_at stays NULL', async () => {
+    // user row seeded in beforeEach with restricted_at = NULL (default)
+
+    const restrictChatMember = vi.fn().mockResolvedValue(undefined);
+    const app = makeApp(db, {
+      restrictChatMember,
+      getAllowedChatIds: () => new Set([ALLOWED_CHAT_ID]),
+    });
+
+    const res = await postOnboard(app, { name: 'TestPlayer', tag: 'EU1' });
+    expect(res.status).toBe(200);
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(restrictChatMember).not.toHaveBeenCalled();
+
+    const row = sqlite
+      .prepare('SELECT restricted_at FROM users WHERE telegram_id = 42')
+      .get() as { restricted_at: number | null };
+    expect(row.restricted_at).toBeNull();
+  });
+
+  it('Bot API failure on unrestrict → restricted_at stays populated, warning logged, onboard still returns ok', async () => {
+    const RESTRICTED_AT = Date.now() - 86_400_000;
+    sqlite.exec(`UPDATE users SET restricted_at = ${RESTRICTED_AT} WHERE telegram_id = 42`);
+
+    const restrictChatMember = vi.fn().mockRejectedValue(new Error('Forbidden: bot is not an administrator'));
+    const app = makeApp(db, {
+      restrictChatMember,
+      getAllowedChatIds: () => new Set([ALLOWED_CHAT_ID]),
+    });
+
+    const res = await postOnboard(app, { name: 'TestPlayer', tag: 'EU1' });
+    // Onboard should still succeed
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.status).toBe('ok');
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    // restricted_at stays populated (not cleared because unrestrict failed)
+    const row = sqlite
+      .prepare('SELECT restricted_at FROM users WHERE telegram_id = 42')
+      .get() as { restricted_at: number | null };
+    expect(row.restricted_at).toBe(RESTRICTED_AT);
+
+    // Warning should be logged
+    expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
+      expect.objectContaining({ module: 'onboard', telegram_id: 42 }),
+      expect.stringContaining('Failed to unrestrict'),
+    );
   });
 });
