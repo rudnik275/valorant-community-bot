@@ -10,6 +10,7 @@
  */
 
 import type { EventType } from './types.ts';
+import { rankToEmojiHtml } from './rank-emoji.ts';
 
 /**
  * HTML-escape a string to prevent injection in Telegram HTML messages.
@@ -106,15 +107,20 @@ const templates: Record<EventType, TemplateFn> = {
   },
 
   rank_promo: (payload, user, _match) => {
-    const from = payload['from'] ? ` (${esc(String(payload['from']))} →` : '';
-    const to = payload['to'] ? ` ${esc(String(payload['to']))})` : '';
-    if (payload['from'] && payload['to']) {
-      return `📈 ${playerTag(user)} апнул ранг — ${esc(String(payload['from']))} → ${esc(String(payload['to']))}!`;
+    const fromRank = payload['from'] != null ? String(payload['from']) : null;
+    const toRank   = payload['to']   != null ? String(payload['to'])   : null;
+    const fromIcon = rankToEmojiHtml(fromRank);
+    const toIcon   = rankToEmojiHtml(toRank);
+    const fromPart = fromRank ? `${fromIcon}${fromIcon ? ' ' : ''}${esc(fromRank)}` : '';
+    const toPart   = toRank   ? `${toIcon}${toIcon ? ' ' : ''}${esc(toRank)}`     : '';
+
+    if (fromRank && toRank) {
+      return `📈 ${playerTag(user)} апнул ранг — ${fromPart} → ${toPart}!`;
     }
-    if (payload['to']) {
-      return `📈 ${playerTag(user)} апнул ранг — теперь ${esc(String(payload['to']))}!`;
+    if (toRank) {
+      return `📈 ${playerTag(user)} апнул ранг — теперь ${toPart}!`;
     }
-    return `📈 ${playerTag(user)} апнул ранг!${from}${to}`;
+    return `📈 ${playerTag(user)} апнул ранг!`;
   },
 
   winstreak_9: (payload, user, _match) => {
