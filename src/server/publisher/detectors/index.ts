@@ -1,7 +1,8 @@
 import type { Detector } from '../types.ts';
 import { aceDetector } from './ace.ts';
 import { aceRareWeaponDetector } from './ace-rare-weapon.ts';
-import { clutchDetector } from './clutch.ts';
+// clutch detector temporarily disabled per author request 2026-05-10 (payload.n bug + noisy)
+// import { clutchDetector } from './clutch.ts';
 import { rankPromoDetector } from './rank-promo.ts';
 import { winstreakDetector } from './winstreak.ts';
 import { giantSlayerDetector } from './giant-slayer.ts';
@@ -14,7 +15,7 @@ import { zeroMatchDetector } from './zero-match.ts';
 export const ALL_DETECTORS: Detector[] = [
   aceDetector,
   aceRareWeaponDetector,
-  clutchDetector,
+  // clutchDetector,  // disabled 2026-05-10
   rankPromoDetector,
   winstreakDetector,
   giantSlayerDetector,
