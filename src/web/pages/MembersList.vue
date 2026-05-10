@@ -425,7 +425,7 @@ function avatarInitial(m: Member): string {
 .toast-bubble {
   position: fixed;
   left: 50%;
-  bottom: 28px;
+  top: max(28px, env(safe-area-inset-top, 28px));
   transform: translateX(-50%);
   padding: 10px 18px;
   background: var(--glass-bg);
