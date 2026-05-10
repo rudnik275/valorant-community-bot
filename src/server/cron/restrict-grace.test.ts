@@ -71,11 +71,29 @@ describe('runRestrictGraceTick', () => {
     vi.resetAllMocks();
   });
 
-  // Case 1: Linked user (riot_puuid set) → not restricted
-  it('linked user (riot_puuid set) → not restricted', async () => {
+  // Case 0: Pending-onboard user (riot_name set, riot_puuid NULL) → not restricted
+  it('pending-onboard user (riot_name set, riot_puuid NULL) → not restricted', async () => {
     sqlite.exec(
-      `INSERT INTO users (telegram_id, telegram_username, riot_puuid, joined_at)
-       VALUES (1, 'alice', 'puuid-alice', ${JOINED_31D_AGO})`,
+      `INSERT INTO users (telegram_id, telegram_username, riot_name, riot_tag, joined_at)
+       VALUES (10, 'pending', 'InactivePlayer', 'EU1', ${JOINED_31D_AGO})`,
+    );
+
+    const restrictChatMember = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps(db, { restrictChatMember });
+
+    await runRestrictGraceTick(deps);
+
+    expect(restrictChatMember).not.toHaveBeenCalled();
+
+    const row = sqlite.prepare('SELECT restricted_at FROM users WHERE telegram_id = 10').get() as { restricted_at: number | null };
+    expect(row.restricted_at).toBeNull();
+  });
+
+  // Case 1: Linked user (riot_name + riot_puuid both set) → not restricted
+  it('linked user (riot_name + riot_puuid set) → not restricted', async () => {
+    sqlite.exec(
+      `INSERT INTO users (telegram_id, telegram_username, riot_name, riot_tag, riot_puuid, joined_at)
+       VALUES (1, 'alice', 'Alice', 'EU1', 'puuid-alice', ${JOINED_31D_AGO})`,
     );
 
     const restrictChatMember = vi.fn().mockResolvedValue(undefined);

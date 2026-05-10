@@ -79,6 +79,19 @@ export function makeOnboardHandler(deps: OnboardHandlerDeps) {
       account = await validate(name, tag);
     } catch (err) {
       if (err instanceof HenrikInactiveAccountError) {
+        // Save name+tag so the retry cron can auto-link once the account has match data.
+        // No puuid — the row presence with riot_name set is the «engaged» signal.
+        await deps.db
+          .insert(users)
+          .values({ telegram_id: telegramId, riot_name: name, riot_tag: tag })
+          .onConflictDoUpdate({
+            target: users.telegram_id,
+            set: { riot_name: name, riot_tag: tag },
+          });
+        logger.info(
+          { module: 'onboard', telegramId, riot_name: name, riot_tag: tag },
+          'Saved pending onboard (account inactive — will retry via cron)',
+        );
         return c.json(
           {
             error: 'account_inactive',
