@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { makeOnboardHandler } from './onboard.ts';
 import {
   HenrikNotFoundError,
+  HenrikInactiveAccountError,
   HenrikRateLimitError,
   HenrikUpstreamError,
   type RiotAccount,
@@ -165,6 +166,21 @@ describe('POST /api/onboard', () => {
     expect(res.status).toBe(404);
     const body = await res.json() as Record<string, unknown>;
     expect(body.error).toBe('account_not_found');
+  });
+
+  // ── Error: HenrikInactiveAccountError ────────────────────────────────────────
+
+  it('returns 404 { error: "account_inactive" } with actionable Russian message when Henrik returns code:24', async () => {
+    const app = makeApp(db, {
+      validateAccount: vi.fn().mockRejectedValue(new HenrikInactiveAccountError()),
+    });
+    const res = await postOnboard(app, { name: 'YarosBzdun', tag: '2307' });
+
+    expect(res.status).toBe(404);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.error).toBe('account_inactive');
+    expect(typeof body.message).toBe('string');
+    expect(body.message as string).toContain('Deathmatch');
   });
 
   // ── Error: HenrikRateLimitError ──────────────────────────────────────────────

@@ -94,6 +94,7 @@ function getInitDataRaw(): string {
 
 const ERROR_MESSAGES: Record<string, string> = {
   account_not_found: 'Аккаунт Riot не найден. Проверьте написание.',
+  account_inactive: 'Аккаунт найден, но Riot не показывает по нему свежих матчей. Сыграй один матч (можно Deathmatch) и попробуй снова — после игры всё подтянется.',
   rate_limited: 'Слишком много запросов. Попробуйте через минуту.',
   puuid_already_linked: 'Этот Riot аккаунт уже привязан к другому Telegram.',
   henrik_upstream: 'Сервер Henrik временно недоступен.',

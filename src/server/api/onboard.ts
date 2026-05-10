@@ -5,6 +5,7 @@ import { users } from '../db/schema/users.ts';
 import {
   validateAccount as defaultValidateAccount,
   HenrikNotFoundError,
+  HenrikInactiveAccountError,
   HenrikRateLimitError,
   HenrikUpstreamError,
   type RiotAccount,
@@ -77,6 +78,15 @@ export function makeOnboardHandler(deps: OnboardHandlerDeps) {
     try {
       account = await validate(name, tag);
     } catch (err) {
+      if (err instanceof HenrikInactiveAccountError) {
+        return c.json(
+          {
+            error: 'account_inactive',
+            message: 'Аккаунт найден, но Riot не показывает по нему свежих матчей. Сыграй один матч (можно Deathmatch) и попробуй снова — после игры всё подтянется.',
+          },
+          404,
+        );
+      }
       if (err instanceof HenrikNotFoundError) {
         return c.json(
           { error: 'account_not_found', message: 'Riot аккаунт не найден' },
