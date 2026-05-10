@@ -247,10 +247,13 @@ describe('MembersList.vue', () => {
     await new Promise((r) => setTimeout(r, 0));
     await wrapper.vm.$nextTick();
 
-    const avatarImgs = wrapper.findAll('img.avatar-img');
-    // Only alice has a Telegram avatar (both have riotCardId: null)
-    expect(avatarImgs).toHaveLength(1);
-    expect(avatarImgs[0]!.attributes('src')).toBe('https://example.com/alice.jpg');
+    // Both alice and bob have riotCardId: null, so neither gets a primary card img.
+    // alice has telegramAvatarUrl → rendered as corner .tg-avatar-overlay img.
+    const avatarCardImgs = wrapper.findAll('img.avatar-img--card');
+    expect(avatarCardImgs).toHaveLength(0);
+    const tgOverlayImgs = wrapper.findAll('img.tg-avatar-overlay');
+    expect(tgOverlayImgs).toHaveLength(1);
+    expect(tgOverlayImgs[0]!.attributes('src')).toBe('https://example.com/alice.jpg');
   });
 
   // ─── Avatar combination tests ─────────────────────────────────────────────
@@ -310,7 +313,7 @@ describe('MembersList.vue', () => {
     expect(wrapper.find('img.tg-avatar-overlay').exists()).toBe(false);
   });
 
-  it('avatar combo: no riotCardId + telegramAvatarUrl → TG avatar, NO overlay', async () => {
+  it('avatar combo: no riotCardId + telegramAvatarUrl → ? placeholder primary + TG overlay (img)', async () => {
     const member: Member = {
       telegramId: 12,
       telegramUsername: 'combo3',
@@ -331,13 +334,15 @@ describe('MembersList.vue', () => {
     await new Promise((r) => setTimeout(r, 0));
     await wrapper.vm.$nextTick();
 
-    expect(wrapper.find('img.avatar-img').exists()).toBe(true);
+    expect(wrapper.find('.avatar-placeholder--unlinked').exists()).toBe(true);
+    expect(wrapper.find('.avatar-placeholder--unlinked').text()).toBe('?');
     expect(wrapper.find('img.avatar-img--card').exists()).toBe(false);
-    expect(wrapper.find('.tg-avatar-overlay').exists()).toBe(false);
+    expect(wrapper.find('img.tg-avatar-overlay').exists()).toBe(true);
+    expect(wrapper.find('img.tg-avatar-overlay').attributes('src')).toBe('https://example.com/tg.jpg');
     expect(wrapper.find('.tg-avatar-overlay--placeholder').exists()).toBe(false);
   });
 
-  it('avatar combo: no riotCardId + no telegramAvatarUrl → avatar-placeholder, NO overlay', async () => {
+  it('avatar combo: no riotCardId + no telegramAvatarUrl → ? placeholder primary + initial-letter corner', async () => {
     const member: Member = {
       telegramId: 13,
       telegramUsername: 'combo4',
@@ -358,10 +363,11 @@ describe('MembersList.vue', () => {
     await new Promise((r) => setTimeout(r, 0));
     await wrapper.vm.$nextTick();
 
-    expect(wrapper.find('.avatar-placeholder').exists()).toBe(true);
+    expect(wrapper.find('.avatar-placeholder--unlinked').exists()).toBe(true);
+    expect(wrapper.find('.avatar-placeholder--unlinked').text()).toBe('?');
     expect(wrapper.find('img.avatar-img--card').exists()).toBe(false);
-    expect(wrapper.find('.tg-avatar-overlay').exists()).toBe(false);
-    expect(wrapper.find('.tg-avatar-overlay--placeholder').exists()).toBe(false);
+    expect(wrapper.find('img.tg-avatar-overlay').exists()).toBe(false);
+    expect(wrapper.find('.tg-avatar-overlay--placeholder').exists()).toBe(true);
   });
 
   // ─── Action button tests ──────────────────────────────────────────────────
