@@ -14,6 +14,8 @@ import { makeMembersHandler } from './api/members.ts';
 import { makeOnboardHandler } from './api/onboard.ts';
 import { makeMeHandler } from './api/me.ts';
 import { verifyInitData } from './lib/init-data.ts';
+import { sql } from 'drizzle-orm';
+import { users } from './db/schema/users.ts';
 import { makeAvatarCache } from './lib/telegram-avatar.ts';
 import { validateAccount, getAccountByPuuid } from './lib/henrik.ts';
 import { loadAllowedChatIds } from './lib/scope.ts';
@@ -84,6 +86,21 @@ try {
 const currentBotToken = botToken ?? '';
 const authMiddleware = makeAuthMiddleware({
   verify: (raw) => verifyInitData(raw, currentBotToken),
+  upsertUser: async (user) => {
+    await db
+      .insert(users)
+      .values({
+        telegram_id: user.id,
+        telegram_username: user.username ?? null,
+      })
+      .onConflictDoUpdate({
+        target: users.telegram_id,
+        set: {
+          // COALESCE: preserve existing username if initData omits it (privacy/no username)
+          telegram_username: sql`COALESCE(excluded.telegram_username, ${users.telegram_username})`,
+        },
+      });
+  },
 });
 
 // Avatar cache (lazy, fire-and-forget)
