@@ -1,0 +1,25 @@
+{
+  "status": 200,
+  "data": [{
+    "metadata": {
+      "match_id": "test-match-id-1",
+      "platform": "console",
+      "region": "eu",
+      "queue": {"id": "console_competitive", "name": "Competitive", "mode_type": "Standard"},
+      "map": {"id": "abc", "name": "Haven"},
+      "started_at": "2026-05-09T14:22:19.178Z",
+      "game_length_in_ms": 2211603,
+      "is_completed": true
+    },
+    "players": [{
+      "puuid": "26f40503-6b6d-576c-a32d-9fcb8f081042",
+      "name": "rudі", "tag": "1111", "team_id": "Red", "platform": "playstation",
+      "agent": {"id": "x", "name": "KAY/O"},
+      "tier": {"id": 21, "name": "Ascendant 1"},
+      "stats": {"kills": 16, "deaths": 19, "assists": 13, "score": 4597, "headshots": 13, "bodyshots": 24, "legshots": 1, "damage": {"dealt": 2884, "received": 3554}}
+    }],
+    "teams": [{"team_id": "Red", "won": false, "rounds": {"won": 11, "lost": 13}}, {"team_id": "Blue", "won": true, "rounds": {"won": 13, "lost": 11}}],
+    "rounds": [],
+    "kills": []
+  }]
+}

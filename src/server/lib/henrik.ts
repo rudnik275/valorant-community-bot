@@ -176,77 +176,150 @@ function parseAccountResponse(json: unknown): RiotAccount {
   };
 }
 
-// ─── Zod schemas for matches endpoint ────────────────────────────────────────
+// Legacy v3 schemas removed in Slice B (#53) — no remaining consumers.
 
-/** Kill event shape from Henrik /v3/matches */
-const KillEventSchema = z.object({
-  round: z.number(),
-  /** killer's team: 'Red' | 'Blue' */
-  killer_team: z.string().optional(),
-  /** victim's team: 'Red' | 'Blue' */
-  victim_team: z.string().optional(),
-  /** weapon id, e.g. 'Vandal', 'Fall' */
-  damage_weapon_id: z.string().optional(),
-  /** attacker puuid */
-  killer_puuid: z.string().optional(),
-  /** victim puuid */
-  victim_puuid: z.string().optional(),
-  /** damage type: 'Fall', 'Bullet', etc. */
-  damage_type: z.string().optional(),
+// ─── Zod schemas for v4 matches endpoint ─────────────────────────────────────
+
+/**
+ * V4 match metadata — queue is an object with an `id` string field.
+ * Map is an object with a `name` field.
+ */
+const MatchMetadataV4Schema = z.object({
+  match_id: z.string(),
+  platform: z.string().optional(),
+  region: z.string().optional(),
+  queue: z.object({ id: z.string() }).passthrough().optional(),
+  map: z.object({ name: z.string() }).passthrough().optional(),
+  started_at: z.string().optional(),
+  game_length_in_ms: z.number().optional(),
+  is_completed: z.boolean().optional(),
 }).passthrough();
 
-const PlayerSchema = z.object({
+const PlayerV4Schema = z.object({
   puuid: z.string(),
-  team: z.string(),
-  character: z.string(),
+  name: z.string().optional(),
+  tag: z.string().optional(),
+  team_id: z.string().optional(),
+  platform: z.string().optional(),
+  agent: z.object({ id: z.string().optional(), name: z.string() }).passthrough().optional(),
+  tier: z.object({ id: z.number().optional(), name: z.string().optional() }).passthrough().optional(),
   stats: z.object({
     kills: z.number(),
     deaths: z.number(),
     assists: z.number(),
+    score: z.number().optional(),
+    headshots: z.number().optional(),
+    bodyshots: z.number().optional(),
+    legshots: z.number().optional(),
+    damage: z.object({ dealt: z.number().optional(), received: z.number().optional() }).passthrough().optional(),
   }).passthrough().optional(),
-  currenttier: z.number().optional(),
-  currenttier_patched: z.string().optional(),
 }).passthrough();
 
-const TeamSchema = z.object({
-  has_won: z.boolean(),
-  rounds_won: z.number().optional(),
-  rounds_lost: z.number().optional(),
+const TeamV4Schema = z.object({
+  team_id: z.string(),
+  won: z.boolean(),
+  rounds: z.object({ won: z.number(), lost: z.number() }).passthrough().optional(),
 }).passthrough();
 
-const MatchMetadataSchema = z.object({
-  matchid: z.string(),
-  mode: z.string(),
-  map: z.string(),
-  game_start: z.number(),
-  rounds_played: z.number().optional(),
+const KillV4Schema = z.object({
+  round: z.number().optional(),
+  time_in_round_in_ms: z.number().optional(),
+  time_in_match_in_ms: z.number().optional(),
+  killer: z.object({ puuid: z.string().optional(), name: z.string().optional(), tag: z.string().optional(), team: z.string().optional() }).passthrough().optional(),
+  victim: z.object({ puuid: z.string().optional(), name: z.string().optional(), tag: z.string().optional(), team: z.string().optional() }).passthrough().optional(),
+  assistants: z.unknown().optional(),
+  weapon: z.object({ id: z.string().optional(), name: z.string().optional(), type: z.string().optional() }).passthrough().optional(),
+  location: z.object({ x: z.number().optional(), y: z.number().optional() }).passthrough().optional(),
 }).passthrough();
 
-const MatchPlayersSchema = z.object({
-  all_players: z.array(PlayerSchema),
-}).passthrough();
-
-const MatchTeamsSchema = z.object({
-  red: TeamSchema.optional(),
-  blue: TeamSchema.optional(),
-}).passthrough();
-
-export const HenrikMatchSchema = z.object({
-  metadata: MatchMetadataSchema,
-  players: MatchPlayersSchema,
-  teams: MatchTeamsSchema,
-  kills: z.array(KillEventSchema).default([]),
+export const HenrikMatchV4Schema = z.object({
+  metadata: MatchMetadataV4Schema,
+  players: z.array(PlayerV4Schema).default([]),
+  teams: z.array(TeamV4Schema).default([]),
   rounds: z.array(z.unknown()).default([]),
+  kills: z.array(KillV4Schema).default([]),
 }).passthrough();
 
-export type HenrikMatch = z.infer<typeof HenrikMatchSchema>;
-export type HenrikKillEvent = z.infer<typeof KillEventSchema>;
-export type HenrikPlayer = z.infer<typeof PlayerSchema>;
+export type HenrikMatchV4 = z.infer<typeof HenrikMatchV4Schema>;
+export type HenrikPlayerV4 = z.infer<typeof PlayerV4Schema>;
+export type HenrikKillV4 = z.infer<typeof KillV4Schema>;
 
-const MatchesResponseSchema = z.object({
+const MatchesV4ResponseSchema = z.object({
   status: z.number(),
-  data: z.array(HenrikMatchSchema),
+  data: z.array(HenrikMatchV4Schema),
 });
+
+// ─── Zod schemas for v3 MMR endpoint ─────────────────────────────────────────
+
+const MmrTierSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+});
+
+const MmrCurrentSchema = z.object({
+  tier: MmrTierSchema,
+  rr: z.number(),
+  last_change: z.number(),
+  elo: z.number().optional(),
+  rank_protection_shields: z.number().optional(),
+  leaderboard_placement: z.unknown().optional(),
+  games_needed_for_rating: z.number().optional(),
+}).passthrough();
+
+const MmrPeakSchema = z.object({
+  tier: MmrTierSchema,
+  rr: z.number(),
+  season: z.object({ short: z.string() }).passthrough().optional(),
+  ranking_schema: z.string().optional(),
+}).passthrough().nullable();
+
+const MmrDataSchema = z.object({
+  account: z.unknown().optional(),
+  current: MmrCurrentSchema,
+  peak: MmrPeakSchema.optional(),
+  seasonal: z.array(z.unknown()).optional(),
+}).passthrough();
+
+const MmrResponseSchema = z.object({
+  status: z.number(),
+  data: MmrDataSchema,
+});
+
+/** Typed MMR result returned by getMmr / getMmrByPuuid */
+export interface HenrikMmr {
+  current: {
+    tier: { id: number; name: string };
+    rr: number;
+    last_change: number;
+  };
+  peak: {
+    tier: { id: number; name: string };
+    rr: number;
+    season: string | null;
+  } | null;
+}
+
+function parseMmrResponse(json: unknown): HenrikMmr {
+  const parsed = MmrResponseSchema.safeParse(json);
+  if (!parsed.success) {
+    throw new HenrikError(`Unexpected Henrik MMR response shape: ${parsed.error.message}`);
+  }
+  const { data } = parsed.data;
+  return {
+    current: {
+      tier: data.current.tier,
+      rr: data.current.rr,
+      last_change: data.current.last_change,
+    },
+    peak: data.peak
+      ? {
+          tier: data.peak.tier,
+          rr: data.peak.rr,
+          season: data.peak.season?.short ?? null,
+        }
+      : null,
+  };
+}
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
@@ -269,23 +342,53 @@ export async function getAccountByPuuid(puuid: string): Promise<RiotAccount> {
 }
 
 /**
- * Get recent matches for a player.
- * Endpoint: GET /valorant/v3/matches/{region}/{name}/{tag}?mode=competitive&size=5
+ * Get recent matches for a player by PUUID.
+ * Endpoint: GET /valorant/v4/by-puuid/matches/{region}/{platform}/{puuid}?size=N
+ *
+ * DO NOT pass mode= query — returns 0 results for console. Caller filters by metadata.queue.id.
  */
 export async function getMatches(
-  name: string,
-  tag: string,
+  puuid: string,
   region: string,
-  opts: { mode?: string; size?: number } = {},
-): Promise<HenrikMatch[]> {
-  const mode = opts.mode ?? 'competitive';
-  const size = opts.size ?? 5;
-  const endpoint = `/valorant/v3/matches/${encodeURIComponent(region)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}?mode=${mode}&size=${size}`;
+  opts?: { platform?: 'pc' | 'console'; size?: number },
+): Promise<HenrikMatchV4[]> {
+  const platform = opts?.platform ?? 'console';
+  const size = opts?.size ?? 5;
+  const endpoint = `/valorant/v4/by-puuid/matches/${encodeURIComponent(region)}/${encodeURIComponent(platform)}/${encodeURIComponent(puuid)}?size=${size}`;
   return fetchWithRetry(endpoint, (json) => {
-    const parsed = MatchesResponseSchema.safeParse(json);
+    const parsed = MatchesV4ResponseSchema.safeParse(json);
     if (!parsed.success) {
       throw new HenrikError(`Unexpected Henrik matches response shape: ${parsed.error.message}`);
     }
     return parsed.data.data;
   });
+}
+
+/**
+ * Get MMR for a player by name + tag.
+ * Endpoint: GET /valorant/v3/mmr/{region}/{platform}/{name}/{tag}
+ * Default platform: 'console'
+ */
+export async function getMmr(
+  name: string,
+  tag: string,
+  region: string,
+  platform: 'pc' | 'console' = 'console',
+): Promise<HenrikMmr> {
+  const endpoint = `/valorant/v3/mmr/${encodeURIComponent(region)}/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}`;
+  return fetchWithRetry(endpoint, parseMmrResponse);
+}
+
+/**
+ * Get MMR for a player by PUUID.
+ * Endpoint: GET /valorant/v3/by-puuid/mmr/{region}/{platform}/{puuid}
+ * Default platform: 'console'
+ */
+export async function getMmrByPuuid(
+  puuid: string,
+  region: string,
+  platform: 'pc' | 'console' = 'console',
+): Promise<HenrikMmr> {
+  const endpoint = `/valorant/v3/by-puuid/mmr/${encodeURIComponent(region)}/${encodeURIComponent(platform)}/${encodeURIComponent(puuid)}`;
+  return fetchWithRetry(endpoint, parseMmrResponse);
 }

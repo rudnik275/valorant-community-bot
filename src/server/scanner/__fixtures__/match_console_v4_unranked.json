@@ -1,0 +1,29 @@
+{
+  "metadata": {
+    "match_id": "console-match-v4-unranked-001",
+    "platform": "console",
+    "region": "eu",
+    "queue": { "id": "console_deathmatch", "name": "Deathmatch", "mode_type": "Deathmatch" },
+    "map": { "id": "7eaecc1b-4337-bbf6-6ab9-04b8f06b3319", "name": "Ascent" },
+    "started_at": "2026-05-09T15:00:00.000Z",
+    "game_length_in_ms": 600000,
+    "is_completed": true
+  },
+  "players": [
+    {
+      "puuid": "target-puuid",
+      "name": "Player",
+      "tag": "EU1",
+      "team_id": "Blue",
+      "platform": "playstation",
+      "agent": { "id": "add6443a-41bd-e414-f6ad-e58d267f4e95", "name": "Jett" },
+      "tier": { "id": 0, "name": "Unrated" },
+      "stats": { "kills": 30, "deaths": 20, "assists": 0, "score": 3000 }
+    }
+  ],
+  "teams": [
+    { "team_id": "Blue", "won": false, "rounds": { "won": 0, "lost": 0 } }
+  ],
+  "rounds": [],
+  "kills": []
+}

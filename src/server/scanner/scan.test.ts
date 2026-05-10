@@ -3,13 +3,8 @@ import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { join } from 'node:path';
-import { scanForPuuid } from './scan.ts';
+import { scanForPuuid, CONSOLE_COMPETITIVE_QUEUE } from './scan.ts';
 import { scannerEvents } from './events.ts';
-import {
-  HenrikRateLimitError,
-  HenrikNotFoundError,
-  HenrikUpstreamError,
-} from '../lib/henrik.ts';
 
 vi.mock('../lib/log.ts', () => ({
   default: {
@@ -32,80 +27,68 @@ function makeTestDb() {
 
 const TARGET_PUUID = 'target-puuid-scan-test';
 
-/** A minimal valid Henrik v3 match response */
-function makeFakeMatchResponse(matchId: string, mode = 'Competitive') {
+/** A minimal valid Henrik v4 match response (console_competitive). */
+function makeFakeMatchResponse(matchId: string, queueId = CONSOLE_COMPETITIVE_QUEUE) {
   return {
     status: 200,
     data: [
       {
         metadata: {
-          matchid: matchId,
-          mode,
-          map: 'Ascent',
-          game_start: 1700000000,
-          rounds_played: 25,
+          match_id: matchId,
+          platform: 'console',
+          region: 'eu',
+          queue: { id: queueId, name: 'Competitive', mode_type: 'Standard' },
+          map: { id: 'map-id', name: 'Ascent' },
+          started_at: '2026-05-09T14:00:00.000Z',
+          game_length_in_ms: 2000000,
+          is_completed: true,
         },
-        players: {
-          all_players: [
-            {
-              puuid: TARGET_PUUID,
-              team: 'Blue',
-              character: 'Jett',
-              stats: { kills: 20, deaths: 10, assists: 5 },
-              currenttier: 18,
-              currenttier_patched: 'Diamond 1',
-            },
-            {
-              puuid: 'enemy-1',
-              team: 'Red',
-              character: 'Reyna',
-              stats: { kills: 15, deaths: 14, assists: 3 },
-              currenttier: 18,
-              currenttier_patched: 'Diamond 1',
-            },
-            {
-              puuid: 'enemy-2',
-              team: 'Red',
-              character: 'Phoenix',
-              stats: { kills: 12, deaths: 15, assists: 5 },
-              currenttier: 19,
-              currenttier_patched: 'Diamond 2',
-            },
-            {
-              puuid: 'enemy-3',
-              team: 'Red',
-              character: 'Breach',
-              stats: { kills: 10, deaths: 16, assists: 8 },
-              currenttier: 17,
-              currenttier_patched: 'Platinum 3',
-            },
-            {
-              puuid: 'enemy-4',
-              team: 'Red',
-              character: 'Viper',
-              stats: { kills: 9, deaths: 17, assists: 6 },
-              currenttier: 18,
-              currenttier_patched: 'Diamond 1',
-            },
-            {
-              puuid: 'enemy-5',
-              team: 'Red',
-              character: 'Cypher',
-              stats: { kills: 8, deaths: 18, assists: 10 },
-              currenttier: 19,
-              currenttier_patched: 'Diamond 2',
-            },
-          ],
-        },
-        teams: {
-          red: { has_won: false, rounds_won: 11, rounds_lost: 14 },
-          blue: { has_won: true, rounds_won: 14, rounds_lost: 11 },
-        },
-        kills: [],
+        players: [
+          {
+            puuid: TARGET_PUUID,
+            name: 'TestPlayer',
+            tag: 'EU1',
+            team_id: 'Blue',
+            platform: 'playstation',
+            agent: { id: 'jett-id', name: 'Jett' },
+            tier: { id: 18, name: 'Diamond 1' },
+            stats: { kills: 20, deaths: 10, assists: 5 },
+          },
+          {
+            puuid: 'enemy-1',
+            name: 'Enemy1',
+            tag: 'NA1',
+            team_id: 'Red',
+            platform: 'xbox',
+            agent: { id: 'reyna-id', name: 'Reyna' },
+            tier: { id: 18, name: 'Diamond 1' },
+            stats: { kills: 15, deaths: 14, assists: 3 },
+          },
+          {
+            puuid: 'enemy-2',
+            name: 'Enemy2',
+            tag: 'NA2',
+            team_id: 'Red',
+            platform: 'playstation',
+            agent: { id: 'phoenix-id', name: 'Phoenix' },
+            tier: { id: 19, name: 'Diamond 2' },
+            stats: { kills: 12, deaths: 15, assists: 5 },
+          },
+        ],
+        teams: [
+          { team_id: 'Blue', won: true, rounds: { won: 14, lost: 11 } },
+          { team_id: 'Red', won: false, rounds: { won: 11, lost: 14 } },
+        ],
         rounds: [],
+        kills: [],
       },
     ],
   };
+}
+
+/** A v4 response where queue.id is not console_competitive (should be filtered out). */
+function makeFakeDeathmatchResponse(matchId: string) {
+  return makeFakeMatchResponse(matchId, 'console_deathmatch');
 }
 
 function makeAccountResponse() {
@@ -119,6 +102,12 @@ function makeAccountResponse() {
     },
   };
 }
+
+describe('CONSOLE_COMPETITIVE_QUEUE constant', () => {
+  it('equals console_competitive', () => {
+    expect(CONSOLE_COMPETITIVE_QUEUE).toBe('console_competitive');
+  });
+});
 
 describe('scanForPuuid', () => {
   let db: ReturnType<typeof makeTestDb>['db'];
@@ -227,10 +216,12 @@ describe('scanForPuuid', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('does not insert non-competitive matches', async () => {
+  // ── Console queue filter ────────────────────────────────────────────────────
+
+  it('filters out matches where queue.id !== console_competitive', async () => {
     seedUser();
     fetchMock.mockResolvedValue(
-      new Response(JSON.stringify(makeFakeMatchResponse('unrated-match-333', 'Unrated')), { status: 200 }),
+      new Response(JSON.stringify(makeFakeDeathmatchResponse('deathmatch-333')), { status: 200 }),
     );
 
     const result = await scanForPuuid(db, TARGET_PUUID, { detection: false });
@@ -238,6 +229,21 @@ describe('scanForPuuid', () => {
     expect(result.newRecords).toHaveLength(0);
     const rows = sqlite.prepare('SELECT * FROM match_records WHERE riot_puuid = ?').all(TARGET_PUUID);
     expect(rows).toHaveLength(0);
+  });
+
+  it('calls getMatches with puuid, region, and platform=console', async () => {
+    seedUser();
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify(makeFakeMatchResponse('call-check-match')), { status: 200 }),
+    );
+
+    await scanForPuuid(db, TARGET_PUUID, { detection: false });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const calledUrl: string = (fetchMock.mock.calls[0] as [string])[0];
+    expect(calledUrl).toContain('/v4/by-puuid/matches/');
+    expect(calledUrl).toContain('/console/');
+    expect(calledUrl).toContain(TARGET_PUUID);
   });
 
   // ── detection mode ──────────────────────────────────────────────────────────

@@ -1,0 +1,139 @@
+{
+  "metadata": {
+    "match_id": "console-match-v4-001",
+    "platform": "console",
+    "region": "eu",
+    "queue": { "id": "console_competitive", "name": "Competitive", "mode_type": "Standard" },
+    "map": { "id": "7eaecc1b-4337-bbf6-6ab9-04b8f06b3319", "name": "Ascent" },
+    "started_at": "2026-05-09T14:00:00.000Z",
+    "game_length_in_ms": 2211603,
+    "is_completed": true
+  },
+  "players": [
+    {
+      "puuid": "target-puuid",
+      "name": "Player",
+      "tag": "EU1",
+      "team_id": "Blue",
+      "platform": "playstation",
+      "agent": { "id": "add6443a-41bd-e414-f6ad-e58d267f4e95", "name": "Jett" },
+      "tier": { "id": 18, "name": "Diamond 1" },
+      "stats": { "kills": 22, "deaths": 14, "assists": 4, "score": 5800 }
+    },
+    {
+      "puuid": "ally-1",
+      "name": "Ally1",
+      "tag": "EU2",
+      "team_id": "Blue",
+      "platform": "playstation",
+      "agent": { "id": "xxx", "name": "Sage" },
+      "tier": { "id": 18, "name": "Diamond 1" },
+      "stats": { "kills": 10, "deaths": 12, "assists": 8, "score": 2800 }
+    },
+    {
+      "puuid": "ally-2",
+      "name": "Ally2",
+      "tag": "EU3",
+      "team_id": "Blue",
+      "platform": "xbox",
+      "agent": { "id": "xxx", "name": "Sova" },
+      "tier": { "id": 19, "name": "Diamond 2" },
+      "stats": { "kills": 15, "deaths": 13, "assists": 6, "score": 3900 }
+    },
+    {
+      "puuid": "ally-3",
+      "name": "Ally3",
+      "tag": "EU4",
+      "team_id": "Blue",
+      "platform": "playstation",
+      "agent": { "id": "xxx", "name": "Killjoy" },
+      "tier": { "id": 17, "name": "Platinum 3" },
+      "stats": { "kills": 12, "deaths": 11, "assists": 10, "score": 3200 }
+    },
+    {
+      "puuid": "ally-4",
+      "name": "Ally4",
+      "tag": "EU5",
+      "team_id": "Blue",
+      "platform": "xbox",
+      "agent": { "id": "xxx", "name": "Omen" },
+      "tier": { "id": 18, "name": "Diamond 1" },
+      "stats": { "kills": 11, "deaths": 15, "assists": 7, "score": 2700 }
+    },
+    {
+      "puuid": "enemy-1",
+      "name": "Enemy1",
+      "tag": "NA1",
+      "team_id": "Red",
+      "platform": "playstation",
+      "agent": { "id": "xxx", "name": "Reyna" },
+      "tier": { "id": 18, "name": "Diamond 1" },
+      "stats": { "kills": 18, "deaths": 16, "assists": 2, "score": 4600 }
+    },
+    {
+      "puuid": "enemy-2",
+      "name": "Enemy2",
+      "tag": "NA2",
+      "team_id": "Red",
+      "platform": "xbox",
+      "agent": { "id": "xxx", "name": "Phoenix" },
+      "tier": { "id": 19, "name": "Diamond 2" },
+      "stats": { "kills": 14, "deaths": 17, "assists": 5, "score": 3600 }
+    },
+    {
+      "puuid": "enemy-3",
+      "name": "Enemy3",
+      "tag": "NA3",
+      "team_id": "Red",
+      "platform": "playstation",
+      "agent": { "id": "xxx", "name": "Breach" },
+      "tier": { "id": 20, "name": "Diamond 3" },
+      "stats": { "kills": 12, "deaths": 18, "assists": 9, "score": 3100 }
+    },
+    {
+      "puuid": "enemy-4",
+      "name": "Enemy4",
+      "tag": "NA4",
+      "team_id": "Red",
+      "platform": "xbox",
+      "agent": { "id": "xxx", "name": "Viper" },
+      "tier": { "id": 17, "name": "Platinum 3" },
+      "stats": { "kills": 10, "deaths": 20, "assists": 4, "score": 2500 }
+    },
+    {
+      "puuid": "enemy-5",
+      "name": "Enemy5",
+      "tag": "NA5",
+      "team_id": "Red",
+      "platform": "playstation",
+      "agent": { "id": "xxx", "name": "Cypher" },
+      "tier": { "id": 18, "name": "Diamond 1" },
+      "stats": { "kills": 8, "deaths": 22, "assists": 11, "score": 2200 }
+    }
+  ],
+  "teams": [
+    { "team_id": "Blue", "won": true, "rounds": { "won": 14, "lost": 11 } },
+    { "team_id": "Red", "won": false, "rounds": { "won": 11, "lost": 14 } }
+  ],
+  "rounds": [],
+  "kills": [
+    {
+      "round": 1, "time_in_round_in_ms": 12000,
+      "killer": { "puuid": "target-puuid", "name": "Player", "tag": "EU1", "team": "Blue" },
+      "victim": { "puuid": "enemy-1", "name": "Enemy1", "tag": "NA1", "team": "Red" },
+      "weapon": { "id": "9c82e19d-4575-0200-1a81-3eacf00cf872", "name": "Vandal", "type": "Rifle" }
+    },
+    {
+      "round": 2, "time_in_round_in_ms": 18000,
+      "killer": { "puuid": "enemy-2", "name": "Enemy2", "tag": "NA2", "team": "Red" },
+      "victim": { "puuid": "target-puuid", "name": "Player", "tag": "EU1", "team": "Blue" },
+      "weapon": { "id": "a03b24d3-4319-996d-0f8c-94bbfba1dfc7", "name": "Operator", "type": "Sniper" }
+    },
+    {
+      "round": 3, "time_in_round_in_ms": 20000,
+      "killer": { "puuid": "target-puuid", "name": "Player", "tag": "EU1", "team": "Blue" },
+      "victim": { "puuid": "enemy-3", "name": "Enemy3", "tag": "NA3", "team": "Red" },
+      "weapon": { "id": "9c82e19d-4575-0200-1a81-3eacf00cf872", "name": "Vandal", "type": "Rifle" }
+    }
+  ]
+}

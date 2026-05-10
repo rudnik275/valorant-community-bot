@@ -3,6 +3,8 @@ import type { Detector, DetectedEvent, MatchRecord } from '../types.ts';
 export interface AceRound {
   round: number;
   weapons: string[];
+  /** Victims killed in this ace round, in kill order. */
+  victims: Array<{ puuid: string; name: string; tag: string }>;
 }
 
 /**
@@ -22,7 +24,15 @@ export function findAces(record: MatchRecord): AceRound[] {
   const aces: AceRound[] = [];
   for (const [round, list] of byRound) {
     if (list.length >= 5) {
-      aces.push({ round, weapons: list.map((k) => k.weapon) });
+      aces.push({
+        round,
+        weapons: list.map((k) => k.weapon),
+        victims: list.map((k) => ({
+          puuid: k.victim_puuid,
+          name: k.victim_name ?? '',
+          tag: k.victim_tag ?? '',
+        })),
+      });
     }
   }
   return aces;
@@ -43,6 +53,9 @@ interface KillEvent {
   weapon: string;
   attacker_puuid: string;
   victim_puuid: string;
+  /** Optional — not present in v3 kill_events_compact; present in v4 when available. */
+  victim_name?: string;
+  victim_tag?: string;
 }
 
 /**
@@ -58,6 +71,18 @@ export const aceDetector: Detector = {
     const aces = findAces(record);
     if (aces.length === 0) return [];
 
+    // Collect all unique victims across all ace rounds (de-duped by puuid, in kill order)
+    const seenPuuids = new Set<string>();
+    const allVictims: Array<{ puuid: string; name: string; tag: string }> = [];
+    for (const ace of aces) {
+      for (const v of ace.victims) {
+        if (!seenPuuids.has(v.puuid)) {
+          seenPuuids.add(v.puuid);
+          allVictims.push(v);
+        }
+      }
+    }
+
     return [
       {
         type: 'ace',
@@ -67,6 +92,10 @@ export const aceDetector: Detector = {
           rounds: aces.map((a) => a.round),
           weapons_per_round: aces.map((a) => a.weapons),
           total_aces: aces.length,
+          /** All unique victims killed across all ace rounds. Used for opponent peak lookup. */
+          victims: allVictims,
+          /** Display names in kill order (empty string if unknown). Used by templates. */
+          victim_names_for_template: allVictims.map((v) => v.name),
         },
       },
     ];
