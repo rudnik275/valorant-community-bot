@@ -92,13 +92,14 @@ export function makeOnboardHandler(deps: OnboardHandlerDeps) {
           { module: 'onboard', telegramId, riot_name: name, riot_tag: tag },
           'Saved pending onboard (account inactive — will retry via cron)',
         );
-        return c.json(
-          {
-            error: 'account_inactive',
-            message: 'Аккаунт найден, но Riot не показывает по нему свежих матчей. Сыграй один матч (можно Deathmatch) и попробуй снова — после игры всё подтянется.',
-          },
-          404,
-        );
+        return c.json({
+          status: 'ok',
+          riot_name: name,
+          riot_tag: tag,
+          riot_puuid: null,
+          riot_region: null,
+          pending: true,
+        });
       }
       if (err instanceof HenrikNotFoundError) {
         return c.json(

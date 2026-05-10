@@ -170,17 +170,20 @@ describe('POST /api/onboard', () => {
 
   // ── Error: HenrikInactiveAccountError ────────────────────────────────────────
 
-  it('returns 404 { error: "account_inactive" } with actionable Russian message when Henrik returns code:24', async () => {
+  it('returns 200 { status: "ok", pending: true } when Henrik returns code:24 (inactive account)', async () => {
     const app = makeApp(db, {
       validateAccount: vi.fn().mockRejectedValue(new HenrikInactiveAccountError()),
     });
     const res = await postOnboard(app, { name: 'YarosBzdun', tag: '2307' });
 
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
     const body = await res.json() as Record<string, unknown>;
-    expect(body.error).toBe('account_inactive');
-    expect(typeof body.message).toBe('string');
-    expect(body.message as string).toContain('Deathmatch');
+    expect(body.status).toBe('ok');
+    expect(body.pending).toBe(true);
+    expect(body.riot_name).toBe('YarosBzdun');
+    expect(body.riot_tag).toBe('2307');
+    expect(body.riot_puuid).toBeNull();
+    expect(body.riot_region).toBeNull();
   });
 
   it('code:24 → UPSERTs riot_name + riot_tag; riot_puuid stays NULL', async () => {

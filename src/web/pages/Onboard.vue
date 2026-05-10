@@ -67,7 +67,10 @@
 
 <script setup lang="ts">
 import { ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { z } from 'zod';
+
+const router = useRouter();
 
 const name = ref('');
 const tag = ref('');
@@ -94,7 +97,6 @@ function getInitDataRaw(): string {
 
 const ERROR_MESSAGES: Record<string, string> = {
   account_not_found: 'Аккаунт Riot не найден. Проверьте написание.',
-  account_inactive: 'Аккаунт найден, но Riot не показывает по нему свежих матчей. Сыграй один матч (можно Deathmatch) и попробуй снова — после игры всё подтянется.',
   rate_limited: 'Слишком много запросов. Попробуйте через минуту.',
   puuid_already_linked: 'Этот Riot аккаунт уже привязан к другому Telegram.',
   henrik_upstream: 'Сервер Henrik временно недоступен.',
@@ -124,10 +126,14 @@ async function onSubmit() {
     });
 
     if (res.ok) {
-      const body = await res.json() as { riot_name: string; riot_tag: string; riot_region: string };
+      const body = await res.json() as { riot_name: string; riot_tag: string; riot_region: string | null; pending?: boolean };
+      if (body.pending) {
+        await router.push({ name: 'members' });
+        return;
+      }
       linkedName.value = body.riot_name;
       linkedTag.value = body.riot_tag;
-      linkedRegion.value = body.riot_region;
+      linkedRegion.value = body.riot_region ?? '';
       success.value = true;
     } else {
       let errorCode = 'unknown';

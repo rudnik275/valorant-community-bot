@@ -168,13 +168,20 @@ describe('Onboard.vue', () => {
 
   // ── Error states ─────────────────────────────────────────────────────────────
 
-  it('shows actionable "сыграй один матч" message for account_inactive', async () => {
-    fetchMock.mockResolvedValue(makeErrorResponse(404, {
-      error: 'account_inactive',
-      message: 'Аккаунт найден, но Riot не показывает по нему свежих матчей. Сыграй один матч (можно Deathmatch) и попробуй снова — после игры всё подтянется.',
+  it('navigates to members list when API returns 200 with pending: true', async () => {
+    fetchMock.mockResolvedValue(makeOkResponse({
+      status: 'ok',
+      riot_name: 'YarosBzdun',
+      riot_tag: '2307',
+      riot_puuid: null,
+      riot_region: null,
+      pending: true,
     }));
 
-    const wrapper = mountOnboard();
+    const router = makeRouter();
+    const wrapper = mount(Onboard, { global: { plugins: [router] } });
+
+    await router.push('/onboard');
     await wrapper.find('[data-testid="input-name"]').setValue('YarosBzdun');
     await wrapper.find('[data-testid="input-tag"]').setValue('2307');
     await wrapper.find('form').trigger('submit');
@@ -182,7 +189,8 @@ describe('Onboard.vue', () => {
     await new Promise((r) => setTimeout(r, 0));
     await wrapper.vm.$nextTick();
 
-    expect(wrapper.find('[data-testid="api-error"]').text()).toContain('Сыграй один матч');
+    expect(router.currentRoute.value.name).toBe('members');
+    expect(wrapper.find('[data-testid="api-error"]').exists()).toBe(false);
   });
 
   it('shows "Аккаунт Riot не найден" for account_not_found', async () => {
