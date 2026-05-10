@@ -181,4 +181,40 @@ describe('makeLastMessageHandler', () => {
     const rows = db.select().from(users).all();
     expect(rows).toHaveLength(0);
   });
+
+  // COALESCE preservation tests
+  it('preserves existing telegram_username when update delivers null (no username in update)', async () => {
+    const handler = makeLastMessageHandler({ db, isAllowedChat });
+
+    // Pre-insert row with known username
+    db.insert(users).values({
+      telegram_id: 42,
+      telegram_username: 'alice',
+    }).run();
+
+    // Simulate update where user has no username (privacy / removed) — omit the field
+    await handler(makeCtx({ from: { id: 42, is_bot: false } }) as never);
+
+    const rows = db.select().from(users).where(eq(users.telegram_id, 42)).all();
+    expect(rows).toHaveLength(1);
+    // Known-good username must be preserved
+    expect(rows[0]!.telegram_username).toBe('alice');
+  });
+
+  it('updates telegram_username when update delivers a non-null value', async () => {
+    const handler = makeLastMessageHandler({ db, isAllowedChat });
+
+    // Pre-insert row with old username
+    db.insert(users).values({
+      telegram_id: 42,
+      telegram_username: 'alice_old',
+    }).run();
+
+    // Simulate update where user changed their username
+    await handler(makeCtx({ from: { id: 42, username: 'alice_new', is_bot: false } }) as never);
+
+    const rows = db.select().from(users).where(eq(users.telegram_id, 42)).all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.telegram_username).toBe('alice_new');
+  });
 });

@@ -85,7 +85,9 @@ export function makeChatMemberListener(deps: ChatMemberListenerDeps) {
           })
           .onConflictDoUpdate({
             target: users.telegram_id,
-            set: { telegram_username: sql`excluded.telegram_username` },
+            // COALESCE: preserve existing username if the new value is null
+            // (Telegram omits username when privacy is on or user has none)
+            set: { telegram_username: sql`COALESCE(excluded.telegram_username, ${users.telegram_username})` },
           });
 
         logger.debug(

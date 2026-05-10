@@ -97,21 +97,22 @@ export function makeAvatarCache(deps: AvatarCacheDeps) {
       const photosResult = await api.getUserProfilePhotos(telegramUserId, { limit: 1 });
 
       if (photosResult.total_count === 0 || !photosResult.photos[0]?.length) {
-        // No profile photo — cache the "no photo" result so we don't re-hit the API constantly
+        // No profile photo returned — bump fetched_at as a liveness probe so we don't
+        // re-hit the API constantly, but preserve existing URL/file_id to guard against
+        // transient API gaps (as opposed to the user deliberately removing their photo,
+        // which would be handled by an explicit delete signal).
         logger.debug(
           { event: 'avatar_no_photo', user_id: telegramUserId },
-          'User has no profile photo — caching null',
+          'User has no profile photo — bumping fetched_at, preserving existing URL',
         );
         await deps.db
           .update(users)
           .set({
-            telegram_avatar_file_id: null,
-            telegram_avatar_url: null,
             telegram_avatar_fetched_at: now,
           })
           .where(eq(users.telegram_id, telegramUserId));
 
-        return { url: null, fileId: null };
+        return { url: row.telegram_avatar_url, fileId: row.telegram_avatar_file_id };
       }
 
       // Take the smallest size of the first photo (first element in the inner array)

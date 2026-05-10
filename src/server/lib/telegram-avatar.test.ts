@@ -105,7 +105,7 @@ describe('makeAvatarCache', () => {
     expect(result.url).toBe(`https://api.telegram.org/file/bot${BOT_TOKEN}/photos/user42.jpg`);
   });
 
-  it('total_count === 0 — sets nulls + fetched_at, no getFile call, returns {url: null, fileId: null}', async () => {
+  it('total_count === 0 — bumps fetched_at only, preserves existing URL (null user = returns null)', async () => {
     const getUserProfilePhotos = vi.fn().mockResolvedValue({
       total_count: 0,
       photos: [],
@@ -118,6 +118,7 @@ describe('makeAvatarCache', () => {
 
     expect(getUserProfilePhotos).toHaveBeenCalledOnce();
     expect(getFile).not.toHaveBeenCalled();
+    // User had no existing URL, so result is null
     expect(result).toEqual({ url: null, fileId: null });
 
     // fetched_at must be set so we don't re-fetch constantly
@@ -127,7 +128,75 @@ describe('makeAvatarCache', () => {
     expect(rows[0]?.telegram_avatar_fetched_at).toBeGreaterThan(0);
   });
 
-  it('no-photo result is cached for 24h — second call within TTL uses cache (null returned without API call)', async () => {
+  it('total_count === 0 — preserves known-good URL when API returns no photos (transient gap)', async () => {
+    const { eq } = await import('drizzle-orm');
+
+    // Seed user with existing known-good avatar
+    db.update(users)
+      .set({
+        telegram_avatar_url: 'https://known-good-url',
+        telegram_avatar_file_id: 'known-file-id',
+        telegram_avatar_fetched_at: null, // expired / never set → will trigger refresh
+      })
+      .where(eq(users.telegram_id, 42))
+      .run();
+
+    const getUserProfilePhotos = vi.fn().mockResolvedValue({
+      total_count: 0,
+      photos: [],
+    });
+    const getFile = vi.fn();
+    const getApi = vi.fn().mockReturnValue({ getUserProfilePhotos, getFile });
+
+    const cache = makeAvatarCache({ db, getApi, getBotToken: () => BOT_TOKEN });
+    const result = await cache.ensureAvatar(42);
+
+    expect(getUserProfilePhotos).toHaveBeenCalledOnce();
+    expect(getFile).not.toHaveBeenCalled();
+
+    // Known-good URL must be preserved — not wiped by transient null response
+    expect(result.url).toBe('https://known-good-url');
+    expect(result.fileId).toBe('known-file-id');
+
+    // fetched_at must still be bumped (liveness probe)
+    const rows = db.select().from(users).all();
+    expect(rows[0]?.telegram_avatar_url).toBe('https://known-good-url');
+    expect(rows[0]?.telegram_avatar_file_id).toBe('known-file-id');
+    expect(rows[0]?.telegram_avatar_fetched_at).toBeGreaterThan(0);
+  });
+
+  it('non-null avatar update overwrites existing URL when photos are returned', async () => {
+    const { eq } = await import('drizzle-orm');
+
+    // Seed user with old avatar
+    db.update(users)
+      .set({
+        telegram_avatar_url: 'https://old-avatar-url',
+        telegram_avatar_file_id: 'old-file-id',
+        telegram_avatar_fetched_at: null,
+      })
+      .where(eq(users.telegram_id, 42))
+      .run();
+
+    const getUserProfilePhotos = vi.fn().mockResolvedValue({
+      total_count: 1,
+      photos: [[{ file_id: 'new-file-id', width: 160, height: 160 }]],
+    });
+    const getFile = vi.fn().mockResolvedValue({ file_path: 'photos/new-avatar.jpg' });
+    const getApi = vi.fn().mockReturnValue({ getUserProfilePhotos, getFile });
+
+    const cache = makeAvatarCache({ db, getApi, getBotToken: () => BOT_TOKEN });
+    const result = await cache.ensureAvatar(42);
+
+    expect(result.url).toBe(`https://api.telegram.org/file/bot${BOT_TOKEN}/photos/new-avatar.jpg`);
+    expect(result.fileId).toBe('new-file-id');
+
+    const rows = db.select().from(users).all();
+    expect(rows[0]?.telegram_avatar_url).toBe(result.url);
+    expect(rows[0]?.telegram_avatar_file_id).toBe('new-file-id');
+  });
+
+  it('no-photo result is cached for 24h — second call within TTL uses cache', async () => {
     const getUserProfilePhotos = vi.fn().mockResolvedValue({
       total_count: 0,
       photos: [],

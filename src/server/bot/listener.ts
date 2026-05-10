@@ -77,7 +77,9 @@ export function makeLastMessageHandler(deps: LastMessageHandlerDeps) {
         .onConflictDoUpdate({
           target: users.telegram_id,
           set: {
-            telegram_username: sql`excluded.telegram_username`,
+            // COALESCE: preserve existing username if the new value is null
+            // (Telegram omits username when privacy is on or user has none)
+            telegram_username: sql`COALESCE(excluded.telegram_username, ${users.telegram_username})`,
             // MAX ensures we never go backwards if events arrive out of order
             last_message_at: sql`MAX(COALESCE(${users.last_message_at}, 0), excluded.last_message_at)`,
           },
