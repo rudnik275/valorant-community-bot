@@ -5,6 +5,14 @@
    ============================================================= */
 
 /* ------------------------------------------------------------------
+   0. @property registrations for animatable gradient positions
+   ------------------------------------------------------------------ */
+@property --bg-a-x { syntax: '<percentage>'; inherits: false; initial-value: 30%; }
+@property --bg-a-y { syntax: '<percentage>'; inherits: false; initial-value: 20%; }
+@property --bg-b-x { syntax: '<percentage>'; inherits: false; initial-value: 80%; }
+@property --bg-b-y { syntax: '<percentage>'; inherits: false; initial-value: 90%; }
+
+/* ------------------------------------------------------------------
    1. CSS Custom Properties (design tokens)
    ------------------------------------------------------------------ */
 :root {
@@ -80,10 +88,15 @@ body::after {
 
 /* Layer 1: ambient glow — two radial gradients (blue + purple) over a darker center */
 body::before {
+  --bg-a-x: 30%;
+  --bg-a-y: 20%;
+  --bg-b-x: 80%;
+  --bg-b-y: 90%;
   background:
-    radial-gradient(ellipse 60% 50% at 30% 20%, rgba(115, 131, 255, 0.22), transparent 60%),
-    radial-gradient(ellipse 60% 50% at 80% 90%, rgba(177, 94, 255, 0.18), transparent 60%),
+    radial-gradient(ellipse 60% 50% at var(--bg-a-x) var(--bg-a-y), rgba(115, 131, 255, 0.22), transparent 60%),
+    radial-gradient(ellipse 60% 50% at var(--bg-b-x) var(--bg-b-y), rgba(177, 94, 255, 0.18), transparent 60%),
     radial-gradient(ellipse 80% 60% at 50% 50%, rgba(20, 22, 40, 1), var(--bg-0) 80%);
+  animation: bg-drift-a 32s ease-in-out infinite, bg-drift-b 38s ease-in-out infinite;
 }
 
 /* Layer 2: subtle dotted texture, masked to the upper-center for depth */
@@ -93,6 +106,28 @@ body::after {
   mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black 30%, transparent 80%);
   -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black 30%, transparent 80%);
   opacity: 0.5;
+}
+
+/* Keyframe animations for the two accent gradient positions */
+@keyframes bg-drift-a {
+  0%   { --bg-a-x: 30%; --bg-a-y: 20%; }
+  25%  { --bg-a-x: 42%; --bg-a-y: 28%; }
+  50%  { --bg-a-x: 38%; --bg-a-y: 12%; }
+  75%  { --bg-a-x: 22%; --bg-a-y: 32%; }
+  100% { --bg-a-x: 30%; --bg-a-y: 20%; }
+}
+
+@keyframes bg-drift-b {
+  0%   { --bg-b-x: 80%; --bg-b-y: 90%; }
+  25%  { --bg-b-x: 68%; --bg-b-y: 82%; }
+  50%  { --bg-b-x: 75%; --bg-b-y: 98%; }
+  75%  { --bg-b-x: 88%; --bg-b-y: 78%; }
+  100% { --bg-b-x: 80%; --bg-b-y: 90%; }
+}
+
+/* Reduced-motion: disable background animations */
+@media (prefers-reduced-motion: reduce) {
+  body::before { animation: none; }
 }
 
 /* ------------------------------------------------------------------
