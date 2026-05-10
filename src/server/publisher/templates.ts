@@ -109,12 +109,12 @@ const templates: Record<EventType, TemplateFn> = {
     const from = payload['from'] ? ` (${esc(String(payload['from']))} →` : '';
     const to = payload['to'] ? ` ${esc(String(payload['to']))})` : '';
     if (payload['from'] && payload['to']) {
-      return `📈 ${playerTag(user)} обновил ранг — ${esc(String(payload['from']))} → ${esc(String(payload['to']))}!`;
+      return `📈 ${playerTag(user)} апнул ранг — ${esc(String(payload['from']))} → ${esc(String(payload['to']))}!`;
     }
     if (payload['to']) {
-      return `📈 ${playerTag(user)} обновил ранг — теперь ${esc(String(payload['to']))}!`;
+      return `📈 ${playerTag(user)} апнул ранг — теперь ${esc(String(payload['to']))}!`;
     }
-    return `📈 ${playerTag(user)} обновил ранг!${from}${to}`;
+    return `📈 ${playerTag(user)} апнул ранг!${from}${to}`;
   },
 
   winstreak_9: (payload, user, _match) => {
