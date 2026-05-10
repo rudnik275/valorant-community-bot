@@ -109,12 +109,13 @@ const templates: Record<EventType, TemplateFn> = {
   rank_promo: (payload, user, _match) => {
     const toRank = payload['to'] != null ? String(payload['to']) : null;
     const toIcon = rankToEmojiHtml(toRank);
+    const toFamily = toRank ? (toRank.split(' ')[0] ?? '') : '';
 
-    if (toRank && toIcon) {
-      return `📈 ${playerTag(user)} апнул ранг — ${toIcon}`;
+    if (toRank && toIcon && toFamily) {
+      return `📈 ${playerTag(user)} апнул ранг — ${toIcon} ${esc(toFamily)}`;
     }
     if (toRank) {
-      // Unknown rank label (rank-emoji map miss) → fall back to plain text
+      // Unknown rank label (rank-emoji map miss) — keep full label as-is
       return `📈 ${playerTag(user)} апнул ранг — ${esc(toRank)}`;
     }
     return `📈 ${playerTag(user)} апнул ранг`;
