@@ -119,7 +119,8 @@ describe('scanForPuuid', () => {
     ({ db, sqlite } = makeTestDb());
     fetchMock = vi.fn();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
-    __resetTokenBucketForTest();
+    // Give plenty of tokens so multi-call tests (5xx retries etc.) don't hit real sleep.
+    __resetTokenBucketForTest({ tokens: 30 });
   });
 
   afterEach(() => {
@@ -197,15 +198,15 @@ describe('scanForPuuid', () => {
 
   it('returns gracefully on HenrikUpstreamError (5xx)', async () => {
     seedUser();
-    // Both getMmrByPuuid and getMatches retry 2x on 5xx → up to 6 total calls
-    // with jitter delays. Bumped timeout to 15s so CI doesn't flake.
+    // getMmrByPuuid + getAccountByPuuid + getMatches each retry 2x on 5xx → up to 9 total calls
+    // with random jitter (500–2000ms/retry). Bumped timeout to 30s so CI doesn't flake.
     fetchMock.mockImplementation(async () => new Response('Internal Error', { status: 500 }));
 
     const result = await scanForPuuid(db, TARGET_PUUID, { detection: false });
 
     expect(result.newRecords).toHaveLength(0);
     expect(result.skippedDuplicates).toBe(0);
-  }, 15000);
+  }, 30000);
 
   it('returns empty result when user not in DB', async () => {
     // No seed — user does not exist
