@@ -195,14 +195,15 @@ describe('scanForPuuid', () => {
 
   it('returns gracefully on HenrikUpstreamError (5xx)', async () => {
     seedUser();
-    // getMatches retries 2x on 5xx → 3 total calls
+    // Both getMmrByPuuid and getMatches retry 2x on 5xx → up to 6 total calls
+    // with jitter delays. Bumped timeout to 15s so CI doesn't flake.
     fetchMock.mockImplementation(async () => new Response('Internal Error', { status: 500 }));
 
     const result = await scanForPuuid(db, TARGET_PUUID, { detection: false });
 
     expect(result.newRecords).toHaveLength(0);
     expect(result.skippedDuplicates).toBe(0);
-  });
+  }, 15000);
 
   it('returns empty result when user not in DB', async () => {
     // No seed — user does not exist
