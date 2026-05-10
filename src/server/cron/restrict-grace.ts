@@ -6,7 +6,8 @@
  * Per tick, for each chat in TELEGRAM_ALLOWED_CHAT_IDS:
  * 1. Fetch getChatAdministrators — collect admin user IDs (cache for this tick).
  *    If that fails (bot lost admin) → log warning, skip whole chat.
- * 2. SELECT users WHERE riot_puuid IS NULL AND restricted_at IS NULL AND joined_at <= now - 30d.
+ * 2. SELECT users WHERE riot_name IS NULL AND restricted_at IS NULL AND joined_at <= now - 30d.
+ *    (riot_name IS NOT NULL means the user has attempted to link — treat as engaged, skip.)
  * 3. Skip admins, the bot itself.
  * 4. For each remaining user: call restrictChatMember with all permissions FALSE.
  *    On success → UPDATE restricted_at = now.
@@ -75,13 +76,15 @@ export async function runRestrictGraceTick(deps: RestrictGraceDeps): Promise<voi
   const nowMs = getNowMs();
   const graceCutoffMs = nowMs - GRACE_PERIOD_MS;
 
-  // Select users who are unlinked, not yet restricted, and past grace period
+  // Select users who have never attempted to link (riot_name IS NULL),
+  // are not yet restricted, and are past the 30-day grace period.
+  // Users with riot_name set (pending or fully linked) are treated as engaged — skip them.
   const unlinkedUsers: Array<{ telegram_id: number }> = await db
     .select({ telegram_id: users.telegram_id })
     .from(users)
     .where(
       and(
-        isNull(users.riot_puuid),
+        isNull(users.riot_name),
         isNull(users.restricted_at),
         lte(users.joined_at, graceCutoffMs),
       ),

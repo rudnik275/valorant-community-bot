@@ -183,6 +183,21 @@ describe('POST /api/onboard', () => {
     expect(body.message as string).toContain('Deathmatch');
   });
 
+  it('code:24 → UPSERTs riot_name + riot_tag; riot_puuid stays NULL', async () => {
+    const app = makeApp(db, {
+      validateAccount: vi.fn().mockRejectedValue(new HenrikInactiveAccountError()),
+    });
+    await postOnboard(app, { name: 'InactivePlayer', tag: 'EU1' });
+
+    const row = sqlite
+      .prepare('SELECT riot_name, riot_tag, riot_puuid FROM users WHERE telegram_id = 42')
+      .get() as { riot_name: string | null; riot_tag: string | null; riot_puuid: string | null };
+
+    expect(row.riot_name).toBe('InactivePlayer');
+    expect(row.riot_tag).toBe('EU1');
+    expect(row.riot_puuid).toBeNull();
+  });
+
   // ── Error: HenrikRateLimitError ──────────────────────────────────────────────
 
   it('returns 429 { error: "rate_limited", retry_after } when Henrik rate-limits', async () => {

@@ -23,6 +23,7 @@ import { startDetectionListener } from './publisher/detect.ts';
 import { startPublisherLoop } from './publisher/loop.ts';
 import { startDigestLoop } from './digest/loop.ts';
 import { startRestrictGraceLoop } from './cron/restrict-grace.ts';
+import { startRetryPendingOnboardLoop } from './cron/retry-pending-onboard.ts';
 import { safeSendMessage, safeSetCustomTitle } from './lib/safe-telegram.ts';
 import { isPublishingEnabled } from './lib/silent-period.ts';
 
@@ -155,6 +156,12 @@ if (process.env['SCANNER_DISABLED'] !== 'true') {
         bot!.api.restrictChatMember(chatId, userId, permissions).then(() => undefined),
       getChatAdministrators: (chatId) =>
         bot!.api.getChatAdministrators(chatId),
+    });
+
+    startRetryPendingOnboardLoop({
+      db,
+      validateAccount,
+      scanForPuuid,
     });
   }
 }
