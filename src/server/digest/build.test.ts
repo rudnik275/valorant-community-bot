@@ -50,13 +50,19 @@ interface MatchOpts {
   roundsPlayed?: number;
   map?: string;
   result?: string;
+  headshots?: number;
+  legshots?: number;
+  damageDealt?: number;
+  damageReceived?: number;
+  gameLengthMs?: number;
 }
 
 function seedMatch(sqlite: Database.Database, opts: MatchOpts) {
   sqlite.prepare(
     `INSERT OR REPLACE INTO match_records
-     (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result, rounds_played, kill_events_compact)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, '[]')`,
+     (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result, rounds_played, kill_events_compact,
+      headshots, legshots, damage_dealt, damage_received, game_length_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, '[]', ?, ?, ?, ?, ?)`,
   ).run(
     opts.puuid,
     opts.matchId ?? `match-${Date.now()}-${Math.random()}`,
@@ -67,6 +73,32 @@ function seedMatch(sqlite: Database.Database, opts: MatchOpts) {
     opts.deaths ?? 10,
     opts.result ?? 'win',
     opts.roundsPlayed ?? 20,
+    opts.headshots ?? null,
+    opts.legshots ?? null,
+    opts.damageDealt ?? null,
+    opts.damageReceived ?? null,
+    opts.gameLengthMs ?? null,
+  );
+}
+
+interface AllTimeRecordOpts {
+  recordType: string;
+  value: number;
+  puuid: string;
+  matchId?: string;
+}
+
+function seedAllTimeRecord(sqlite: Database.Database, opts: AllTimeRecordOpts) {
+  sqlite.prepare(
+    `INSERT OR REPLACE INTO all_time_records
+     (record_type, weapon, riot_puuid, value, match_id, achieved_at)
+     VALUES (?, '', ?, ?, ?, ?)`,
+  ).run(
+    opts.recordType,
+    opts.puuid,
+    opts.value,
+    opts.matchId ?? `match-atr-${Date.now()}`,
+    Date.now(),
   );
 }
 
@@ -555,6 +587,102 @@ describe('buildDigest', () => {
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       expect(result.sectionsIncluded).not.toContain('epicMoment');
       expect(result.text).not.toContain('Самый яркий момент');
+    });
+  });
+
+  describe('near-miss — «Был близок к рекорду»', () => {
+    it('renders near-miss block when week max is within threshold of all-time record', async () => {
+      // Record holder (historical — not this week's match)
+      seedUser(sqlite, 99, 'p-holder', { riotName: 'RecordHolder', riotTag: 'REC' });
+      seedAllTimeRecord(sqlite, { recordType: 'kills_match', value: 30, puuid: 'p-holder', matchId: 'old-match' });
+
+      // Current week: player gets 29 kills (within threshold of 2)
+      seedUser(sqlite, 1, 'p1', { riotName: 'NearMisser', riotTag: 'NM' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'nm-match', startedAt: IN_WINDOW, kills: 29 });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).toContain('nearMiss');
+      expect(result.text).toContain('Был близок к рекорду');
+      expect(result.text).toContain('киллам в матче');
+      expect(result.text).toContain('NearMisser');
+      expect(result.text).toContain('29');
+      expect(result.text).toContain('30');
+    });
+
+    it('does NOT render near-miss when week max is beyond threshold', async () => {
+      seedUser(sqlite, 99, 'p-holder', { riotName: 'RecordHolder', riotTag: 'REC' });
+      seedAllTimeRecord(sqlite, { recordType: 'kills_match', value: 30, puuid: 'p-holder', matchId: 'old-match' });
+
+      // 27 kills — more than 2 below record (threshold = 2), so not a near-miss
+      seedUser(sqlite, 1, 'p1', { riotName: 'FarOff', riotTag: 'FAR' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'far-match', startedAt: IN_WINDOW, kills: 27 });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).not.toContain('nearMiss');
+      expect(result.text).not.toContain('Был близок к рекорду');
+    });
+
+    it('does NOT render near-miss when that record was beaten this week (record event exists)', async () => {
+      seedUser(sqlite, 99, 'p-holder', { riotName: 'OldHolder', riotTag: 'OLD' });
+      seedAllTimeRecord(sqlite, { recordType: 'kills_match', value: 30, puuid: 'p-holder', matchId: 'old-match' });
+
+      // Player beats the record this week
+      seedUser(sqlite, 1, 'p1', { riotName: 'Beater', riotTag: 'BTR' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'beat-match', startedAt: IN_WINDOW, kills: 35 });
+      seedEvent(sqlite, {
+        puuid: 'p1',
+        matchId: 'beat-match',
+        eventType: 'record_kills_match',
+        payload: { value: 35, prev_value: 30 },
+        detectedAt: IN_WINDOW,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      // Record event was rendered (bright block), near-miss should NOT appear
+      expect(result.sectionsIncluded).toContain('record_kills_match');
+      expect(result.sectionsIncluded).not.toContain('nearMiss');
+      expect(result.text).not.toContain('Был близок к рекорду');
+    });
+
+    it('renders multiple near-miss blocks for different record types', async () => {
+      seedUser(sqlite, 99, 'p-holder', { riotName: 'Holder', riotTag: 'HLD' });
+      seedAllTimeRecord(sqlite, { recordType: 'kills_match', value: 30, puuid: 'p-holder', matchId: 'old-kills' });
+      seedAllTimeRecord(sqlite, { recordType: 'deaths_match', value: 20, puuid: 'p-holder', matchId: 'old-deaths' });
+
+      seedUser(sqlite, 1, 'p1', { riotName: 'MultiNear', riotTag: 'MNR' });
+      // Close on kills (29/30) and deaths (19/20)
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'nm-multi', startedAt: IN_WINDOW, kills: 29, deaths: 19 });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).toContain('nearMiss');
+      // Both near-miss lines should appear
+      expect(result.text).toContain('киллам в матче');
+      expect(result.text).toContain('смертям в матче');
+    });
+
+    it('does NOT render near-miss when no all-time record row exists for that type', async () => {
+      // No all_time_records seeded at all
+      seedUser(sqlite, 1, 'p1', { riotName: 'Player1', riotTag: 'P1' });
+      seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW, kills: 29 });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).not.toContain('nearMiss');
+      expect(result.text).not.toContain('Был близок к рекорду');
+    });
+
+    it('near-miss for damage_dealt renders with correct emoji and unit', async () => {
+      seedUser(sqlite, 99, 'p-holder', { riotName: 'Holder', riotTag: 'HLD' });
+      seedAllTimeRecord(sqlite, { recordType: 'damage_dealt_match', value: 7000, puuid: 'p-holder', matchId: 'old-dmg' });
+
+      seedUser(sqlite, 1, 'p1', { riotName: 'AlmostDmg', riotTag: 'DMG' });
+      // 6500 is within 1000 of 7000
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'dmg-near', startedAt: IN_WINDOW, damageDealt: 6500 });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).toContain('nearMiss');
+      expect(result.text).toContain('урону');
+      expect(result.text).toContain('dmg');
+      expect(result.text).toContain('AlmostDmg');
     });
   });
 });

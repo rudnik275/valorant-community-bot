@@ -17,12 +17,14 @@
  * includes "play more / come back" calls (memory rule: valorant_no_qol_coercion).
  */
 
-import { and, gte, lt, sql, eq } from 'drizzle-orm';
+import { and, gte, lt, sql, eq, desc } from 'drizzle-orm';
 import { matchRecords } from '../db/schema/match_records.ts';
 import { detectedEvents } from '../db/schema/detected_events.ts';
 import { users } from '../db/schema/users.ts';
 import { optOuts } from '../db/schema/opt_outs.ts';
+import { allTimeRecords } from '../db/schema/all_time_records.ts';
 import { computeAndEmitWeeklyMvpRecord } from './weekly-mvp-record.ts';
+import { NEAR_MISS_THRESHOLDS } from './near-miss-config.ts';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
 
@@ -189,6 +191,86 @@ function renderBrightBlock(
   }
 }
 
+/**
+ * Compute "Был близок к рекорду" blocks for the digest.
+ *
+ * For each record type in NEAR_MISS_THRESHOLDS that was NOT beaten this week,
+ * checks if the week's maximum for that metric is within threshold of the
+ * current all-time record. If so, renders a near-miss line.
+ *
+ * This is a pure render computation — no DB writes.
+ */
+async function renderNearMisses(
+  db: AnyDb,
+  weekStart: number,
+  weekEnd: number,
+  alreadyBeaten: Set<string>,
+): Promise<string[]> {
+  const blocks: string[] = [];
+
+  for (const cfg of NEAR_MISS_THRESHOLDS) {
+    if (alreadyBeaten.has(cfg.recordType)) continue;  // actual record event will be rendered instead
+
+    // Fetch current all-time record value
+    const [atr] = await db
+      .select({ value: allTimeRecords.value })
+      .from(allTimeRecords)
+      .where(and(eq(allTimeRecords.record_type, cfg.recordType), eq(allTimeRecords.weapon, '')))
+      .limit(1);
+    if (!atr) continue;  // no record established yet — nothing to be near
+    const currentRecord = Number(atr.value);
+
+    // Build the SQL expression for this metric
+    const sourceColumnMap = {
+      kills: matchRecords.kills,
+      deaths: matchRecords.deaths,
+      headshots: matchRecords.headshots,
+      legshots: matchRecords.legshots,
+      damage_dealt: matchRecords.damage_dealt,
+      damage_received: matchRecords.damage_received,
+      rounds_played: matchRecords.rounds_played,
+      // game_length_minutes is handled separately below
+    } as const;
+
+    const expr =
+      cfg.source === 'game_length_minutes'
+        ? sql`CAST(${matchRecords.game_length_ms} / 60000.0 AS INTEGER)`
+        : sourceColumnMap[cfg.source as keyof typeof sourceColumnMap];
+
+    // Fetch the week's best for this metric (player with max value)
+    const [row] = await db
+      .select({
+        max_value: sql<number>`MAX(${expr})`.as('max_value'),
+        riot_puuid: matchRecords.riot_puuid,
+        match_id: matchRecords.match_id,
+      })
+      .from(matchRecords)
+      .where(and(gte(matchRecords.started_at, weekStart), lt(matchRecords.started_at, weekEnd)))
+      .orderBy(desc(expr))
+      .limit(1);
+
+    if (!row || row.max_value === null || row.max_value === undefined) continue;
+    const weekMax = Number(row.max_value);
+
+    // Double-check: if it's actually >= record it should already be in alreadyBeaten
+    if (weekMax >= currentRecord) continue;
+    // Check if it's within threshold
+    if (weekMax < currentRecord - cfg.threshold) continue;
+
+    // Lookup the player
+    const [user] = await db
+      .select({ riot_name: users.riot_name, riot_tag: users.riot_tag })
+      .from(users)
+      .where(eq(users.riot_puuid, row.riot_puuid))
+      .limit(1);
+
+    const userTag = user ? `<b>${esc(user.riot_name)}#${esc(user.riot_tag)}</b>` : `<b>${esc(String(row.riot_puuid))}</b>`;
+    blocks.push(`${cfg.emoji} <b>Был близок к рекорду по ${cfg.caption}</b>: ${userTag} — ${weekMax} ${cfg.unit} (рекорд: ${currentRecord})`);
+  }
+
+  return blocks;
+}
+
 export interface BuildDigestDeps {
   db: AnyDb;
   /** Window start in ms (inclusive). */
@@ -342,6 +424,24 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
     }
   }
 
+  // ─── NEAR-MISS BLOCKS ────────────────────────────────────────────────────────
+  // Collect record types beaten this week so we skip near-miss for those
+  const alreadyBeaten = new Set<string>();
+  {
+    const recordEventPrefix = 'record_';
+    for (const sectionKey of sectionsIncluded) {
+      if (sectionKey.startsWith(recordEventPrefix)) {
+        // e.g. "record_kills_match" → "kills_match"
+        alreadyBeaten.add(sectionKey.slice(recordEventPrefix.length));
+      }
+    }
+  }
+
+  const nearMissBlocks = await renderNearMisses(db, weekStart, weekEnd, alreadyBeaten);
+  if (nearMissBlocks.length > 0) {
+    sectionsIncluded.push('nearMiss');
+  }
+
   // ─── ALWAYS-SECTIONS ─────────────────────────────────────────────────────────
   const alwaysSections: string[] = [];
 
@@ -433,6 +533,11 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
     parts.push(brightBlocks.join('\n\n'));
     parts.push('');
     parts.push('━━━━━━━━━━━━━━');
+  }
+
+  if (nearMissBlocks.length > 0) {
+    parts.push('');
+    parts.push(nearMissBlocks.join('\n'));
   }
 
   parts.push('');
