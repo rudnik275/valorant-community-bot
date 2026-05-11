@@ -13,6 +13,7 @@ import { recordDamageReceivedMatchDetector } from './record-damage-received-matc
 import { knifeKillDetector } from './knife-kill.ts';
 import { matchComebackDetector } from './match-comeback.ts';
 import { communityClashDetector } from './community-clash.ts';
+import { recordKillsPerWeaponDetector } from './record-kills-per-weapon.ts';
 
 export const ALL_DETECTORS: Detector[] = [
   aceDetector,
@@ -29,4 +30,5 @@ export const ALL_DETECTORS: Detector[] = [
   knifeKillDetector,
   matchComebackDetector,
   communityClashDetector,
+  recordKillsPerWeaponDetector,
 ];

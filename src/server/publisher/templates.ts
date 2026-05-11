@@ -254,6 +254,29 @@ const templates: Record<EventType, TemplateFn> = {
     return `👏 <b>Мы вами гордимся</b>, ${playerTag(user)}\n🥂 проигрывали со счётом ${dp}:${dop}\nно закончили победой ${fp}:${fop}${mapStr}${matchLink}`;
   },
 
+  record_kills_per_weapon: (payload, user, _match) => {
+    const weapon = payload['weapon'] ?? '?';
+    const value = payload['value'];
+    const prevValue = payload['prev_value'];
+    const prevName = payload['prev_name'];
+    const prevTag = payload['prev_tag'];
+    const prevPuuid = payload['prev_puuid'];
+    const realMatchId = payload['real_match_id'];
+    const samePlayer = prevPuuid === user.riot_puuid;
+    let prevStr = '';
+    if (prevValue !== null && prevValue !== undefined) {
+      if (samePlayer) {
+        prevStr = ` (прошлый: ${esc(String(prevValue))}, тоже его)`;
+      } else if (prevName) {
+        prevStr = ` (прошлый: ${esc(String(prevValue))}, у <b>${esc(String(prevName))}${prevTag ? '#' + esc(String(prevTag)) : ''}</b>)`;
+      } else {
+        prevStr = ` (прошлый: ${esc(String(prevValue))})`;
+      }
+    }
+    const matchLink = realMatchId ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(realMatchId))}">→ матч</a>` : '';
+    return `🔫 <b>Рекорд по количеству убийств за матч из оружия — ${esc(String(weapon))}:</b> ${playerTag(user)} — ${esc(String(value))} фрагов${prevStr}${matchLink}`;
+  },
+
   community_clash: (payload, _user, match) => {
     const teams = Array.isArray(payload['teams'])
       ? payload['teams'] as Array<{ team_id: string; players: Array<{ puuid: string; name: string | null; tag: string | null }> }>

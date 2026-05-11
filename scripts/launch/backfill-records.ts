@@ -9,7 +9,7 @@ import { db } from '../../src/server/db/client.ts';
 import { matchRecords } from '../../src/server/db/schema/match_records.ts';
 import { allTimeRecords } from '../../src/server/db/schema/all_time_records.ts';
 import { desc, isNotNull, and, gte, lt, sql } from 'drizzle-orm';
-import { upsertWeeklyLeader } from '../../src/server/publisher/record-tracker.ts';
+import { upsertWeeklyLeader, upsertRecord } from '../../src/server/publisher/record-tracker.ts';
 
 async function backfillKillsMatch() {
   const rows = await db.select().from(matchRecords).where(isNotNull(matchRecords.riot_puuid)).orderBy(desc(matchRecords.kills)).limit(1);
@@ -167,8 +167,103 @@ async function backfillWeeklyMvpRecords() {
   console.log(`weekly mvp: seeded/updated ${seeded} weeks across ${weekMap.size} total weeks`);
 }
 
+// Weapons to exclude from kills_per_weapon backfill (same set as the detector)
+const BACKFILL_EXCLUDED = new Set([
+  'Vandal', 'Phantom', 'Knife', 'Fall',
+  '9c82e19d-4575-0200-1a81-3eacf00cf872', // Vandal
+  'ee8e8d15-496b-07ac-e5f6-8fae5d4c7b1a', // Phantom
+  '2f59173c-4bed-b6c3-2191-dea9b58be9c7', // Knife
+]);
+
+const BACKFILL_WEAPON_NAME: Record<string, string> = {
+  '4ade7faa-4cf1-8376-95ef-39884480959b': 'Operator',
+  '910be174-449b-a89f-1c5d-ffa1a8c3d6c2': 'Marshal',
+  '29a0cfab-485b-f5d5-779a-b59f85e204a8': 'Classic',
+  '42da8ccc-40d5-affc-beec-15522c2d502d': 'Shorty',
+  '44d4e95c-4157-0037-81b2-17841bf2e8e9': 'Frenzy',
+  'a03b24d3-4319-996d-0f8c-94bbfba1dfc7': 'Ghost',
+  '1baa85b4-4c70-1284-64bb-8481d58f4d8d': 'Sheriff',
+  'f7e1b454-50c7-a545-a891-f5c154926dda': 'Stinger',
+  '462080d1-4035-2937-7c09-27aa2a5c27a7': 'Spectre',
+  'ec845bf4-4f79-ddda-a3da-0db3d5fb9896': 'Bucky',
+  '63e6c2b6-4a8e-869c-3d4c-e38355226584': 'Ares',
+  '55d8a0f4-4274-ca67-fe2c-06ab45efdf58': 'Odin',
+  '2f59173c-4bed-b6c3-2191-dea9b58be9c7': 'Knife',
+};
+
+function backfillCanonicalWeapon(raw: string): string {
+  return BACKFILL_WEAPON_NAME[raw] ?? raw;
+}
+
+interface KillEventCompact {
+  round: number;
+  weapon: string;
+  attacker_puuid: string;
+  victim_puuid: string;
+  attacker_team: string;
+  victim_team: string;
+}
+
+/**
+ * Backfill kills_per_weapon records from existing match_records history.
+ * For each match, parses kill_events_compact, groups kills by weapon for the community player,
+ * and upserts into all_time_records with MAX semantics.
+ * Idempotent — safe to run multiple times.
+ */
+async function backfillKillsPerWeapon() {
+  const rows = await db
+    .select({
+      riot_puuid: matchRecords.riot_puuid,
+      match_id: matchRecords.match_id,
+      started_at: matchRecords.started_at,
+      kill_events_compact: matchRecords.kill_events_compact,
+    })
+    .from(matchRecords)
+    .where(isNotNull(matchRecords.riot_puuid));
+
+  if (rows.length === 0) {
+    console.log('kills_per_weapon: no match records yet, skipping');
+    return;
+  }
+
+  let upserted = 0;
+  for (const row of rows) {
+    const puuid = row.riot_puuid!;
+    let kills: KillEventCompact[];
+    try {
+      kills = JSON.parse(row.kill_events_compact as string) as KillEventCompact[];
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(kills) || kills.length === 0) continue;
+
+    const byWeapon = new Map<string, number>();
+    for (const k of kills) {
+      if (k.attacker_puuid !== puuid) continue;
+      if (BACKFILL_EXCLUDED.has(k.weapon)) continue;
+      const w = backfillCanonicalWeapon(k.weapon);
+      byWeapon.set(w, (byWeapon.get(w) ?? 0) + 1);
+    }
+
+    for (const [weapon, count] of byWeapon) {
+      const result = await upsertRecord(db as Parameters<typeof upsertRecord>[0], {
+        recordType: 'kills_per_weapon',
+        weapon,
+        value: count,
+        riotPuuid: puuid,
+        matchId: row.match_id,
+        achievedAt: row.started_at,
+      });
+      if (result.beaten) upserted++;
+    }
+  }
+
+  console.log(`kills_per_weapon: processed ${rows.length} match rows, ${upserted} records upserted`);
+}
+
 await backfillKillsMatch();
 await backfillDamageDealtMatch();
 await backfillDamageReceivedMatch();
 await backfillWeeklyMvpRecords();
+await backfillKillsPerWeapon();
 process.exit(0);
