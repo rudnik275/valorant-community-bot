@@ -105,14 +105,19 @@ describe('renderTemplate — HTML injection prevention', () => {
 });
 
 describe('renderTemplate — payload-specific behavior', () => {
-  it('ace: shows round count when multiple rounds present', () => {
-    const output = renderTemplate('ace', { rounds: [1, 2, 3] }, safeUser);
-    expect(output).toContain('3×');
+  it('ace: shows kill count when round had 6+ kills', () => {
+    const output = renderTemplate('ace', { weapons_per_round: [['Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal']] }, safeUser);
+    expect(output).toContain('6 убийств');
+  });
+
+  it('ace: no kill count when round had exactly 5 kills', () => {
+    const output = renderTemplate('ace', { weapons_per_round: [['Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal']] }, safeUser);
+    expect(output).not.toContain('убийств');
   });
 
   it('ace: includes map from match param', () => {
     const output = renderTemplate('ace', {}, safeUser, { map: 'Ascent' });
-    expect(output).toContain('Ascent');
+    expect(output).toContain('на карте Ascent');
   });
 
   it('ace: contains AAAAAAACE heading', () => {
@@ -469,121 +474,3 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('&lt;script&gt;');
   });
 
-// ─── opponents_peak rendering ─────────────────────────────────────────────────
-
-describe('renderTemplate — opponents_peak in ace', () => {
-  const victims = [
-    { puuid: 'p1', name: 'Pink', tag: '1234' },
-    { puuid: 'p2', name: 'El Bicho', tag: '5678' },
-    { puuid: 'p3', name: 'DarkAngel', tag: 'EU1' },
-  ];
-
-  const fullPeak = {
-    p1: { tier_id: 19, tier_name: 'Diamond 2', season_short: 'e9' },
-    p2: { tier_id: 21, tier_name: 'Ascendant 1', season_short: 'e9' },
-    p3: { tier_id: 24, tier_name: 'Immortal 3', season_short: 'e8' },
-  };
-
-  it('ace: renders all opponents with peak ranks when fully present', () => {
-    const output = renderTemplate('ace', {
-      rounds: [3],
-      victims,
-      victim_names_for_template: ['Pink', 'El Bicho', 'DarkAngel'],
-      opponents_peak: fullPeak,
-    }, safeUser);
-
-    expect(output).toContain('Жертвы:');
-    expect(output).toContain('Pink (peak Diamond 2)');
-    expect(output).toContain('El Bicho (peak Ascendant 1)');
-    expect(output).toContain('DarkAngel (peak Immortal 3)');
-  });
-
-  it('ace: renders opponents without peak when opponents_peak is partially missing', () => {
-    const partialPeak = {
-      p1: { tier_id: 19, tier_name: 'Diamond 2', season_short: 'e9' },
-      // p2 and p3 missing
-    };
-
-    const output = renderTemplate('ace', {
-      rounds: [3],
-      victims,
-      victim_names_for_template: ['Pink', 'El Bicho', 'DarkAngel'],
-      opponents_peak: partialPeak,
-    }, safeUser);
-
-    expect(output).toContain('Pink (peak Diamond 2)');
-    // p2/p3 have names but no peak — should render name only
-    expect(output).toContain('El Bicho');
-    expect(output).not.toContain('El Bicho (peak');
-  });
-
-  it('ace: does NOT render Жертвы section when opponents_peak is empty', () => {
-    const output = renderTemplate('ace', {
-      rounds: [3],
-      victims,
-      victim_names_for_template: ['Pink', 'El Bicho', 'DarkAngel'],
-      opponents_peak: {},
-    }, safeUser);
-
-    expect(output).not.toContain('Жертвы');
-    // Base message should still render
-    expect(output).toContain('AAAAAAACE');
-  });
-
-  it('ace: does NOT render Жертвы section when opponents_peak is absent', () => {
-    const output = renderTemplate('ace', { rounds: [3] }, safeUser);
-    expect(output).not.toContain('Жертвы');
-  });
-
-  it('ace: opponents peak names are HTML-escaped', () => {
-    const output = renderTemplate('ace', {
-      rounds: [1],
-      victims: [{ puuid: 'p-evil', name: '<script>xss</script>', tag: '' }],
-      victim_names_for_template: ['<script>xss</script>'],
-      opponents_peak: {
-        'p-evil': { tier_id: 19, tier_name: '<Diamond>', season_short: 'e9' },
-      },
-    }, safeUser);
-
-    expect(output).not.toContain('<script>');
-    expect(output).not.toContain('<Diamond>');
-    expect(output).toContain('&lt;script&gt;');
-    expect(output).toContain('&lt;Diamond&gt;');
-  });
-
-  it('ace: renders only peak when victim name is empty string', () => {
-    const output = renderTemplate('ace', {
-      rounds: [1],
-      victims: [{ puuid: 'p-noname', name: '', tag: '' }],
-      victim_names_for_template: [''],
-      opponents_peak: {
-        'p-noname': { tier_id: 21, tier_name: 'Ascendant 2', season_short: 'e9' },
-      },
-    }, safeUser);
-
-    // Name is empty → should render just the peak rank
-    expect(output).toContain('peak Ascendant 2');
-  });
-
-  it('ace: skips victim entirely when both name and peak are absent', () => {
-    const output = renderTemplate('ace', {
-      rounds: [1],
-      victims: [
-        { puuid: 'p-skip', name: '', tag: '' },
-        { puuid: 'p-ok', name: 'Player', tag: '' },
-      ],
-      victim_names_for_template: ['', 'Player'],
-      opponents_peak: {
-        'p-ok': { tier_id: 18, tier_name: 'Diamond 1', season_short: 'e9' },
-        // p-skip has no peak and no name → should be omitted
-      },
-    }, safeUser);
-
-    expect(output).toContain('Player (peak Diamond 1)');
-    // The total Жертвы line should only have 1 entry
-    const match = output.match(/Жертвы: (.+)/);
-    expect(match).not.toBeNull();
-    // Should not have a trailing comma or extra commas
-    expect(match![1]).not.toContain(',,');
-  });
-});

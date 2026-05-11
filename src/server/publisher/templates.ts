@@ -47,50 +47,21 @@ function playerTag(user: TemplateUser): string {
   return `<b>${esc(user.riot_name + '#' + user.riot_tag)}</b>`;
 }
 
-/**
- * Render opponents' peak ranks as an addendum to ace/clutch messages.
- *
- * Victims are listed in kill order from `victim_names_for_template` (may be empty strings).
- * For each victim, peak rank comes from `opponents_peak[puuid].tier_name` if present.
- * If both name and peak are missing for a victim, that victim is omitted from the line.
- */
-function renderOpponentsPeak(payload: Record<string, unknown>): string {
-  const opponentsPeak = payload['opponents_peak'] as Record<string, { tier_id: number; tier_name: string; season_short: string }> | undefined;
-  const victims = payload['victims'] as Array<{ puuid: string; name: string; tag: string }> | undefined;
-  const victimNames = payload['victim_names_for_template'] as string[] | undefined;
-
-  if (!opponentsPeak || Object.keys(opponentsPeak).length === 0) return '';
-  if (!victims || victims.length === 0) return '';
-
-  const parts: string[] = [];
-
-  for (let i = 0; i < victims.length; i++) {
-    const victim = victims[i]!;
-    const displayName = (victimNames?.[i] ?? victim.name) || null;
-    const peak = opponentsPeak[victim.puuid];
-
-    if (displayName && peak) {
-      parts.push(`${esc(displayName)} (peak ${esc(peak.tier_name)})`);
-    } else if (displayName) {
-      parts.push(esc(displayName));
-    } else if (peak) {
-      parts.push(`peak ${esc(peak.tier_name)}`);
-    }
-    // If neither name nor peak — skip this victim
-  }
-
-  if (parts.length === 0) return '';
-  return `\n💥 Жертвы: ${parts.join(', ')}`;
-}
-
 const templates: Record<EventType, TemplateFn> = {
-  ace: (payload, user, match) => {
-    const rounds = Array.isArray(payload['rounds']) ? payload['rounds'] : [];
-    const roundCount = rounds.length > 1 ? ` (${rounds.length}×)` : '';
-    const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
-    const opponentsStr = renderOpponentsPeak(payload);
-    const matchLink = match?.match_id ? `\n<a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
-    return `🎯 <b>AAAAAAACE!</b>\n${playerTag(user)} — 5 фрагов в раунде${roundCount}${mapStr}${matchLink}${opponentsStr}`;
+  ace: (_payload, user, match) => {
+    const weaponsPerRound = Array.isArray(_payload['weapons_per_round'])
+      ? _payload['weapons_per_round'] as unknown[][]
+      : [];
+    let maxKills = 5;
+    for (const round of weaponsPerRound) {
+      if (Array.isArray(round) && round.length > maxKills) {
+        maxKills = round.length;
+      }
+    }
+    const killsStr = maxKills > 5 ? ` — ${maxKills} убийств` : '';
+    const mapStr = match?.map ? ` на карте ${esc(match.map)}` : '';
+    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
+    return `🎯 <b>AAAAAAACE!</b> ${playerTag(user)}${killsStr}${mapStr}${matchLink}`;
   },
 
   ace_rare_weapon_week: (payload, user, match) => {
