@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveMatchRecord } from './derive.ts';
+import { deriveMatchRecord, deriveMatchRoster } from './derive.ts';
 import type { HenrikMatchV4 } from '../lib/henrik.ts';
 
 import v4Fixture from './__fixtures__/match_console_v4.json';
@@ -369,5 +369,38 @@ describe('deriveMatchRecord (v4)', () => {
       // The fixture has target-puuid so it should return a record (not null)
       expect(record).not.toBeNull();
     });
+  });
+});
+
+describe('deriveMatchRoster', () => {
+  it('returns all 10 players from the fixture', () => {
+    const rosters = deriveMatchRoster(v4Fixture as HenrikMatchV4);
+    expect(rosters).toHaveLength(10);
+  });
+
+  it('splits players by team correctly (5 Blue, 5 Red)', () => {
+    const rosters = deriveMatchRoster(v4Fixture as HenrikMatchV4);
+    const blue = rosters.filter((r) => r.team === 'Blue');
+    const red = rosters.filter((r) => r.team === 'Red');
+    expect(blue).toHaveLength(5);
+    expect(red).toHaveLength(5);
+  });
+
+  it('includes name and tag fields for each player', () => {
+    const rosters = deriveMatchRoster(v4Fixture as HenrikMatchV4);
+    const target = rosters.find((r) => r.riot_puuid === 'target-puuid');
+    expect(target).toBeDefined();
+    expect(target!.name).toBe('Player');
+    expect(target!.tag).toBe('EU1');
+  });
+
+  it('uses match_id from metadata', () => {
+    const rosters = deriveMatchRoster(v4Fixture as HenrikMatchV4);
+    rosters.forEach((r) => expect(r.match_id).toBe(v4Fixture.metadata.match_id));
+  });
+
+  it('returns empty array when metadata.match_id is missing', () => {
+    const bad = { ...v4Fixture, metadata: {} };
+    expect(deriveMatchRoster(bad as unknown as HenrikMatchV4)).toEqual([]);
   });
 });

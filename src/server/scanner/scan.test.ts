@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { scanForPuuid, CONSOLE_COMPETITIVE_QUEUE } from './scan.ts';
 import { scannerEvents } from './events.ts';
 import * as henrik from '../lib/henrik.ts';
+import { matchRosters } from '../db/schema/match_rosters.ts';
 
 vi.mock('../lib/log.ts', () => ({
   default: {
@@ -90,6 +91,54 @@ function makeFakeMatchResponse(matchId: string, queueId = CONSOLE_COMPETITIVE_QU
 /** A v4 response where queue.id is not console_competitive (should be filtered out). */
 function makeFakeDeathmatchResponse(matchId: string) {
   return makeFakeMatchResponse(matchId, 'console_deathmatch');
+}
+
+/** A v4 response with a full 10-player roster (5 Blue, 5 Red) for roster tests. */
+function makeFakeMatchResponseWithFullRoster(matchId: string) {
+  const blueTeam = Array.from({ length: 5 }, (_, i) => ({
+    puuid: i === 0 ? TARGET_PUUID : `blue-player-${i}`,
+    name: i === 0 ? 'TestPlayer' : `BluePlayer${i}`,
+    tag: `B${i}`,
+    team_id: 'Blue',
+    platform: 'playstation',
+    agent: { id: 'jett-id', name: 'Jett' },
+    tier: { id: 18, name: 'Diamond 1' },
+    stats: { kills: 10, deaths: 10, assists: 2 },
+  }));
+  const redTeam = Array.from({ length: 5 }, (_, i) => ({
+    puuid: `red-player-${i}`,
+    name: `RedPlayer${i}`,
+    tag: `R${i}`,
+    team_id: 'Red',
+    platform: 'xbox',
+    agent: { id: 'reyna-id', name: 'Reyna' },
+    tier: { id: 18, name: 'Diamond 1' },
+    stats: { kills: 8, deaths: 12, assists: 3 },
+  }));
+  return {
+    status: 200,
+    data: [
+      {
+        metadata: {
+          match_id: matchId,
+          platform: 'console',
+          region: 'eu',
+          queue: { id: CONSOLE_COMPETITIVE_QUEUE, name: 'Competitive', mode_type: 'Standard' },
+          map: { id: 'map-id', name: 'Ascent' },
+          started_at: '2026-05-09T14:00:00.000Z',
+          game_length_in_ms: 2000000,
+          is_completed: true,
+        },
+        players: [...blueTeam, ...redTeam],
+        teams: [
+          { team_id: 'Blue', won: true, rounds: { won: 14, lost: 11 } },
+          { team_id: 'Red', won: false, rounds: { won: 11, lost: 14 } },
+        ],
+        rounds: [],
+        kills: [],
+      },
+    ],
+  };
 }
 
 function makeAccountResponse() {
@@ -608,5 +657,49 @@ describe('scanForPuuid', () => {
     mmrSpy.mockRestore();
     accountSpy.mockRestore();
     matchesSpy.mockRestore();
+  });
+
+  // ── match_rosters capture ────────────────────────────────────────────────────
+
+  it('inserts 10 roster rows after scanning a match with a full 10-player roster', async () => {
+    seedUser();
+    fetchMock.mockImplementation(async () =>
+      new Response(JSON.stringify(makeFakeMatchResponseWithFullRoster('roster-match-001')), { status: 200 }),
+    );
+
+    await scanForPuuid(db, TARGET_PUUID, { detection: false });
+
+    const rosters = await db.select().from(matchRosters);
+    expect(rosters).toHaveLength(10);
+  });
+
+  it('does not duplicate roster rows when the same match is scanned a second time', async () => {
+    seedUser();
+    fetchMock.mockImplementation(async () =>
+      new Response(JSON.stringify(makeFakeMatchResponseWithFullRoster('roster-match-002')), { status: 200 }),
+    );
+
+    // First scan
+    await scanForPuuid(db, TARGET_PUUID, { detection: false });
+    // Pre-insert another community player who was in the same match to simulate
+    // what happens when scan.ts processes the same match for two different community players.
+    // The second scanForPuuid call here uses the same TARGET_PUUID but the match record
+    // already exists — so toInsert is empty and no roster rows are inserted again.
+    // To test the actual dedup path, we directly test that onConflictDoNothing works:
+    // insert the same roster rows again and verify count stays at 10.
+    const firstRosters = await db.select().from(matchRosters);
+    expect(firstRosters).toHaveLength(10);
+
+    // Simulate a second scan of the same match (e.g. for a second community player)
+    // by directly deriving + inserting rosters again for the same match_id.
+    // The DB PK (match_id, riot_puuid) must dedup to exactly 10 rows.
+    const { deriveMatchRoster } = await import('./derive.ts');
+    const fakeMatch = makeFakeMatchResponseWithFullRoster('roster-match-002').data[0]!;
+    const rosterRows = deriveMatchRoster(fakeMatch as Parameters<typeof deriveMatchRoster>[0]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (db as any).insert(matchRosters).values(rosterRows).onConflictDoNothing();
+
+    const secondRosters = await db.select().from(matchRosters);
+    expect(secondRosters).toHaveLength(10);
   });
 });

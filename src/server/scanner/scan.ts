@@ -13,10 +13,11 @@ import {
   HenrikUpstreamError,
   type Priority,
 } from '../lib/henrik.ts';
-import { deriveMatchRecord, type MatchRecordInsert } from './derive.ts';
+import { deriveMatchRecord, deriveMatchRoster, type MatchRecordInsert } from './derive.ts';
 import { scannerEvents } from './events.ts';
 import { users } from '../db/schema/users.ts';
 import { matchRecords } from '../db/schema/match_records.ts';
+import { matchRosters } from '../db/schema/match_rosters.ts';
 import { detectedEvents } from '../db/schema/detected_events.ts';
 import logger from '../lib/log.ts';
 
@@ -242,6 +243,19 @@ export async function scanForPuuid(
     .insert(matchRecords)
     .values(toInsert)
     .onConflictDoNothing();
+
+  // 7b. Insert rosters for ALL players in new matches (PK dedupes if same match
+  //     scanned for multiple community players — onConflictDoNothing handles it).
+  const rosterRows = toInsert.flatMap((r) => {
+    const match = competitiveMatches.find((m) => m.metadata.match_id === r.match_id);
+    return match ? deriveMatchRoster(match) : [];
+  });
+  if (rosterRows.length > 0) {
+    await db
+      .insert(matchRosters)
+      .values(rosterRows)
+      .onConflictDoNothing();
+  }
 
   // 8. Emit events if detection mode is enabled
   if (opts.detection) {
