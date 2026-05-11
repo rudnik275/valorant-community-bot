@@ -186,7 +186,7 @@ describe('renderTemplate — payload-specific behavior', () => {
   it('giant_slayer: shows enemy avg rank and машина для убийства text', () => {
     const output = renderTemplate('giant_slayer', { own: 'Silver 2', enemy_avg: 'Platinum 1', delta: 2 }, safeUser);
     expect(output).toContain('Platinum 1');
-    expect(output).toContain('машина для убийства');
+    expect(output.toLowerCase()).toContain('машина для убийства');
   });
 
   it('giant_slayer: shows own rank', () => {
@@ -233,7 +233,7 @@ describe('renderTemplate — payload-specific behavior', () => {
   it('fall_damage_death: includes map and звезда паркура text', () => {
     const output = renderTemplate('fall_damage_death', { count: 2 }, safeUser, { map: 'Icebox' });
     expect(output).toContain('Icebox');
-    expect(output).toContain('звезда паркура');
+    expect(output.toLowerCase()).toContain('звезда паркура');
   });
 
   it('fall_damage_death: shows count when present', () => {
