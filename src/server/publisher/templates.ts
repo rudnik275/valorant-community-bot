@@ -83,8 +83,8 @@ const templates: Record<EventType, TemplateFn> = {
     return `💎 ${playerTag(user)} знает толк в извращениях. Эйс — <b>${esc(weaponStr)}</b>${mapStr}${matchLink}`;
   },
 
-  rank_promo: (payload, user, _match) => {
-    const to = payload['to'] ?? '';
+  peak_rank_up: (payload, user, _match) => {
+    const to = payload['to_tier_name'] ?? '';
     const rankEmoji = rankToEmojiHtml(to as string);
     if (rankEmoji) {
       return `🎖 <b>Повышение по службе</b>\n${playerTag(user)} — ${rankEmoji} ${esc(String(to))}`;
