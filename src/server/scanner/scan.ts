@@ -11,6 +11,7 @@ import {
   HenrikRateLimitError,
   HenrikNotFoundError,
   HenrikUpstreamError,
+  type Priority,
 } from '../lib/henrik.ts';
 import { deriveMatchRecord, type MatchRecordInsert } from './derive.ts';
 import { scannerEvents } from './events.ts';
@@ -33,6 +34,12 @@ export interface ScanResult {
 export interface ScanOpts {
   /** When true, emit 'newRecord' events for each new match record (for event detection). */
   detection: boolean;
+  /**
+   * Priority for the three Henrik calls made during this scan. Default 'background'.
+   * Set to 'interactive' for user-triggered scans (onboard, manual refresh) so they
+   * jump ahead of the cron sweep in the Henrik queue.
+   */
+  priority?: Priority;
 }
 
 /**
@@ -51,6 +58,7 @@ export async function scanForPuuid(
   puuid: string,
   opts: ScanOpts,
 ): Promise<ScanResult> {
+  const priority: Priority = opts.priority ?? 'background';
   // 1. Get user from DB
   const userRows = await db
     .select({
@@ -74,7 +82,7 @@ export async function scanForPuuid(
   if (!region) {
     try {
       logger.info({ module: 'scanner', puuid }, 'riot_region is null — fetching from Henrik (lazy backfill)');
-      const account = await getAccountByPuuid(puuid);
+      const account = await getAccountByPuuid(puuid, { priority });
       region = account.region;
       // Persist to DB
       await db
@@ -103,7 +111,7 @@ export async function scanForPuuid(
   const oldPeakTierId = user.peak_tier_id as number | null;
   const oldPeakTierName = user.peak_tier_name as string | null;
   try {
-    const mmr = await getMmrByPuuid(puuid, region, 'console');
+    const mmr = await getMmrByPuuid(puuid, region, 'console', { priority });
     const mmrUpdate: Partial<typeof users.$inferInsert> = {
       mmr_fetched_at: Date.now(),
     };
@@ -158,7 +166,7 @@ export async function scanForPuuid(
   // 2.6. Refresh account info (riot_card_id) on every scan tick.
   // Only write if Henrik returned a non-null cardId — preserve last-known-good otherwise.
   try {
-    const account = await getAccountByPuuid(puuid);
+    const account = await getAccountByPuuid(puuid, { priority });
     if (account.cardId != null) {
       await db
         .update(users)
@@ -180,7 +188,7 @@ export async function scanForPuuid(
   // 3. Fetch matches from Henrik v4 (console platform)
   let rawMatches;
   try {
-    rawMatches = await getMatches(puuid, region, { platform: 'console', size: 5 });
+    rawMatches = await getMatches(puuid, region, { platform: 'console', size: 5, priority });
   } catch (err) {
     if (
       err instanceof HenrikRateLimitError ||

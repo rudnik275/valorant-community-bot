@@ -127,14 +127,12 @@ describe('POST /api/onboard', () => {
     expect(row.onboarded_at).toBeGreaterThan(0);
   });
 
-  it('calls scanForPuuid fire-and-forget after success', async () => {
+  it('awaits scanForPuuid with interactive priority after success', async () => {
     const scanMock = vi.fn().mockResolvedValue(undefined);
     const app = makeApp(db, { scanForPuuid: scanMock });
     await postOnboard(app, { name: 'TestPlayer', tag: 'EU1' });
 
-    // Allow microtask queue to flush
-    await new Promise((r) => setTimeout(r, 0));
-    expect(scanMock).toHaveBeenCalledWith('puuid-abc-123', { detection: false });
+    expect(scanMock).toHaveBeenCalledWith('puuid-abc-123', { detection: false, priority: 'interactive' });
   });
 
   it('UPSERTs on re-onboard — updates existing riot fields', async () => {

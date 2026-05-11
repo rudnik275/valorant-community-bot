@@ -10,6 +10,9 @@
 
 import { z } from 'zod';
 import logger from './log.ts';
+import { henrikQueue, type Priority } from './henrik-queue.ts';
+
+export type { Priority } from './henrik-queue.ts';
 
 // ─── Error types ─────────────────────────────────────────────────────────────
 
@@ -425,18 +428,33 @@ function parseMmrResponse(json: unknown): HenrikMmr {
  * Validate a Riot account by name + tag.
  * Returns parsed account data or throws typed HenrikError.
  */
-export async function validateAccount(name: string, tag: string): Promise<RiotAccount> {
+export async function validateAccount(
+  name: string,
+  tag: string,
+  opts?: { priority?: Priority },
+): Promise<RiotAccount> {
   const endpoint = `/valorant/v1/account/${encodeURIComponent(name)}/${encodeURIComponent(tag)}`;
-  return fetchWithRetry(endpoint, parseAccountResponse);
+  return henrikQueue.enqueue({
+    key: endpoint,
+    priority: opts?.priority ?? 'background',
+    fn: () => fetchWithRetry(endpoint, parseAccountResponse),
+  });
 }
 
 /**
  * Look up a Riot account by PUUID.
  * Returns parsed account data or throws typed HenrikError.
  */
-export async function getAccountByPuuid(puuid: string): Promise<RiotAccount> {
+export async function getAccountByPuuid(
+  puuid: string,
+  opts?: { priority?: Priority },
+): Promise<RiotAccount> {
   const endpoint = `/valorant/v1/by-puuid/account/${encodeURIComponent(puuid)}`;
-  return fetchWithRetry(endpoint, parseAccountResponse);
+  return henrikQueue.enqueue({
+    key: endpoint,
+    priority: opts?.priority ?? 'background',
+    fn: () => fetchWithRetry(endpoint, parseAccountResponse),
+  });
 }
 
 /**
@@ -448,17 +466,21 @@ export async function getAccountByPuuid(puuid: string): Promise<RiotAccount> {
 export async function getMatches(
   puuid: string,
   region: string,
-  opts?: { platform?: 'pc' | 'console'; size?: number },
+  opts?: { platform?: 'pc' | 'console'; size?: number; priority?: Priority },
 ): Promise<HenrikMatchV4[]> {
   const platform = opts?.platform ?? 'console';
   const size = opts?.size ?? 5;
   const endpoint = `/valorant/v4/by-puuid/matches/${encodeURIComponent(region)}/${encodeURIComponent(platform)}/${encodeURIComponent(puuid)}?size=${size}`;
-  return fetchWithRetry(endpoint, (json) => {
-    const parsed = MatchesV4ResponseSchema.safeParse(json);
-    if (!parsed.success) {
-      throw new HenrikError(`Unexpected Henrik matches response shape: ${parsed.error.message}`);
-    }
-    return parsed.data.data;
+  return henrikQueue.enqueue({
+    key: endpoint,
+    priority: opts?.priority ?? 'background',
+    fn: () => fetchWithRetry(endpoint, (json) => {
+      const parsed = MatchesV4ResponseSchema.safeParse(json);
+      if (!parsed.success) {
+        throw new HenrikError(`Unexpected Henrik matches response shape: ${parsed.error.message}`);
+      }
+      return parsed.data.data;
+    }),
   });
 }
 
@@ -472,9 +494,14 @@ export async function getMmr(
   tag: string,
   region: string,
   platform: 'pc' | 'console' = 'console',
+  opts?: { priority?: Priority },
 ): Promise<HenrikMmr> {
   const endpoint = `/valorant/v3/mmr/${encodeURIComponent(region)}/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}`;
-  return fetchWithRetry(endpoint, parseMmrResponse);
+  return henrikQueue.enqueue({
+    key: endpoint,
+    priority: opts?.priority ?? 'background',
+    fn: () => fetchWithRetry(endpoint, parseMmrResponse),
+  });
 }
 
 /**
@@ -486,7 +513,12 @@ export async function getMmrByPuuid(
   puuid: string,
   region: string,
   platform: 'pc' | 'console' = 'console',
+  opts?: { priority?: Priority },
 ): Promise<HenrikMmr> {
   const endpoint = `/valorant/v3/by-puuid/mmr/${encodeURIComponent(region)}/${encodeURIComponent(platform)}/${encodeURIComponent(puuid)}`;
-  return fetchWithRetry(endpoint, parseMmrResponse);
+  return henrikQueue.enqueue({
+    key: endpoint,
+    priority: opts?.priority ?? 'background',
+    fn: () => fetchWithRetry(endpoint, parseMmrResponse),
+  });
 }

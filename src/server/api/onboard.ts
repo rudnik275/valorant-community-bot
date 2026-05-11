@@ -9,6 +9,7 @@ import {
   HenrikRateLimitError,
   HenrikUpstreamError,
   type RiotAccount,
+  type Priority,
 } from '../lib/henrik.ts';
 import { scanForPuuid as defaultScanForPuuid } from '../scanner/index.ts';
 import logger from '../lib/log.ts';
@@ -20,9 +21,9 @@ type AnyDb = any;
 export interface OnboardHandlerDeps {
   db: AnyDb;
   /** validateAccount injectable for testing; defaults to Henrik implementation */
-  validateAccount?: (name: string, tag: string) => Promise<RiotAccount>;
-  /** Fire-and-forget per-puuid scan, already bound to db. Injected for testing. */
-  scanForPuuid?: (puuid: string, opts: { detection: boolean }) => Promise<unknown>;
+  validateAccount?: (name: string, tag: string, opts?: { priority?: Priority }) => Promise<RiotAccount>;
+  /** Per-puuid scan, already bound to db. Injected for testing. */
+  scanForPuuid?: (puuid: string, opts: { detection: boolean; priority?: Priority }) => Promise<unknown>;
   /**
    * Telegram Bot API: restrict a chat member.
    * Used to lift read-only restriction after successful onboard.
@@ -73,10 +74,10 @@ export function makeOnboardHandler(deps: OnboardHandlerDeps) {
 
     const { name, tag } = body;
 
-    // Resolve PUUID via Henrik
+    // Resolve PUUID via Henrik — onboard is user-facing, jump the queue.
     let account: RiotAccount;
     try {
-      account = await validate(name, tag);
+      account = await validate(name, tag, { priority: 'interactive' });
     } catch (err) {
       if (err instanceof HenrikInactiveAccountError) {
         // Save name+tag so the retry cron can auto-link once the account has match data.
@@ -196,10 +197,14 @@ export function makeOnboardHandler(deps: OnboardHandlerDeps) {
       }
     }
 
-    // Fire-and-forget backfill scan — don't await, return success immediately
-    void scan(puuid, { detection: false }).catch((err) => {
+    // Await backfill scan with interactive priority — onboard is user-facing,
+    // we want rank+matches populated before responding. Failures are non-fatal:
+    // the cron scanner already prioritizes users with null mmr_fetched_at.
+    try {
+      await scan(puuid, { detection: false, priority: 'interactive' });
+    } catch (err) {
       logger.warn({ module: 'onboard', puuid, err }, 'Backfill scan failed (non-fatal)');
-    });
+    }
 
     return c.json({
       status: 'ok',
