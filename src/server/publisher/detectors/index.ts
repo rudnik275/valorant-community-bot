@@ -8,6 +8,7 @@ import { returnAfterPauseDetector } from './return-after-pause.ts';
 import { teamkillDetector } from './teamkill.ts';
 import { fallDamageDeathDetector } from './fall-damage-death.ts';
 import { recordKillsMatchDetector } from './record-kills-match.ts';
+import { knifeKillDetector } from './knife-kill.ts';
 
 export const ALL_DETECTORS: Detector[] = [
   aceDetector,
@@ -19,4 +20,5 @@ export const ALL_DETECTORS: Detector[] = [
   teamkillDetector,
   fallDamageDeathDetector,
   recordKillsMatchDetector,
+  knifeKillDetector,
 ];

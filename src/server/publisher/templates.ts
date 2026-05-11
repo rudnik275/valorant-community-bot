@@ -157,6 +157,14 @@ const templates: Record<EventType, TemplateFn> = {
     const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(match.match_id))}">→ матч</a>` : '';
     return `🔪 <b>Мирного рішення не буде:</b> ${playerTag(user)} — ${esc(String(value))} фрагов${prevStr}${matchLink}`;
   },
+
+  knife_kill: (payload, user, match) => {
+    const count = Number(payload['count'] ?? 1);
+    const countStr = count > 1 ? ` ${count} врагов` : ' врага';
+    const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
+    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
+    return `🔪 <b>Заколол баранчика</b> ${playerTag(user)} — зарезал${countStr} с ножа${mapStr}${matchLink}`;
+  },
 };
 
 /**
