@@ -226,11 +226,29 @@ describe('getDigestNowKyiv', () => {
     expect(result.weekEnd - result.weekStart).toBeLessThanOrEqual(7 * 86400000);
   });
 
-  it('weekStart is always a Monday-aligned midnight boundary', () => {
-    // Sunday 20:00 Kyiv is roughly the time the digest runs
-    // weekStart should be exactly 7 * 86400000 before weekEnd (= today midnight)
+  it('weekEnd equals nowMs (rolling window — publication time is window end)', () => {
     const result = getDigestNowKyiv(FIXED_NOW);
-    // weekEnd - weekStart is a multiple of 86400000 (whole days)
-    expect((result.weekEnd - result.weekStart) % 86400000).toBe(0);
+    expect(result.weekEnd).toBe(FIXED_NOW);
+  });
+
+  it('weekStart is exactly 7 days before weekEnd (rolling 7-day window)', () => {
+    const result = getDigestNowKyiv(FIXED_NOW);
+    expect(result.weekEnd - result.weekStart).toBe(7 * 86400000);
+  });
+
+  it('produces a valid ISO week identifier for two different Fridays', () => {
+    // Friday 2026-05-08 19:00 Kyiv ~ UTC 16:00 = 1746716400000
+    const fri1 = 1746716400000;
+    const r1 = getDigestNowKyiv(fri1);
+    expect(r1.weekIso).toMatch(/^\d{4}-W\d{2}$/);
+    expect(r1.weekEnd).toBe(fri1);
+    expect(r1.weekStart).toBe(fri1 - 7 * 86400000);
+
+    // A week later
+    const fri2 = fri1 + 7 * 86400000;
+    const r2 = getDigestNowKyiv(fri2);
+    expect(r2.weekIso).not.toBe(r1.weekIso); // different ISO week
+    expect(r2.weekEnd).toBe(fri2);
+    expect(r2.weekStart).toBe(fri2 - 7 * 86400000);
   });
 });

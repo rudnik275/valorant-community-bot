@@ -94,7 +94,7 @@ function seedEvent(sqlite: Database.Database, opts: EventOpts) {
 
 // ─── Test window constants ────────────────────────────────────────────────────
 
-const NOW = 1_746_000_000_000; // arbitrary fixed point
+const NOW = 1_746_000_000_000; // arbitrary fixed point (used as weekEnd)
 const WEEK_END = NOW;
 const WEEK_START = WEEK_END - 7 * 86400000;
 const IN_WINDOW = WEEK_START + 86400000; // 1 day into the window
@@ -126,301 +126,190 @@ describe('buildDigest', () => {
     });
   });
 
-  describe('all sections render correctly', () => {
-    it('renders pulse, epic moment, rank progress, most active, top agents, best K/D with 5 users', async () => {
-      // Seed 5 users
-      const users = [
-        { id: 1, puuid: 'p1', riotName: 'Alpha', riotTag: 'AAA' },
-        { id: 2, puuid: 'p2', riotName: 'Beta', riotTag: 'BBB' },
-        { id: 3, puuid: 'p3', riotName: 'Gamma', riotTag: 'GGG' },
-        { id: 4, puuid: 'p4', riotName: 'Delta', riotTag: 'DDD' },
-        { id: 5, puuid: 'p5', riotName: 'Epsilon', riotTag: 'EEE' },
-      ];
-      for (const u of users) {
-        seedUser(sqlite, u.id, u.puuid, { riotName: u.riotName, riotTag: u.riotTag });
-      }
-
-      // Seed matches (varying activity)
-      // p1: 6 matches (most active), Jett × 3, Sage × 2, Reyna × 1
-      for (let i = 0; i < 6; i++) {
-        const agent = i < 3 ? 'Jett' : i < 5 ? 'Sage' : 'Reyna';
-        seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW + i * 1000, agent, map: 'Ascent' });
-      }
-      // p2: 5 matches, Jett × 2, Sage × 2, Breach × 1
-      for (let i = 0; i < 5; i++) {
-        const agent = i < 2 ? 'Jett' : i < 4 ? 'Sage' : 'Breach';
-        seedMatch(sqlite, { puuid: 'p2', startedAt: IN_WINDOW + i * 1000, agent, map: 'Bind' });
-      }
-      // p3,p4,p5: 3 matches each (less than 5)
-      for (const puuid of ['p3', 'p4', 'p5']) {
-        for (let i = 0; i < 3; i++) {
-          seedMatch(sqlite, { puuid, startedAt: IN_WINDOW + i * 1000, agent: 'Sage', map: 'Haven' });
-        }
-      }
-
-      // Seed best K/D match: p3 with 20 kills, 2 deaths, 20 rounds
-      seedMatch(sqlite, {
-        puuid: 'p3',
-        matchId: 'best-kd-match',
-        startedAt: IN_WINDOW,
-        kills: 20,
-        deaths: 2,
-        roundsPlayed: 20,
-        map: 'Pearl',
-      });
-
-      // Seed events
-      // ace (weight=8) for p1
-      seedEvent(sqlite, {
-        puuid: 'p1',
-        matchId: 'best-kd-match',
-        eventType: 'ace',
-        payload: { rounds: [1] },
-        detectedAt: IN_WINDOW,
-      });
-      // rank_promo for p2 and p3
-      seedEvent(sqlite, {
-        puuid: 'p2',
-        matchId: 'rank-match-p2',
-        eventType: 'rank_promo',
-        payload: { from: 'Gold 1', to: 'Platinum 1' },
-        detectedAt: IN_WINDOW + 1000,
-      });
-      seedEvent(sqlite, {
-        puuid: 'p3',
-        matchId: 'rank-match-p3',
-        eventType: 'rank_promo',
-        payload: { from: 'Platinum 1', to: 'Diamond 1' },
-        detectedAt: IN_WINDOW + 2000,
-      });
+  describe('#digest hashtag', () => {
+    it('always appears as last line', async () => {
+      seedUser(sqlite, 1, 'p1');
+      seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW });
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
-
       expect(result.text).not.toBeNull();
-      expect(result.sectionsIncluded).toContain('pulse');
-      expect(result.sectionsIncluded).toContain('epicMoment');
-      expect(result.sectionsIncluded).toContain('rankProgress');
-      expect(result.sectionsIncluded).toContain('mostActive');
-      expect(result.sectionsIncluded).toContain('topAgents');
-      expect(result.sectionsIncluded).toContain('bestKDMatch');
+      const lines = result.text!.trimEnd().split('\n');
+      expect(lines[lines.length - 1]).toBe('#digest');
+    });
 
-      const text = result.text!;
-      // Pulse
-      expect(text).toContain('матчей');
-      // Epic moment — ace by p1
-      expect(text).toContain('Alpha');
-      // Rank progress
-      expect(text).toContain('Gold 1');
-      expect(text).toContain('Platinum 1');
-      expect(text).toContain('Diamond 1');
-      // Most active
-      expect(text).toContain('Alpha'); // p1 has 6+match matches... but best-kd-match is another insert
-      // Top agents — Jett is highest: p1×3 + p2×2 = 5
-      expect(text).toContain('Jett');
-      // Best KD — p3 (20/2 = 10.0) on Pearl
-      expect(text).toContain('Gamma');
-      expect(text).toContain('20/2');
+    it('#digest is last line even when bright events are present', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Alpha', riotTag: 'AAA' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW });
+      seedEvent(sqlite, { puuid: 'p1', matchId: 'm1', eventType: 'ace', detectedAt: IN_WINDOW });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.text).not.toBeNull();
+      const lines = result.text!.trimEnd().split('\n');
+      expect(lines[lines.length - 1]).toBe('#digest');
     });
   });
 
-  describe('opt-out handling', () => {
-    it('top K/D user opted-out → next user picked', async () => {
-      seedUser(sqlite, 1, 'p1', { riotName: 'SilentPlayer', riotTag: '000' });
-      seedUser(sqlite, 2, 'p2', { riotName: 'ActivePlayer', riotTag: '111' });
-      seedOptOut(sqlite, 1, 1); // p1 opted out
-
-      // p1 has best K/D
-      seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW, kills: 25, deaths: 1, roundsPlayed: 20, map: 'Ascent' });
-      // p2 second best K/D
-      seedMatch(sqlite, { puuid: 'p2', matchId: 'm2', startedAt: IN_WINDOW, kills: 15, deaths: 3, roundsPlayed: 15, map: 'Bind' });
-
-      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
-
-      expect(result.sectionsIncluded).toContain('bestKDMatch');
-      expect(result.text).toContain('ActivePlayer');
-      expect(result.text).not.toContain('SilentPlayer');
-    });
-
-    it('all users opted-out → epic/most-active/best-kd omitted, top agents remains', async () => {
-      seedUser(sqlite, 1, 'p1', { riotName: 'User1', riotTag: 'U1' });
-      seedUser(sqlite, 2, 'p2', { riotName: 'User2', riotTag: 'U2' });
-      seedOptOut(sqlite, 1, 1);
-      seedOptOut(sqlite, 2, 1);
-
-      // Seed matches for both (5+ for most-active section)
-      for (let i = 0; i < 6; i++) {
-        seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW + i * 1000, agent: 'Jett', roundsPlayed: 20 });
-        seedMatch(sqlite, { puuid: 'p2', startedAt: IN_WINDOW + i * 1000, agent: 'Sage', roundsPlayed: 20 });
-      }
-
-      // Seed epic moment for p1 (opted out)
-      seedEvent(sqlite, { puuid: 'p1', eventType: 'ace', detectedAt: IN_WINDOW });
-      // Seed rank_promo (not affected by opt-out)
-      seedEvent(sqlite, { puuid: 'p1', eventType: 'rank_promo', payload: { from: 'Gold', to: 'Plat' }, detectedAt: IN_WINDOW });
-
-      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
-
-      expect(result.sectionsIncluded).not.toContain('epicMoment');
-      expect(result.sectionsIncluded).not.toContain('mostActive');
-      expect(result.sectionsIncluded).not.toContain('bestKDMatch');
-      // top agents still included (aggregate, no opt-out filtering)
-      expect(result.sectionsIncluded).toContain('topAgents');
-      // rank progress still included (positive individual, opt-out ignored)
-      expect(result.sectionsIncluded).toContain('rankProgress');
-      expect(result.text).toContain('Gold');
-    });
-  });
-
-  describe('best K/D gate: ≥10 rounds', () => {
-    it('match with 8 rounds is NOT picked for best K/D', async () => {
-      seedUser(sqlite, 1, 'p1', { riotName: 'Player1', riotTag: 'P1' });
-      seedUser(sqlite, 2, 'p2', { riotName: 'Player2', riotTag: 'P2' });
-
-      // p1: 30/1 but only 8 rounds → should be excluded
-      seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW, kills: 30, deaths: 1, roundsPlayed: 8, map: 'Ascent' });
-      // p2: 10/2, 15 rounds → should be picked
-      seedMatch(sqlite, { puuid: 'p2', matchId: 'm2', startedAt: IN_WINDOW, kills: 10, deaths: 2, roundsPlayed: 15, map: 'Bind' });
-
-      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
-
-      expect(result.sectionsIncluded).toContain('bestKDMatch');
-      expect(result.text).toContain('Player2');
-      expect(result.text).not.toContain('30/1');
-    });
-
-    it('only 8-round match → best K/D section omitted', async () => {
-      seedUser(sqlite, 1, 'p1', { riotName: 'Player1', riotTag: 'P1' });
-
-      seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW, kills: 30, deaths: 1, roundsPlayed: 8 });
-
-      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
-
-      expect(result.sectionsIncluded).not.toContain('bestKDMatch');
-    });
-  });
-
-  describe('most active', () => {
-    it('omits most-active section when top player has fewer than 5 matches', async () => {
-      seedUser(sqlite, 1, 'p1', { riotName: 'Player1', riotTag: 'P1' });
-
-      // 4 matches — below threshold
-      for (let i = 0; i < 4; i++) {
-        seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW + i * 1000 });
-      }
-
-      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
-
-      expect(result.sectionsIncluded).not.toContain('mostActive');
-    });
-
-    it('includes most-active section when top player has 5+ matches', async () => {
-      seedUser(sqlite, 1, 'p1', { riotName: 'ActiveOne', riotTag: 'ACT' });
+  describe('block layout — no Epic Moment, bright events first', () => {
+    it('renders bright events in top block, always-sections at bottom', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Alpha', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'p2', { riotName: 'Beta', riotTag: 'BBB' });
 
       for (let i = 0; i < 5; i++) {
-        seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW + i * 1000 });
+        seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW + i * 1000, agent: 'Jett', map: 'Ascent' });
       }
+      seedMatch(sqlite, { puuid: 'p2', matchId: 'm2', startedAt: IN_WINDOW, agent: 'Sage', map: 'Bind' });
+
+      // Bright event: ace for p1
+      seedEvent(sqlite, { puuid: 'p1', eventType: 'ace', payload: { rounds: [1] }, detectedAt: IN_WINDOW });
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.text).not.toBeNull();
+      const text = result.text!;
 
-      expect(result.sectionsIncluded).toContain('mostActive');
-      expect(result.text).toContain('ActiveOne');
+      // Bright event rendered
+      expect(text).toContain('Эйс');
+      expect(text).toContain('Alpha');
+
+      // Divider present
+      expect(text).toContain('━━━━━━━━━━━━━━');
+
+      // Bottom sections present
+      expect(text).toContain('матчей'); // pulse
+      expect(text).toContain('Jett'); // top agents
+
+      // No Epic Moment section header
+      expect(text).not.toContain('Самый яркий момент');
+
+      // Divider appears BEFORE pulse (bright block is above bottom)
+      const dividerPos = text.indexOf('━━━━━━━━━━━━━━');
+      const pulsePos = text.indexOf('матчей');
+      expect(dividerPos).toBeLessThan(pulsePos);
+    });
+
+    it('omits divider when no bright events', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Player1', riotTag: 'P1' });
+      seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW });
+      // no bright events
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.text).not.toBeNull();
+      expect(result.text).not.toContain('━━━━━━━━━━━━━━');
     });
   });
 
-  describe('rank progress', () => {
-    it('omits rank-progress section when no rank_promo events in window', async () => {
-      seedUser(sqlite, 1, 'p1', { riotName: 'Player1', riotTag: 'P1' });
-      seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW });
-      // no rank_promo events
-
-      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
-
-      expect(result.sectionsIncluded).not.toContain('rankProgress');
-    });
-
-    it('rank progress events outside window are excluded', async () => {
-      seedUser(sqlite, 1, 'p1', { riotName: 'Player1', riotTag: 'P1' });
-      seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW });
-      // event outside window
-      seedEvent(sqlite, {
-        puuid: 'p1',
-        eventType: 'rank_promo',
-        payload: { from: 'Gold', to: 'Plat' },
-        detectedAt: OUT_OF_WINDOW,
-      });
-
-      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
-
-      expect(result.sectionsIncluded).not.toContain('rankProgress');
-    });
-  });
-
-  describe('pulse only — no extra filter for mode', () => {
-    it('counts all matches in window without additional mode filter (scanner already filtered)', async () => {
-      // The scanner only stores competitive — so we just assert we count all records in window,
-      // not some subset. This matches behavior: buildDigest does NOT apply a mode filter.
+  describe('pulse simplified', () => {
+    it('renders total match count without avg-per-player', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'Player1', riotTag: 'P1' });
       seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW });
       seedMatch(sqlite, { puuid: 'p1', matchId: 'm2', startedAt: IN_WINDOW + 1000 });
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).toContain('pulse');
+      expect(result.text).toContain('2 матч');
+      // No avg-per-player
+      expect(result.text).not.toContain('в среднем');
+    });
+  });
+
+  describe('top maps section', () => {
+    it('renders top 3 maps by match count', async () => {
+      seedUser(sqlite, 1, 'p1');
+      seedUser(sqlite, 2, 'p2');
+
+      // Ascent: 4, Bind: 3, Haven: 2, Pearl: 1
+      for (let i = 0; i < 4; i++) {
+        seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW + i * 1000, map: 'Ascent' });
+      }
+      for (let i = 0; i < 3; i++) {
+        seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW + (i + 10) * 1000, map: 'Bind' });
+      }
+      for (let i = 0; i < 2; i++) {
+        seedMatch(sqlite, { puuid: 'p2', startedAt: IN_WINDOW + (i + 20) * 1000, map: 'Haven' });
+      }
+      seedMatch(sqlite, { puuid: 'p2', startedAt: IN_WINDOW + 30000, map: 'Pearl' });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).toContain('topMaps');
+      expect(result.text).toContain('Ascent');
+      expect(result.text).toContain('Bind');
+      expect(result.text).toContain('Haven');
+      // Pearl is 4th — should NOT appear (only top 3)
+      expect(result.text).not.toContain('Pearl');
+    });
+
+    it('renders top maps with count annotations', async () => {
+      seedUser(sqlite, 1, 'p1');
+      for (let i = 0; i < 3; i++) {
+        seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW + i * 1000, map: 'Ascent' });
+      }
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.text).toContain('3×');
+    });
+  });
+
+  describe('all bottom sections render', () => {
+    it('renders pulse, top player, top maps, top agents with enough data', async () => {
+      const players = [
+        { id: 1, puuid: 'p1', riotName: 'Alpha', riotTag: 'AAA' },
+        { id: 2, puuid: 'p2', riotName: 'Beta', riotTag: 'BBB' },
+        { id: 3, puuid: 'p3', riotName: 'Gamma', riotTag: 'GGG' },
+      ];
+      for (const u of players) {
+        seedUser(sqlite, u.id, u.puuid, { riotName: u.riotName, riotTag: u.riotTag });
+      }
+
+      // p1: 6 matches (most active), Jett × 4
+      for (let i = 0; i < 6; i++) {
+        seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW + i * 1000, agent: 'Jett', map: 'Ascent' });
+      }
+      // p2: 3 matches, Sage × 2, Breach × 1
+      for (let i = 0; i < 3; i++) {
+        const agent = i < 2 ? 'Sage' : 'Breach';
+        seedMatch(sqlite, { puuid: 'p2', startedAt: IN_WINDOW + (i + 10) * 1000, agent, map: 'Bind' });
+      }
+      // p3: 2 matches, Sage × 2
+      for (let i = 0; i < 2; i++) {
+        seedMatch(sqlite, { puuid: 'p3', startedAt: IN_WINDOW + (i + 20) * 1000, agent: 'Sage', map: 'Haven' });
+      }
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
 
       expect(result.sectionsIncluded).toContain('pulse');
-      // Both matches counted (no mode filter applied)
-      expect(result.text).toContain('2 матч');
+      expect(result.sectionsIncluded).toContain('mostActive');
+      expect(result.sectionsIncluded).toContain('topMaps');
+      expect(result.sectionsIncluded).toContain('topAgents');
+
+      const text = result.text!;
+      expect(text).toContain('матчей'); // pulse
+      expect(text).toContain('Alpha'); // most active
+      expect(text).toContain('Jett'); // top agents
+      expect(text).toContain('Ascent'); // top maps
+      expect(text).toContain('Bind'); // top maps (2nd)
     });
   });
 
-  describe('epic moment weight ordering', () => {
-    it('prefers ace_rare_weapon (weight=10) over ace (weight=8)', async () => {
-      seedUser(sqlite, 1, 'p1', { riotName: 'PlayerAce', riotTag: 'ACE' });
-      seedUser(sqlite, 2, 'p2', { riotName: 'PlayerRare', riotTag: 'RAR' });
-
-      seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW });
-      seedMatch(sqlite, { puuid: 'p2', matchId: 'm2', startedAt: IN_WINDOW });
-
-      // ace for p1 (older timestamp → would win on tie)
+  describe('bright events — rank_promo', () => {
+    it('renders rank promo as a bright block', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Climber', riotTag: 'UP' });
+      seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW });
       seedEvent(sqlite, {
         puuid: 'p1',
-        matchId: 'm1',
-        eventType: 'ace',
+        eventType: 'rank_promo',
+        payload: { from: 'Gold 1', to: 'Platinum 1' },
         detectedAt: IN_WINDOW,
       });
-      // ace_rare_weapon for p2 (newer but higher weight)
-      seedEvent(sqlite, {
-        puuid: 'p2',
-        matchId: 'm2',
-        eventType: 'ace_rare_weapon',
-        detectedAt: IN_WINDOW + 5000,
-      });
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
-
-      expect(result.sectionsIncluded).toContain('epicMoment');
-      expect(result.text).toContain('PlayerRare'); // ace_rare_weapon wins
+      expect(result.sectionsIncluded).toContain('rank_promo');
+      expect(result.text).toContain('Gold 1');
+      expect(result.text).toContain('Platinum 1');
+      expect(result.text).toContain('Climber');
     });
   });
 
-  describe('anti-coercion', () => {
-    it('does not mention opt-out or silent players in digest text', async () => {
-      seedUser(sqlite, 1, 'p1', { riotName: 'OptedPlayer', riotTag: 'OPT' });
-      seedOptOut(sqlite, 1, 1);
-      seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW });
-
-      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
-
-      // If text exists, should not mention opt-out
-      if (result.text !== null) {
-        expect(result.text).not.toContain('отписался');
-        expect(result.text).not.toContain('opt-out');
-        expect(result.text).not.toContain('играй больше');
-        expect(result.text).not.toContain('вернись');
-      }
-    });
-  });
-
-  describe('record_kills_match section', () => {
-    it('renders record_kills_match section when event exists in window', async () => {
+  describe('bright events — record_kills_match', () => {
+    it('renders record_kills_match in bright block', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'Killer', riotTag: 'KLL' });
       seedMatch(sqlite, { puuid: 'p1', matchId: 'record-match', startedAt: IN_WINDOW, kills: 38, map: 'Ascent' });
       seedEvent(sqlite, {
@@ -432,8 +321,7 @@ describe('buildDigest', () => {
       });
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
-
-      expect(result.sectionsIncluded).toContain('recordKillsMatch');
+      expect(result.sectionsIncluded).toContain('record_kills_match');
       expect(result.text).toContain('Мирного рішення не буде');
       expect(result.text).toContain('Killer');
       expect(result.text).toContain('38');
@@ -442,11 +330,9 @@ describe('buildDigest', () => {
     it('does NOT render record_kills_match section when no events in window', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'Killer', riotTag: 'KLL' });
       seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW, kills: 38 });
-      // No record_kills_match event seeded
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
-
-      expect(result.sectionsIncluded).not.toContain('recordKillsMatch');
+      expect(result.sectionsIncluded).not.toContain('record_kills_match');
     });
 
     it('event outside window is not shown', async () => {
@@ -460,8 +346,153 @@ describe('buildDigest', () => {
       });
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).not.toContain('record_kills_match');
+    });
+  });
 
-      expect(result.sectionsIncluded).not.toContain('recordKillsMatch');
+  describe('bright events ordering — weight-based', () => {
+    it('renders both ace_rare_weapon and ace (all bright events, not just top-1)', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'PlayerAce', riotTag: 'ACE' });
+      seedUser(sqlite, 2, 'p2', { riotName: 'PlayerRare', riotTag: 'RAR' });
+
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW });
+      seedMatch(sqlite, { puuid: 'p2', matchId: 'm2', startedAt: IN_WINDOW });
+
+      seedEvent(sqlite, { puuid: 'p1', matchId: 'm1', eventType: 'ace', detectedAt: IN_WINDOW });
+      seedEvent(sqlite, { puuid: 'p2', matchId: 'm2', eventType: 'ace_rare_weapon', detectedAt: IN_WINDOW + 5000 });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+
+      // Both players appear (unlike old "Epic Moment" which only picked one)
+      expect(result.text).toContain('PlayerAce');
+      expect(result.text).toContain('PlayerRare');
+      expect(result.sectionsIncluded).toContain('ace');
+      expect(result.sectionsIncluded).toContain('ace_rare_weapon');
+    });
+  });
+
+  describe('opt-out handling', () => {
+    it('opted-out player skipped for ace (non-rank) bright event', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'SilentPlayer', riotTag: '000' });
+      seedUser(sqlite, 2, 'p2', { riotName: 'ActivePlayer', riotTag: '111' });
+      seedOptOut(sqlite, 1, 1); // p1 opted out
+
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW });
+      seedMatch(sqlite, { puuid: 'p2', matchId: 'm2', startedAt: IN_WINDOW });
+      seedEvent(sqlite, { puuid: 'p1', matchId: 'm1', eventType: 'ace', detectedAt: IN_WINDOW });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.text).not.toContain('SilentPlayer');
+      expect(result.sectionsIncluded).not.toContain('ace');
+    });
+
+    it('opted-out player still gets rank_promo in bright block (positive progress)', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Climber', riotTag: 'UP' });
+      seedOptOut(sqlite, 1, 1); // p1 opted out
+      seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW });
+      seedEvent(sqlite, {
+        puuid: 'p1',
+        eventType: 'rank_promo',
+        payload: { from: 'Gold', to: 'Plat' },
+        detectedAt: IN_WINDOW,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).toContain('rank_promo');
+      expect(result.text).toContain('Climber');
+    });
+
+    it('opted-out top player skipped for mostActive section', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'SilentActive', riotTag: '000' });
+      seedUser(sqlite, 2, 'p2', { riotName: 'VisibleActive', riotTag: '111' });
+      seedOptOut(sqlite, 1, 1);
+
+      for (let i = 0; i < 6; i++) {
+        seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW + i * 1000 });
+        seedMatch(sqlite, { puuid: 'p2', startedAt: IN_WINDOW + i * 1000 + 500 });
+      }
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.text).not.toContain('SilentActive');
+      // p2 also has 6 matches — should appear
+      expect(result.text).toContain('VisibleActive');
+    });
+  });
+
+  describe('empty bright events case — only bottom block + hashtag', () => {
+    it('renders only always-sections and #digest when no bright events exist', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Player1', riotTag: 'P1' });
+      // Only plain matches, no events
+      for (let i = 0; i < 3; i++) {
+        seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW + i * 1000 });
+      }
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.text).not.toBeNull();
+      expect(result.text).not.toContain('━━━━━━━━━━━━━━'); // no divider
+      expect(result.text).toContain('матчей'); // pulse present
+      const lines = result.text!.trimEnd().split('\n');
+      expect(lines[lines.length - 1]).toBe('#digest');
+    });
+  });
+
+  describe('most active threshold', () => {
+    it('omits most-active section when top player has fewer than 5 matches', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Player1', riotTag: 'P1' });
+      for (let i = 0; i < 4; i++) {
+        seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW + i * 1000 });
+      }
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).not.toContain('mostActive');
+    });
+
+    it('includes most-active section when top player has 5+ matches', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'ActiveOne', riotTag: 'ACT' });
+      for (let i = 0; i < 5; i++) {
+        seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW + i * 1000 });
+      }
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).toContain('mostActive');
+      expect(result.text).toContain('ActiveOne');
+    });
+  });
+
+  describe('anti-coercion', () => {
+    it('does not mention opt-out or silent players in digest text', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'OptedPlayer', riotTag: 'OPT' });
+      seedOptOut(sqlite, 1, 1);
+      seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+
+      if (result.text !== null) {
+        expect(result.text).not.toContain('отписался');
+        expect(result.text).not.toContain('opt-out');
+        expect(result.text).not.toContain('играй больше');
+        expect(result.text).not.toContain('вернись');
+      }
+    });
+  });
+
+  describe('removed sections', () => {
+    it('does not include bestKDMatch section', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Player1', riotTag: 'P1' });
+      seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW, kills: 30, deaths: 1, roundsPlayed: 20 });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).not.toContain('bestKDMatch');
+    });
+
+    it('does not include epicMoment section', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Player1', riotTag: 'P1' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW });
+      seedEvent(sqlite, { puuid: 'p1', matchId: 'm1', eventType: 'ace', detectedAt: IN_WINDOW });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).not.toContain('epicMoment');
+      expect(result.text).not.toContain('Самый яркий момент');
     });
   });
 });
