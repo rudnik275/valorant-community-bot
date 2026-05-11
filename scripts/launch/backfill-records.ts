@@ -32,6 +32,58 @@ async function backfillKillsMatch() {
   console.log(`kills_match: seeded ${top.kills} by ${top.riot_puuid}`);
 }
 
+async function backfillDamageDealtMatch() {
+  const rows = await db
+    .select()
+    .from(matchRecords)
+    .where(isNotNull(matchRecords.damage_dealt))
+    .orderBy(desc(matchRecords.damage_dealt))
+    .limit(1);
+  if (rows.length === 0) {
+    console.log('damage_dealt_match: no match records with damage_dealt yet, skipping');
+    return;
+  }
+  const top = rows[0]!;
+  if (top.damage_dealt == null || top.damage_dealt <= 0) return;
+  await db.insert(allTimeRecords).values({
+    record_type: 'damage_dealt_match',
+    weapon: '',
+    riot_puuid: top.riot_puuid!,
+    value: top.damage_dealt,
+    match_id: top.match_id,
+    achieved_at: top.started_at,
+    prev_value: null,
+    prev_puuid: null,
+  }).onConflictDoNothing();
+  console.log(`damage_dealt_match: seeded ${top.damage_dealt} by ${top.riot_puuid}`);
+}
+
+async function backfillDamageReceivedMatch() {
+  const rows = await db
+    .select()
+    .from(matchRecords)
+    .where(isNotNull(matchRecords.damage_received))
+    .orderBy(desc(matchRecords.damage_received))
+    .limit(1);
+  if (rows.length === 0) {
+    console.log('damage_received_match: no match records with damage_received yet, skipping');
+    return;
+  }
+  const top = rows[0]!;
+  if (top.damage_received == null || top.damage_received <= 0) return;
+  await db.insert(allTimeRecords).values({
+    record_type: 'damage_received_match',
+    weapon: '',
+    riot_puuid: top.riot_puuid!,
+    value: top.damage_received,
+    match_id: top.match_id,
+    achieved_at: top.started_at,
+    prev_value: null,
+    prev_puuid: null,
+  }).onConflictDoNothing();
+  console.log(`damage_received_match: seeded ${top.damage_received} by ${top.riot_puuid}`);
+}
+
 /**
  * Compute ISO week string for a given timestamp (Kyiv timezone, Thursday-anchor).
  */
@@ -116,5 +168,7 @@ async function backfillWeeklyMvpRecords() {
 }
 
 await backfillKillsMatch();
+await backfillDamageDealtMatch();
+await backfillDamageReceivedMatch();
 await backfillWeeklyMvpRecords();
 process.exit(0);

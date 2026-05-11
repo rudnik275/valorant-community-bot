@@ -350,6 +350,62 @@ describe('buildDigest', () => {
     });
   });
 
+  describe('bright events — record_damage_dealt_match', () => {
+    it('renders record_damage_dealt_match in bright block', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Butcher', riotTag: 'DMG' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'dmg-match', startedAt: IN_WINDOW, map: 'Ascent' });
+      seedEvent(sqlite, {
+        puuid: 'p1',
+        matchId: 'dmg-match',
+        eventType: 'record_damage_dealt_match',
+        payload: { value: 6840, prev_value: 6420, prev_puuid: 'puuid-other', prev_name: 'OtherPlayer', prev_tag: 'OTH' },
+        detectedAt: IN_WINDOW,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).toContain('record_damage_dealt_match');
+      expect(result.text).toContain('Мясник недели');
+      expect(result.text).toContain('Butcher');
+      expect(result.text).toContain('6840');
+    });
+
+    it('does NOT render record_damage_dealt_match when no events in window', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Butcher', riotTag: 'DMG' });
+      seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).not.toContain('record_damage_dealt_match');
+    });
+  });
+
+  describe('bright events — record_damage_received_match', () => {
+    it('renders record_damage_received_match in bright block', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Victim', riotTag: 'VCT' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'rcv-match', startedAt: IN_WINDOW, map: 'Bind' });
+      seedEvent(sqlite, {
+        puuid: 'p1',
+        matchId: 'rcv-match',
+        eventType: 'record_damage_received_match',
+        payload: { value: 5910, prev_value: 5600, prev_puuid: 'puuid-other', prev_name: 'OtherPlayer', prev_tag: 'OTH' },
+        detectedAt: IN_WINDOW,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).toContain('record_damage_received_match');
+      expect(result.text).toContain('Надругались над');
+      expect(result.text).toContain('Victim');
+      expect(result.text).toContain('5910');
+    });
+
+    it('does NOT render record_damage_received_match when no events in window', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Victim', riotTag: 'VCT' });
+      seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).not.toContain('record_damage_received_match');
+    });
+  });
+
   describe('bright events ordering — weight-based', () => {
     it('renders both ace_rare_weapon_week and ace (all bright events, not just top-1)', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'PlayerAce', riotTag: 'ACE' });
