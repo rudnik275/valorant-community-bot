@@ -1,4 +1,4 @@
-// One-off: seed all_time_records from existing match_records history.
+// One-off: seed all_time_records and weekly_records from existing match_records history.
 // Run AFTER db:migrate, BEFORE enabling record detectors in production.
 // Idempotent — running twice does not corrupt.
 //
@@ -8,7 +8,8 @@
 import { db } from '../../src/server/db/client.ts';
 import { matchRecords } from '../../src/server/db/schema/match_records.ts';
 import { allTimeRecords } from '../../src/server/db/schema/all_time_records.ts';
-import { desc, isNotNull } from 'drizzle-orm';
+import { desc, isNotNull, and, gte, lt, sql } from 'drizzle-orm';
+import { upsertWeeklyLeader } from '../../src/server/publisher/record-tracker.ts';
 
 async function backfillKillsMatch() {
   const rows = await db.select().from(matchRecords).where(isNotNull(matchRecords.riot_puuid)).orderBy(desc(matchRecords.kills)).limit(1);
@@ -31,5 +32,89 @@ async function backfillKillsMatch() {
   console.log(`kills_match: seeded ${top.kills} by ${top.riot_puuid}`);
 }
 
+/**
+ * Compute ISO week string for a given timestamp (Kyiv timezone, Thursday-anchor).
+ */
+function computeWeekIso(ms: number): string {
+  const fmtDate = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Kyiv',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const parts = fmtDate.formatToParts(ms);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '00';
+
+  const fmtWeekday = new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Kyiv', weekday: 'short' });
+  const weekdayStr = fmtWeekday.format(ms);
+  const weekdayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  const weekday = weekdayMap[weekdayStr] ?? 0;
+
+  const todayMidnightMs = Date.parse(`${get('year')}-${get('month')}-${get('day')}T00:00:00+03:00`);
+  const daysFromMonday = weekday === 0 ? 6 : weekday - 1;
+  const mondayMs = todayMidnightMs - daysFromMonday * 86400000;
+
+  const thursdayMs = mondayMs + 3 * 86400000;
+  const thursdayDate = new Date(thursdayMs);
+  const thurYear = thursdayDate.getUTCFullYear();
+  const jan4 = Date.UTC(thurYear, 0, 4);
+  const jan4Weekday = new Date(jan4).getUTCDay();
+  const jan4Monday = jan4 - (jan4Weekday === 0 ? 6 : jan4Weekday - 1) * 86400000;
+  const weekNumber = Math.floor((thursdayMs - jan4Monday) / (7 * 86400000)) + 1;
+  return `${thurYear}-W${String(weekNumber).padStart(2, '0')}`;
+}
+
+/**
+ * Seed weekly_records table with per-week MVP leaders from historical match_records.
+ * Does NOT emit detected_events. Idempotent.
+ */
+async function backfillWeeklyMvpRecords() {
+  // Get all distinct ISO weeks present in match_records
+  const allRows = await db
+    .select({ riot_puuid: matchRecords.riot_puuid, started_at: matchRecords.started_at, is_match_mvp: matchRecords.is_match_mvp })
+    .from(matchRecords)
+    .where(isNotNull(matchRecords.riot_puuid));
+
+  if (allRows.length === 0) {
+    console.log('weekly mvp: no match records, skipping');
+    return;
+  }
+
+  // Group by ISO week
+  const weekMap = new Map<string, Map<string, number>>();
+  for (const row of allRows) {
+    const weekIso = computeWeekIso(row.started_at);
+    if (!weekMap.has(weekIso)) weekMap.set(weekIso, new Map());
+    const puuidMap = weekMap.get(weekIso)!;
+    const prev = puuidMap.get(row.riot_puuid!) ?? 0;
+    puuidMap.set(row.riot_puuid!, prev + (row.is_match_mvp ?? 0));
+  }
+
+  let seeded = 0;
+  for (const [weekIso, puuidMap] of weekMap.entries()) {
+    // Find leader for this week
+    let leaderPuuid = '';
+    let leaderCount = 0;
+    for (const [puuid, count] of puuidMap.entries()) {
+      if (count > leaderCount) {
+        leaderCount = count;
+        leaderPuuid = puuid;
+      }
+    }
+    if (leaderCount < 1) continue;
+
+    const { beatenForWeek } = await upsertWeeklyLeader(db as Parameters<typeof upsertWeeklyLeader>[0], {
+      recordType: 'mvp_count_week',
+      weekIso,
+      riotPuuid: leaderPuuid,
+      value: leaderCount,
+    });
+    if (beatenForWeek) seeded++;
+  }
+
+  console.log(`weekly mvp: seeded/updated ${seeded} weeks across ${weekMap.size} total weeks`);
+}
+
 await backfillKillsMatch();
+await backfillWeeklyMvpRecords();
 process.exit(0);

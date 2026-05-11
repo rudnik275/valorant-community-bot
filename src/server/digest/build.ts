@@ -22,6 +22,7 @@ import { matchRecords } from '../db/schema/match_records.ts';
 import { detectedEvents } from '../db/schema/detected_events.ts';
 import { users } from '../db/schema/users.ts';
 import { optOuts } from '../db/schema/opt_outs.ts';
+import { computeAndEmitWeeklyMvpRecord } from './weekly-mvp-record.ts';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
 
@@ -47,6 +48,7 @@ const BRIGHT_EVENT_WEIGHTS: Record<string, number> = {
   ace_rare_weapon_week: 10,
   ace: 8,
   record_kills_match: 7,
+  record_mvp_count_week: 7,
   giant_slayer: 6,
   winstreak_10plus: 4,
   rank_promo: 3,
@@ -126,6 +128,21 @@ function renderBrightBlock(
       }
       return `🔪 <b>Мирного рішення не буде</b>\n${name} — ${esc(String(value))} фрагов${mapStr}${prevLine}${matchLink}`;
     }
+    case 'record_mvp_count_week': {
+      const value = payload['value'];
+      const prevValue = payload['prev_value'];
+      const prevName = payload['prev_name'];
+      const prevTag = payload['prev_tag'];
+      let prevLine = '';
+      if (prevValue !== null && prevValue !== undefined && Number(prevValue) > 0) {
+        if (prevName) {
+          prevLine = `\nпрошлый рекорд: ${esc(String(prevValue))} у <b>${esc(String(prevName))}${prevTag ? '#' + esc(String(prevTag)) : ''}</b>`;
+        } else {
+          prevLine = `\nпрошлый рекорд: ${esc(String(prevValue))}`;
+        }
+      }
+      return `🏅 <b>${name} отказался от личной жизни</b> и взял ${esc(String(value))} MVP-матчей за неделю${prevLine}`;
+    }
     default:
       return null;
   }
@@ -155,6 +172,13 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
   const { db, weekStart, weekEnd } = deps;
 
   const sectionsIncluded: string[] = [];
+
+  // ─── Weekly MVP record detector (digest-tick, runs before bright events query) ─
+  {
+    // Derive weekIso from weekEnd using the same Thursday-anchor algorithm as loop.ts
+    const weekIso = computeWeekIso(weekEnd);
+    await computeAndEmitWeeklyMvpRecord(db, weekStart, weekEnd, weekIso);
+  }
 
   // ─── Opt-out helpers ────────────────────────────────────────────────────────
 
@@ -372,6 +396,42 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
 
   const text = parts.join('\n');
   return { text, sectionsIncluded };
+}
+
+/**
+ * Compute ISO week string (e.g. "2026-W19") for the given timestamp,
+ * using the same Thursday-anchor algorithm as loop.ts getDigestNowKyiv().
+ */
+function computeWeekIso(ms: number): string {
+  const fmtDate = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Kyiv',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const parts = fmtDate.formatToParts(ms);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '00';
+
+  const fmtWeekday = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Kyiv',
+    weekday: 'short',
+  });
+  const weekdayStr = fmtWeekday.format(ms);
+  const weekdayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  const weekday = weekdayMap[weekdayStr] ?? 0;
+
+  const todayMidnightMs = Date.parse(`${get('year')}-${get('month')}-${get('day')}T00:00:00+03:00`);
+  const daysFromMonday = weekday === 0 ? 6 : weekday - 1;
+  const mondayMs = todayMidnightMs - daysFromMonday * 86400000;
+
+  const thursdayMs = mondayMs + 3 * 86400000;
+  const thursdayDate = new Date(thursdayMs);
+  const thurYear = thursdayDate.getUTCFullYear();
+  const jan4 = Date.UTC(thurYear, 0, 4);
+  const jan4Weekday = new Date(jan4).getUTCDay();
+  const jan4Monday = jan4 - (jan4Weekday === 0 ? 6 : jan4Weekday - 1) * 86400000;
+  const weekNumber = Math.floor((thursdayMs - jan4Monday) / (7 * 86400000)) + 1;
+  return `${thurYear}-W${String(weekNumber).padStart(2, '0')}`;
 }
 
 function safeParseJson(raw: string): Record<string, unknown> {
