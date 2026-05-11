@@ -131,6 +131,8 @@ export function startDetectionListener(deps: DetectionDeps): () => void {
         record_damage_dealt_match: 'digest-only',
         record_damage_received_match: 'digest-only',
         record_kills_per_weapon: 'digest-only',
+        record_longest_match_minutes: 'digest-only',
+        record_longest_match_rounds: 'digest-only',
       };
 
       // Insert all events

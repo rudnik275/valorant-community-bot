@@ -379,6 +379,66 @@ const templates: Record<EventType, TemplateFn> = {
     return `${line1}\n${line2}\n${line3}`;
   },
 
+  record_longest_match_minutes: (payload, user, match) => {
+    const value = payload['value'];
+    const prevValue = payload['prev_value'];
+    const prevName = payload['prev_name'];
+    const prevTag = payload['prev_tag'];
+    const prevPuuid = payload['prev_puuid'];
+    const samePlayer = prevPuuid === user.riot_puuid;
+    const players = Array.isArray(payload['community_players'])
+      ? payload['community_players'] as Array<{ puuid: string; name: string; tag: string }>
+      : [];
+    const playerNames = players
+      .map((p) => p.name ? `<b>${esc(p.name)}</b>` : '')
+      .filter((s) => s)
+      .join(', ') || playerTag(user);
+    const verb = players.length > 1 ? 'проинвестировали' : 'проинвестировал';
+    let prevStr = '';
+    if (prevValue !== null && prevValue !== undefined) {
+      if (samePlayer) {
+        prevStr = ` (прошлый: ${esc(String(prevValue))}, тоже его)`;
+      } else if (prevName) {
+        prevStr = ` (прошлый: ${esc(String(prevValue))}, у <b>${esc(String(prevName))}${prevTag ? '#' + esc(String(prevTag)) : ''}</b>)`;
+      } else {
+        prevStr = ` (прошлый: ${esc(String(prevValue))})`;
+      }
+    }
+    const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
+    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
+    return `⏱ ${playerNames} ${verb} своё время правильно — ${esc(String(value))} минут${mapStr}${prevStr}${matchLink}`;
+  },
+
+  record_longest_match_rounds: (payload, user, match) => {
+    const value = payload['value'];
+    const prevValue = payload['prev_value'];
+    const prevName = payload['prev_name'];
+    const prevTag = payload['prev_tag'];
+    const prevPuuid = payload['prev_puuid'];
+    const samePlayer = prevPuuid === user.riot_puuid;
+    const players = Array.isArray(payload['community_players'])
+      ? payload['community_players'] as Array<{ puuid: string; name: string; tag: string }>
+      : [];
+    const playerNames = players
+      .map((p) => p.name ? `<b>${esc(p.name)}</b>` : '')
+      .filter((s) => s)
+      .join(', ') || playerTag(user);
+    const verb = players.length > 1 ? 'пережили' : 'пережил';
+    let prevStr = '';
+    if (prevValue !== null && prevValue !== undefined) {
+      if (samePlayer) {
+        prevStr = ` (прошлый: ${esc(String(prevValue))}, тоже его)`;
+      } else if (prevName) {
+        prevStr = ` (прошлый: ${esc(String(prevValue))}, у <b>${esc(String(prevName))}${prevTag ? '#' + esc(String(prevTag)) : ''}</b>)`;
+      } else {
+        prevStr = ` (прошлый: ${esc(String(prevValue))})`;
+      }
+    }
+    const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
+    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
+    return `😰 ${playerNames} ${verb} ${esc(String(value))} раундов — надеюсь это того стоило${mapStr}${prevStr}${matchLink}`;
+  },
+
   community_clash: (payload, _user, match) => {
     const teams = Array.isArray(payload['teams'])
       ? payload['teams'] as Array<{ team_id: string; players: Array<{ puuid: string; name: string | null; tag: string | null }> }>

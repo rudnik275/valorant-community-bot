@@ -22,7 +22,9 @@ export type EventType =
   | 'match_comeback'
   | 'record_mvp_count_week'
   | 'community_clash'
-  | 'record_kills_per_weapon';
+  | 'record_kills_per_weapon'
+  | 'record_longest_match_minutes'
+  | 'record_longest_match_rounds';
 
 export interface DetectedEvent {
   type: EventType;
