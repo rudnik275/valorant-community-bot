@@ -12,6 +12,8 @@ const ALL_EVENT_TYPES: EventType[] = [
   'teamkill',
   'fall_damage_death',
   'record_kills_match',
+  'record_damage_dealt_match',
+  'record_damage_received_match',
   'knife_kill',
   'match_comeback',
   'record_mvp_count_week',
@@ -39,6 +41,8 @@ const minimalPayloads: Record<EventType, Record<string, unknown>> = {
   teamkill: {},
   fall_damage_death: {},
   record_kills_match: { value: 30, prev_value: null, prev_puuid: null },
+  record_damage_dealt_match: { value: 6840, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '' },
+  record_damage_received_match: { value: 5910, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '' },
   knife_kill: {},
   match_comeback: {},
   record_mvp_count_week: { value: 5, prev_value: null, prev_puuid: null },
@@ -233,6 +237,79 @@ describe('renderTemplate — payload-specific behavior', () => {
     const output = renderTemplate('ace_rare_weapon_week', { weapons_per_round: [['Vandal', 'Phantom']] }, safeUser);
     expect(output).toContain('редким');
     expect(output).toContain('знает толк в извращениях');
+  });
+
+  it('record_damage_dealt_match: shows Мясник недели heading and value', () => {
+    const output = renderTemplate('record_damage_dealt_match', { value: 6840, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '' }, safeUser);
+    expect(output).toContain('Мясник недели');
+    expect(output).toContain('6840 dmg');
+    expect(output).toContain('<b>Player#TAG</b>');
+  });
+
+  it('record_damage_dealt_match: shows prev_name when different player holds record', () => {
+    const output = renderTemplate('record_damage_dealt_match', {
+      value: 6840,
+      prev_value: 6420,
+      prev_puuid: 'other-puuid',
+      prev_name: 'OldHolder',
+      prev_tag: 'OLD',
+    }, { ...safeUser, riot_puuid: 'current-puuid' });
+    expect(output).toContain('6420');
+    expect(output).toContain('OldHolder');
+  });
+
+  it('record_damage_dealt_match: shows "тоже его" when same player beats own record', () => {
+    const output = renderTemplate('record_damage_dealt_match', {
+      value: 7000,
+      prev_value: 6840,
+      prev_puuid: 'same-puuid',
+      prev_name: 'Player',
+      prev_tag: 'TAG',
+    }, { ...safeUser, riot_puuid: 'same-puuid' });
+    expect(output).toContain('тоже его');
+    expect(output).not.toContain('OldHolder');
+  });
+
+  it('record_damage_dealt_match: includes match link', () => {
+    const output = renderTemplate('record_damage_dealt_match', { value: 6840, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '' }, safeUser, { match_id: 'dmg-match-1' });
+    expect(output).toContain('tracker.gg/valorant/match/dmg-match-1');
+  });
+
+  it('record_damage_received_match: shows Надругались над heading and value', () => {
+    const output = renderTemplate('record_damage_received_match', { value: 5910, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '' }, safeUser);
+    expect(output).toContain('Надругались над');
+    expect(output).toContain('5910 dmg за матч');
+    expect(output).toContain('<b>Player#TAG</b>');
+  });
+
+  it('record_damage_received_match: shows «бедолага» when same player beats own record', () => {
+    const output = renderTemplate('record_damage_received_match', {
+      value: 6100,
+      prev_value: 5910,
+      prev_puuid: 'same-puuid',
+      prev_name: 'Player',
+      prev_tag: 'TAG',
+    }, { ...safeUser, riot_puuid: 'same-puuid' });
+    expect(output).toContain('бедолага');
+    expect(output).toContain('предыдущий рекорд тоже его');
+  });
+
+  it('record_damage_received_match: shows prev_name when different player holds record', () => {
+    const output = renderTemplate('record_damage_received_match', {
+      value: 6100,
+      prev_value: 5910,
+      prev_puuid: 'other-puuid',
+      prev_name: 'ToughGuy',
+      prev_tag: 'TGH',
+    }, { ...safeUser, riot_puuid: 'current-puuid' });
+    expect(output).toContain('5910');
+    expect(output).toContain('ToughGuy');
+    expect(output).not.toContain('бедолага');
+  });
+
+  it('record_damage_received_match: includes match link', () => {
+    const output = renderTemplate('record_damage_received_match', { value: 5910, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '' }, safeUser, { match_id: 'rcv-match-1' });
+    expect(output).toContain('tracker.gg/valorant/match/rcv-match-1');
   });
 });
 

@@ -13,6 +13,8 @@ export type EventType =
   | 'teamkill'
   | 'fall_damage_death'
   | 'record_kills_match'
+  | 'record_damage_dealt_match'
+  | 'record_damage_received_match'
   | 'knife_kill'
   | 'match_comeback'
   | 'record_mvp_count_week';

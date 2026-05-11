@@ -8,6 +8,8 @@ import { returnAfterPauseDetector } from './return-after-pause.ts';
 import { teamkillDetector } from './teamkill.ts';
 import { fallDamageDeathDetector } from './fall-damage-death.ts';
 import { recordKillsMatchDetector } from './record-kills-match.ts';
+import { recordDamageDealtMatchDetector } from './record-damage-dealt-match.ts';
+import { recordDamageReceivedMatchDetector } from './record-damage-received-match.ts';
 import { knifeKillDetector } from './knife-kill.ts';
 import { matchComebackDetector } from './match-comeback.ts';
 
@@ -21,6 +23,8 @@ export const ALL_DETECTORS: Detector[] = [
   teamkillDetector,
   fallDamageDeathDetector,
   recordKillsMatchDetector,
+  recordDamageDealtMatchDetector,
+  recordDamageReceivedMatchDetector,
   knifeKillDetector,
   matchComebackDetector,
 ];
