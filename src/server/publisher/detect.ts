@@ -128,6 +128,9 @@ export function startDetectionListener(deps: DetectionDeps): () => void {
       const INITIAL_STATUS: Partial<Record<string, 'pending' | 'digest-only'>> = {
         ace_rare_weapon_week: 'digest-only',
         record_kills_match: 'digest-only',
+        record_deaths_match: 'digest-only',
+        record_headshots_match: 'digest-only',
+        record_legshots_match: 'digest-only',
         record_damage_dealt_match: 'digest-only',
         record_damage_received_match: 'digest-only',
         record_kills_per_weapon: 'digest-only',
