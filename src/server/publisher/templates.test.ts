@@ -249,11 +249,13 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('знает толк в извращениях');
   });
 
-  it('record_damage_dealt_match: shows Мясник недели heading and value', () => {
+  it('record_damage_dealt_match: shows Новый рекорд по урону heading and value', () => {
     const output = renderTemplate('record_damage_dealt_match', { value: 6840, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '' }, safeUser);
-    expect(output).toContain('Мясник недели');
+    expect(output).toContain('Новый рекорд по урону в матче');
+    expect(output).toContain('мясник недели');
     expect(output).toContain('6840 dmg');
     expect(output).toContain('<b>Player#TAG</b>');
+    expect(output).toContain('первый рекорд комьюнити!');
   });
 
   it('record_damage_dealt_match: shows prev_name when different player holds record', () => {
@@ -285,11 +287,13 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('tracker.gg/valorant/match/dmg-match-1');
   });
 
-  it('record_damage_received_match: shows Надругались над heading and value', () => {
+  it('record_damage_received_match: shows Новый рекорд по полученному урону heading and value', () => {
     const output = renderTemplate('record_damage_received_match', { value: 5910, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '' }, safeUser);
-    expect(output).toContain('Надругались над');
-    expect(output).toContain('5910 dmg за матч');
+    expect(output).toContain('Новый рекорд по полученному урону');
+    expect(output).toContain('надругались над');
+    expect(output).toContain('5910 dmg');
     expect(output).toContain('<b>Player#TAG</b>');
+    expect(output).toContain('первый рекорд комьюнити!');
   });
 
   it('record_damage_received_match: shows «бедолага» when same player beats own record', () => {
