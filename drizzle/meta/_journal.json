@@ -64,6 +64,13 @@
       "when": 1778490722017,
       "tag": "0008_past_lockjaw",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1778515876187,
+      "tag": "0009_burly_silver_fox",
+      "breakpoints": true
     }
   ]
 }

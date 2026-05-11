@@ -84,6 +84,38 @@ function calcEnemyAvgRank(match: HenrikMatchV4, playerTeamId: string): string | 
   return best?.tier?.name ?? null;
 }
 
+// ─── MatchRosterInsert type ───────────────────────────────────────────────────
+
+export interface MatchRosterInsert {
+  match_id: string;
+  riot_puuid: string;
+  team: string;
+  name: string | null;
+  tag: string | null;
+}
+
+/**
+ * Derive roster rows for ALL players in a match (not puuid-specific).
+ *
+ * Returns one row per player (up to 10 in a standard 5v5 match).
+ * Returns an empty array when metadata.match_id is missing.
+ * Callers should insert with onConflictDoNothing() — same match scanned
+ * for multiple community players dedupes correctly on PK (match_id, riot_puuid).
+ */
+export function deriveMatchRoster(match: HenrikMatchV4): MatchRosterInsert[] {
+  const matchId = match.metadata?.match_id;
+  if (!matchId) return [];
+  return match.players
+    .filter((p) => p.puuid && p.team_id)
+    .map((p) => ({
+      match_id: matchId,
+      riot_puuid: p.puuid,
+      team: p.team_id!,
+      name: p.name ?? null,
+      tag: p.tag ?? null,
+    }));
+}
+
 // ─── Main derive function ─────────────────────────────────────────────────────
 
 /**
