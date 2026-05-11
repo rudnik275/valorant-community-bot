@@ -4,6 +4,7 @@ import type { HenrikMatchV4 } from '../lib/henrik.ts';
 
 import v4Fixture from './__fixtures__/match_console_v4.json';
 import v4UnrankedFixture from './__fixtures__/match_console_v4_unranked.json';
+import comebackFixture from './__fixtures__/henrik-match-comeback.json';
 
 const TARGET_PUUID = 'target-puuid';
 
@@ -369,6 +370,31 @@ describe('deriveMatchRecord (v4)', () => {
       // The fixture has target-puuid so it should return a record (not null)
       expect(record).not.toBeNull();
     });
+  });
+});
+
+describe('rounds_compact derivation', () => {
+  it('extracts rounds_compact from match.rounds[] in comeback fixture', () => {
+    const record = deriveMatchRecord(comebackFixture as HenrikMatchV4, TARGET_PUUID);
+    expect(record).not.toBeNull();
+    expect(record!.rounds_compact).toBeDefined();
+    const parsed = JSON.parse(record!.rounds_compact!) as Array<{ r: number; w: string }>;
+    // 24 rounds all have winning_team set
+    expect(parsed).toHaveLength(24);
+    expect(parsed[0]).toHaveProperty('r');
+    expect(parsed[0]).toHaveProperty('w');
+    // First round is Blue win (id=1)
+    const first = parsed.find((x) => x.r === 1);
+    expect(first!.w).toBe('Blue');
+    // Round 3 is Red win
+    const third = parsed.find((x) => x.r === 3);
+    expect(third!.w).toBe('Red');
+  });
+
+  it('rounds_compact is "[]" when match.rounds is empty', () => {
+    // The existing v4Fixture has rounds: [] (no round data)
+    const record = deriveMatchRecord(v4Fixture as HenrikMatchV4, TARGET_PUUID);
+    expect(record!.rounds_compact).toBe('[]');
   });
 });
 

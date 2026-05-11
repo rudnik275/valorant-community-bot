@@ -20,6 +20,7 @@ export const matchRecords = sqliteTable(
     enemy_avg_rank: text('enemy_avg_rank'),
     fall_damage_kills: integer('fall_damage_kills').notNull().default(0),
     kill_events_compact: text('kill_events_compact').notNull(),
+    rounds_compact: text('rounds_compact'),
     score: integer('score'),
     headshots: integer('headshots'),
     bodyshots: integer('bodyshots'),

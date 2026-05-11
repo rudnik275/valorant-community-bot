@@ -33,6 +33,7 @@ function makeRecord(matchId: string, result: 'win' | 'loss' | 'draw', startedAt:
     enemy_avg_rank: 'Diamond 1',
     fall_damage_kills: 0,
     kill_events_compact: '[]',
+    rounds_compact: null,
     score: null,
     headshots: null,
     bodyshots: null,

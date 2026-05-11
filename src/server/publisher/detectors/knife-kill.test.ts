@@ -18,6 +18,7 @@ const BASE_RECORD: MatchRecord = {
   enemy_avg_rank: 'Gold 2',
   fall_damage_kills: 0,
   kill_events_compact: '[]',
+  rounds_compact: null,
   score: null,
   headshots: null,
   bodyshots: null,
