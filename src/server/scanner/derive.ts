@@ -23,6 +23,7 @@ export interface MatchRecordInsert {
   enemy_avg_rank: string | null;
   fall_damage_kills: number;
   kill_events_compact: string;
+  rounds_compact: string;
   score: number | null;
   headshots: number | null;
   bodyshots: number | null;
@@ -191,6 +192,12 @@ export function deriveMatchRecord(match: HenrikMatchV4, puuid: string): MatchRec
     victim_puuid: k.victim?.puuid ?? '',
   }));
 
+  // rounds_compact: compact round winner list consumed by match-comeback detector.
+  // Shape: [{r: round_id, w: winning_team_id}]
+  const roundsCompact = match.rounds
+    .filter((r) => r.winning_team)
+    .map((r) => ({ r: r.id ?? 0, w: r.winning_team! }));
+
   return {
     riot_puuid: puuid,
     match_id: match.metadata.match_id,
@@ -207,6 +214,7 @@ export function deriveMatchRecord(match: HenrikMatchV4, puuid: string): MatchRec
     enemy_avg_rank: calcEnemyAvgRank(match, playerTeamId),
     fall_damage_kills: fallDamageKills,
     kill_events_compact: JSON.stringify(killEventsCompact),
+    rounds_compact: JSON.stringify(roundsCompact),
     score: player.stats?.score ?? null,
     headshots: player.stats?.headshots ?? null,
     bodyshots: player.stats?.bodyshots ?? null,

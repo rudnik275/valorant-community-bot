@@ -1,0 +1,1 @@
+ALTER TABLE `match_records` ADD `rounds_compact` text;

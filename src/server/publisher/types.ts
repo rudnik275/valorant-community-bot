@@ -13,7 +13,8 @@ export type EventType =
   | 'teamkill'
   | 'fall_damage_death'
   | 'record_kills_match'
-  | 'knife_kill';
+  | 'knife_kill'
+  | 'match_comeback';
 
 export interface DetectedEvent {
   type: EventType;

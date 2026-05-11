@@ -333,11 +333,23 @@ const KillV4Schema = z.object({
   location: z.object({ x: z.number().optional(), y: z.number().optional() }).passthrough().optional(),
 }).passthrough();
 
+const RoundV4Schema = z.object({
+  id: z.number().optional(),
+  result: z.string().optional(),
+  ceremony: z.string().optional(),
+  winning_team: z.string().nullable().optional(),
+  plant: z.unknown().nullable().optional(),
+  defuse: z.unknown().nullable().optional(),
+  stats: z.array(z.unknown()).default([]),
+}).passthrough();
+
+export type HenrikRoundV4 = z.infer<typeof RoundV4Schema>;
+
 export const HenrikMatchV4Schema = z.object({
   metadata: MatchMetadataV4Schema,
   players: z.array(PlayerV4Schema).default([]),
   teams: z.array(TeamV4Schema).default([]),
-  rounds: z.array(z.unknown()).default([]),
+  rounds: z.array(RoundV4Schema).default([]),
   kills: z.array(KillV4Schema).default([]),
 }).passthrough();
 

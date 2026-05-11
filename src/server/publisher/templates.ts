@@ -165,6 +165,16 @@ const templates: Record<EventType, TemplateFn> = {
     const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
     return `🔪 <b>Заколол баранчика</b> ${playerTag(user)} — зарезал${countStr} с ножа${mapStr}${matchLink}`;
   },
+
+  match_comeback: (payload, user, match) => {
+    const dp = payload['deficit_score_player'] ?? '?';
+    const dop = payload['deficit_score_opponent'] ?? '?';
+    const fp = payload['final_score_player'] ?? '?';
+    const fop = payload['final_score_opponent'] ?? '?';
+    const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
+    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
+    return `👏 <b>Мы вами гордимся</b>, ${playerTag(user)}\n🥂 проигрывали со счётом ${dp}:${dop}\nно закончили победой ${fp}:${fop}${mapStr}${matchLink}`;
+  },
 };
 
 /**

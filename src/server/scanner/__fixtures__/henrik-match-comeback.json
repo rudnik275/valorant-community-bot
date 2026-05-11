@@ -1,0 +1,152 @@
+{
+  "metadata": {
+    "match_id": "comeback-match-v4-001",
+    "platform": "console",
+    "region": "eu",
+    "queue": { "id": "console_competitive", "name": "Competitive", "mode_type": "Standard" },
+    "map": { "id": "7eaecc1b-4337-bbf6-6ab9-04b8f06b3319", "name": "Ascent" },
+    "started_at": "2026-05-11T10:00:00.000Z",
+    "game_length_in_ms": 2800000,
+    "is_completed": true
+  },
+  "players": [
+    {
+      "puuid": "target-puuid",
+      "name": "Player",
+      "tag": "EU1",
+      "team_id": "Blue",
+      "platform": "playstation",
+      "agent": { "id": "add6443a-41bd-e414-f6ad-e58d267f4e95", "name": "Jett" },
+      "tier": { "id": 18, "name": "Diamond 1" },
+      "stats": { "kills": 20, "deaths": 15, "assists": 5, "score": 5200, "headshots": 30, "bodyshots": 55, "legshots": 4, "damage": { "dealt": 3900, "received": 3200 } }
+    },
+    {
+      "puuid": "ally-1",
+      "name": "Ally1",
+      "tag": "EU2",
+      "team_id": "Blue",
+      "platform": "playstation",
+      "agent": { "id": "xxx", "name": "Sage" },
+      "tier": { "id": 18, "name": "Diamond 1" },
+      "stats": { "kills": 10, "deaths": 12, "assists": 8, "score": 2600 }
+    },
+    {
+      "puuid": "ally-2",
+      "name": "Ally2",
+      "tag": "EU3",
+      "team_id": "Blue",
+      "platform": "xbox",
+      "agent": { "id": "xxx", "name": "Sova" },
+      "tier": { "id": 19, "name": "Diamond 2" },
+      "stats": { "kills": 14, "deaths": 13, "assists": 6, "score": 3500 }
+    },
+    {
+      "puuid": "ally-3",
+      "name": "Ally3",
+      "tag": "EU4",
+      "team_id": "Blue",
+      "platform": "playstation",
+      "agent": { "id": "xxx", "name": "Killjoy" },
+      "tier": { "id": 17, "name": "Platinum 3" },
+      "stats": { "kills": 11, "deaths": 11, "assists": 9, "score": 2900 }
+    },
+    {
+      "puuid": "ally-4",
+      "name": "Ally4",
+      "tag": "EU5",
+      "team_id": "Blue",
+      "platform": "xbox",
+      "agent": { "id": "xxx", "name": "Omen" },
+      "tier": { "id": 18, "name": "Diamond 1" },
+      "stats": { "kills": 9, "deaths": 14, "assists": 7, "score": 2400 }
+    },
+    {
+      "puuid": "enemy-1",
+      "name": "Enemy1",
+      "tag": "NA1",
+      "team_id": "Red",
+      "platform": "playstation",
+      "agent": { "id": "xxx", "name": "Reyna" },
+      "tier": { "id": 18, "name": "Diamond 1" },
+      "stats": { "kills": 16, "deaths": 18, "assists": 2, "score": 4100 }
+    },
+    {
+      "puuid": "enemy-2",
+      "name": "Enemy2",
+      "tag": "NA2",
+      "team_id": "Red",
+      "platform": "xbox",
+      "agent": { "id": "xxx", "name": "Phoenix" },
+      "tier": { "id": 19, "name": "Diamond 2" },
+      "stats": { "kills": 13, "deaths": 15, "assists": 5, "score": 3300 }
+    },
+    {
+      "puuid": "enemy-3",
+      "name": "Enemy3",
+      "tag": "NA3",
+      "team_id": "Red",
+      "platform": "playstation",
+      "agent": { "id": "xxx", "name": "Breach" },
+      "tier": { "id": 20, "name": "Diamond 3" },
+      "stats": { "kills": 11, "deaths": 16, "assists": 8, "score": 2800 }
+    },
+    {
+      "puuid": "enemy-4",
+      "name": "Enemy4",
+      "tag": "NA4",
+      "team_id": "Red",
+      "platform": "xbox",
+      "agent": { "id": "xxx", "name": "Viper" },
+      "tier": { "id": 17, "name": "Platinum 3" },
+      "stats": { "kills": 9, "deaths": 19, "assists": 4, "score": 2200 }
+    },
+    {
+      "puuid": "enemy-5",
+      "name": "Enemy5",
+      "tag": "NA5",
+      "team_id": "Red",
+      "platform": "playstation",
+      "agent": { "id": "xxx", "name": "Cypher" },
+      "tier": { "id": 18, "name": "Diamond 1" },
+      "stats": { "kills": 7, "deaths": 20, "assists": 10, "score": 1900 }
+    }
+  ],
+  "teams": [
+    { "team_id": "Blue", "won": true, "rounds": { "won": 13, "lost": 11 } },
+    { "team_id": "Red", "won": false, "rounds": { "won": 11, "lost": 13 } }
+  ],
+  "rounds": [
+    { "id": 1,  "result": "Elimination", "ceremony": "", "winning_team": "Blue", "plant": null, "defuse": null, "stats": [] },
+    { "id": 2,  "result": "Elimination", "ceremony": "", "winning_team": "Blue", "plant": null, "defuse": null, "stats": [] },
+    { "id": 3,  "result": "Elimination", "ceremony": "", "winning_team": "Red",  "plant": null, "defuse": null, "stats": [] },
+    { "id": 4,  "result": "Elimination", "ceremony": "", "winning_team": "Red",  "plant": null, "defuse": null, "stats": [] },
+    { "id": 5,  "result": "Elimination", "ceremony": "", "winning_team": "Red",  "plant": null, "defuse": null, "stats": [] },
+    { "id": 6,  "result": "Defuse",      "ceremony": "", "winning_team": "Red",  "plant": null, "defuse": null, "stats": [] },
+    { "id": 7,  "result": "Elimination", "ceremony": "", "winning_team": "Red",  "plant": null, "defuse": null, "stats": [] },
+    { "id": 8,  "result": "Elimination", "ceremony": "", "winning_team": "Red",  "plant": null, "defuse": null, "stats": [] },
+    { "id": 9,  "result": "Detonate",    "ceremony": "", "winning_team": "Red",  "plant": null, "defuse": null, "stats": [] },
+    { "id": 10, "result": "Elimination", "ceremony": "", "winning_team": "Red",  "plant": null, "defuse": null, "stats": [] },
+    { "id": 11, "result": "Elimination", "ceremony": "", "winning_team": "Red",  "plant": null, "defuse": null, "stats": [] },
+    { "id": 12, "result": "Elimination", "ceremony": "", "winning_team": "Red",  "plant": null, "defuse": null, "stats": [] },
+    { "id": 13, "result": "Elimination", "ceremony": "", "winning_team": "Blue", "plant": null, "defuse": null, "stats": [] },
+    { "id": 14, "result": "Elimination", "ceremony": "", "winning_team": "Blue", "plant": null, "defuse": null, "stats": [] },
+    { "id": 15, "result": "Elimination", "ceremony": "", "winning_team": "Blue", "plant": null, "defuse": null, "stats": [] },
+    { "id": 16, "result": "Elimination", "ceremony": "", "winning_team": "Blue", "plant": null, "defuse": null, "stats": [] },
+    { "id": 17, "result": "Elimination", "ceremony": "", "winning_team": "Blue", "plant": null, "defuse": null, "stats": [] },
+    { "id": 18, "result": "Defuse",      "ceremony": "", "winning_team": "Blue", "plant": null, "defuse": null, "stats": [] },
+    { "id": 19, "result": "Elimination", "ceremony": "", "winning_team": "Blue", "plant": null, "defuse": null, "stats": [] },
+    { "id": 20, "result": "Elimination", "ceremony": "", "winning_team": "Blue", "plant": null, "defuse": null, "stats": [] },
+    { "id": 21, "result": "Elimination", "ceremony": "", "winning_team": "Blue", "plant": null, "defuse": null, "stats": [] },
+    { "id": 22, "result": "Elimination", "ceremony": "", "winning_team": "Blue", "plant": null, "defuse": null, "stats": [] },
+    { "id": 23, "result": "Elimination", "ceremony": "", "winning_team": "Blue", "plant": null, "defuse": null, "stats": [] },
+    { "id": 24, "result": "Elimination", "ceremony": "", "winning_team": "Red",  "plant": null, "defuse": null, "stats": [] }
+  ],
+  "kills": [
+    {
+      "round": 1, "time_in_round_in_ms": 12000,
+      "killer": { "puuid": "target-puuid", "name": "Player", "tag": "EU1", "team": "Blue" },
+      "victim": { "puuid": "enemy-1", "name": "Enemy1", "tag": "NA1", "team": "Red" },
+      "weapon": { "id": "9c82e19d-4575-0200-1a81-3eacf00cf872", "name": "Vandal", "type": "Rifle" }
+    }
+  ]
+}
