@@ -29,10 +29,12 @@ export interface TemplateUser {
   riot_name: string;
   riot_tag: string;
   telegram_id: number;
+  riot_puuid?: string;
 }
 
 export interface TemplateMatch {
   map?: string;
+  match_id?: string;
 }
 
 type TemplateFn = (
@@ -140,6 +142,20 @@ const templates: Record<EventType, TemplateFn> = {
     const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
     const count = payload['count'] ? ` (${esc(String(payload['count']))}×)` : '';
     return `🤡 ${playerTag(user)} встретился с гравитацией${mapStr}${count}`;
+  },
+
+  record_kills_match: (payload, user, match) => {
+    const value = payload['value'];
+    const prevValue = payload['prev_value'];
+    const prevPuuid = payload['prev_puuid'];
+    const samePlayer = prevPuuid === user.riot_puuid;
+    const prevStr = prevValue !== null && prevValue !== undefined
+      ? samePlayer
+        ? ` (прошлый: ${esc(String(prevValue))}, тоже его)`
+        : ` (прошлый: ${esc(String(prevValue))})`
+      : '';
+    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(match.match_id))}">→ матч</a>` : '';
+    return `🔪 <b>Мирного рішення не буде:</b> ${playerTag(user)} — ${esc(String(value))} фрагов${prevStr}${matchLink}`;
   },
 };
 

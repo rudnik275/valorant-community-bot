@@ -63,7 +63,11 @@ export function startDetectionListener(deps: DetectionDeps): () => void {
             .limit(30);
 
       // Run all detectors and collect all events for this record
-      const allEvents = ALL_DETECTORS.flatMap((detector) => detector.detect(record, prev));
+      const allEventsSync = ALL_DETECTORS.flatMap((detector) => detector.detect(record, prev));
+      const allEventsAsync = (await Promise.all(
+        ALL_DETECTORS.filter((d) => d.detectAsync).map((d) => d.detectAsync!(record, prev, { db })),
+      )).flat();
+      const allEvents = [...allEventsSync, ...allEventsAsync];
 
       // Augment ace/clutch events with opponents' peak ranks before insert
       const aceLikeEvents = allEvents.filter(

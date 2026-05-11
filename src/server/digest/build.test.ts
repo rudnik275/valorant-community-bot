@@ -418,4 +418,50 @@ describe('buildDigest', () => {
       }
     });
   });
+
+  describe('record_kills_match section', () => {
+    it('renders record_kills_match section when event exists in window', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Killer', riotTag: 'KLL' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'record-match', startedAt: IN_WINDOW, kills: 38, map: 'Ascent' });
+      seedEvent(sqlite, {
+        puuid: 'p1',
+        matchId: 'record-match',
+        eventType: 'record_kills_match',
+        payload: { value: 38, prev_value: 30, prev_puuid: 'puuid-other' },
+        detectedAt: IN_WINDOW,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+
+      expect(result.sectionsIncluded).toContain('recordKillsMatch');
+      expect(result.text).toContain('Мирного рішення не буде');
+      expect(result.text).toContain('Killer');
+      expect(result.text).toContain('38');
+    });
+
+    it('does NOT render record_kills_match section when no events in window', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Killer', riotTag: 'KLL' });
+      seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW, kills: 38 });
+      // No record_kills_match event seeded
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+
+      expect(result.sectionsIncluded).not.toContain('recordKillsMatch');
+    });
+
+    it('event outside window is not shown', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Killer', riotTag: 'KLL' });
+      seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW, kills: 38 });
+      seedEvent(sqlite, {
+        puuid: 'p1',
+        eventType: 'record_kills_match',
+        payload: { value: 38, prev_value: null, prev_puuid: null },
+        detectedAt: OUT_OF_WINDOW,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+
+      expect(result.sectionsIncluded).not.toContain('recordKillsMatch');
+    });
+  });
 });
