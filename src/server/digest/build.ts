@@ -50,6 +50,9 @@ const BRIGHT_EVENT_WEIGHTS: Record<string, number> = {
   record_kills_match: 7,
   record_damage_dealt_match: 7,
   record_damage_received_match: 7,
+  record_deaths_match: 7,
+  record_headshots_match: 7,
+  record_legshots_match: 7,
   record_mvp_count_week: 7,
   giant_slayer: 6,
   winstreak_10plus: 4,
@@ -168,6 +171,42 @@ function renderBrightBlock(
         }
       }
       return `😵 <b>Надругались над</b> ${name} — получил ${esc(String(value))} dmg за матч${prevStr}${matchLink}`;
+    }
+    case 'record_deaths_match': {
+      const value = payload['value'];
+      const prevValue = payload['prev_value'];
+      const matchLink = payload['match_id']
+        ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(payload['match_id']))}">→ матч</a>`
+        : '';
+      let prevLine = '';
+      if (prevValue !== null && prevValue !== undefined) {
+        prevLine = `\nпрошлый рекорд: ${esc(String(prevValue))}`;
+      }
+      return `🩸 <b>Жертва насилия</b>\n${name} — ${esc(String(value))} смертей${mapStr}${prevLine}${matchLink}`;
+    }
+    case 'record_headshots_match': {
+      const value = payload['value'];
+      const prevValue = payload['prev_value'];
+      const matchLink = payload['match_id']
+        ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(payload['match_id']))}">→ матч</a>`
+        : '';
+      let prevLine = '';
+      if (prevValue !== null && prevValue !== undefined) {
+        prevLine = `\nпрошлый рекорд: ${esc(String(prevValue))}`;
+      }
+      return `🤠 <b>Ковбой недели</b>\n${name} — ${esc(String(value))} хедшотов${mapStr}${prevLine}${matchLink}`;
+    }
+    case 'record_legshots_match': {
+      const value = payload['value'];
+      const prevValue = payload['prev_value'];
+      const matchLink = payload['match_id']
+        ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(payload['match_id']))}">→ матч</a>`
+        : '';
+      let prevLine = '';
+      if (prevValue !== null && prevValue !== undefined) {
+        prevLine = `\nпрошлый рекорд: ${esc(String(prevValue))}`;
+      }
+      return `♿️ <b>Угадай куда шмальну</b>\n${name} — ${esc(String(value))} легшотов${mapStr}${prevLine}${matchLink}`;
     }
     case 'record_mvp_count_week': {
       const value = payload['value'];
@@ -324,11 +363,14 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
 
       const map: string | undefined = matchRow?.map ?? undefined;
 
-      // For record types, attach match_id to payload for link
+      // For record event types, attach match_id to payload for link
       if (
         (ev.event_type === 'record_kills_match' ||
           ev.event_type === 'record_damage_dealt_match' ||
-          ev.event_type === 'record_damage_received_match') &&
+          ev.event_type === 'record_damage_received_match' ||
+          ev.event_type === 'record_deaths_match' ||
+          ev.event_type === 'record_headshots_match' ||
+          ev.event_type === 'record_legshots_match') &&
         ev.match_id
       ) {
         payload['match_id'] = ev.match_id;

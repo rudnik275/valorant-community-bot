@@ -206,14 +206,84 @@ const templates: Record<EventType, TemplateFn> = {
     const value = payload['value'];
     const prevValue = payload['prev_value'];
     const prevPuuid = payload['prev_puuid'];
+    const prevName = payload['prev_name'] as string | undefined;
+    const prevTag = payload['prev_tag'] as string | undefined;
     const samePlayer = prevPuuid === user.riot_puuid;
-    const prevStr = prevValue !== null && prevValue !== undefined
-      ? samePlayer
-        ? ` (прошлый: ${esc(String(prevValue))}, тоже его)`
-        : ` (прошлый: ${esc(String(prevValue))})`
-      : '';
+    let prevStr = '';
+    if (prevValue !== null && prevValue !== undefined) {
+      if (samePlayer) {
+        prevStr = ` (прошлый: ${esc(String(prevValue))}, тоже его)`;
+      } else if (prevName) {
+        prevStr = ` (прошлый: ${esc(String(prevValue))}, у <b>${esc(prevName + (prevTag ? '#' + prevTag : ''))}</b>)`;
+      } else {
+        prevStr = ` (прошлый: ${esc(String(prevValue))})`;
+      }
+    }
     const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(match.match_id))}">→ матч</a>` : '';
     return `🔪 <b>Мирного рішення не буде:</b> ${playerTag(user)} — ${esc(String(value))} фрагов${prevStr}${matchLink}`;
+  },
+
+  record_deaths_match: (payload, user, match) => {
+    const value = payload['value'];
+    const prevValue = payload['prev_value'];
+    const prevPuuid = payload['prev_puuid'];
+    const prevName = payload['prev_name'] as string | undefined;
+    const prevTag = payload['prev_tag'] as string | undefined;
+    const samePlayer = prevPuuid === user.riot_puuid;
+    let prevStr = '';
+    if (prevValue !== null && prevValue !== undefined) {
+      if (samePlayer) {
+        prevStr = ` (прошлый: ${esc(String(prevValue))}, тоже его)`;
+      } else if (prevName) {
+        prevStr = ` (прошлый: ${esc(String(prevValue))}, у <b>${esc(prevName + (prevTag ? '#' + prevTag : ''))}</b>)`;
+      } else {
+        prevStr = ` (прошлый: ${esc(String(prevValue))})`;
+      }
+    }
+    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(match.match_id))}">→ матч</a>` : '';
+    return `🩸 <b>Жертва насилия:</b> ${playerTag(user)} — ${esc(String(value))} смертей за матч${prevStr}${matchLink}`;
+  },
+
+  record_headshots_match: (payload, user, match) => {
+    const value = payload['value'];
+    const prevValue = payload['prev_value'];
+    const prevPuuid = payload['prev_puuid'];
+    const prevName = payload['prev_name'] as string | undefined;
+    const prevTag = payload['prev_tag'] as string | undefined;
+    const samePlayer = prevPuuid === user.riot_puuid;
+    let prevStr = '';
+    if (prevValue !== null && prevValue !== undefined) {
+      if (samePlayer) {
+        prevStr = ` (прошлый: ${esc(String(prevValue))}, тоже его)`;
+      } else if (prevName) {
+        prevStr = ` (прошлый: ${esc(String(prevValue))}, у <b>${esc(prevName + (prevTag ? '#' + prevTag : ''))}</b>)`;
+      } else {
+        prevStr = ` (прошлый: ${esc(String(prevValue))})`;
+      }
+    }
+    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(match.match_id))}">→ матч</a>` : '';
+    return `🤠 <b>Ковбой недели:</b> ${playerTag(user)} — ${esc(String(value))} хедшотов${prevStr}${matchLink}`;
+  },
+
+  record_legshots_match: (payload, user, match) => {
+    const value = payload['value'];
+    const prevValue = payload['prev_value'];
+    const prevPuuid = payload['prev_puuid'];
+    const prevName = payload['prev_name'] as string | undefined;
+    const prevTag = payload['prev_tag'] as string | undefined;
+    const samePlayer = prevPuuid === user.riot_puuid;
+    let prevStr = '';
+    if (prevValue !== null && prevValue !== undefined) {
+      if (samePlayer) {
+        prevStr = ` (прошлый: ${esc(String(prevValue))}, тоже его)`;
+      } else if (prevName) {
+        prevStr = ` (прошлый: ${esc(String(prevValue))}, у <b>${esc(prevName + (prevTag ? '#' + prevTag : ''))}</b>)`;
+      } else {
+        prevStr = ` (прошлый: ${esc(String(prevValue))})`;
+      }
+    }
+    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(match.match_id))}">→ матч</a>` : '';
+    return `♿️ <b>Угадай куда шмальну:</b> ${playerTag(user)} — ${esc(String(value))} легшотов${prevStr}${matchLink}`;
   },
 
   knife_kill: (payload, user, match) => {

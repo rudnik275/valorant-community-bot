@@ -308,6 +308,66 @@ describe('buildDigest', () => {
     });
   });
 
+  describe('bright events — record_deaths_match', () => {
+    it('renders record_deaths_match in bright block', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Victim', riotTag: 'VIC' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'deaths-match', startedAt: IN_WINDOW, deaths: 28, map: 'Bind' });
+      seedEvent(sqlite, {
+        puuid: 'p1',
+        matchId: 'deaths-match',
+        eventType: 'record_deaths_match',
+        payload: { value: 28, prev_value: 22, prev_puuid: 'puuid-other' },
+        detectedAt: IN_WINDOW,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).toContain('record_deaths_match');
+      expect(result.text).toContain('Жертва насилия');
+      expect(result.text).toContain('Victim');
+      expect(result.text).toContain('28');
+    });
+  });
+
+  describe('bright events — record_headshots_match', () => {
+    it('renders record_headshots_match in bright block', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Cowboy', riotTag: 'COW' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'hs-match', startedAt: IN_WINDOW, map: 'Ascent' });
+      seedEvent(sqlite, {
+        puuid: 'p1',
+        matchId: 'hs-match',
+        eventType: 'record_headshots_match',
+        payload: { value: 24, prev_value: 20, prev_puuid: 'puuid-other' },
+        detectedAt: IN_WINDOW,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).toContain('record_headshots_match');
+      expect(result.text).toContain('Ковбой недели');
+      expect(result.text).toContain('Cowboy');
+      expect(result.text).toContain('24');
+    });
+  });
+
+  describe('bright events — record_legshots_match', () => {
+    it('renders record_legshots_match in bright block', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'LegPlayer', riotTag: 'LEGS' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'ls-match', startedAt: IN_WINDOW, map: 'Haven' });
+      seedEvent(sqlite, {
+        puuid: 'p1',
+        matchId: 'ls-match',
+        eventType: 'record_legshots_match',
+        payload: { value: 18, prev_value: 14, prev_puuid: 'puuid-other' },
+        detectedAt: IN_WINDOW,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).toContain('record_legshots_match');
+      expect(result.text).toContain('Угадай куда шмальну');
+      expect(result.text).toContain('LegPlayer');
+      expect(result.text).toContain('18');
+    });
+  });
+
   describe('bright events — record_kills_match', () => {
     it('renders record_kills_match in bright block', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'Killer', riotTag: 'KLL' });

@@ -84,6 +84,75 @@ async function backfillDamageReceivedMatch() {
   console.log(`damage_received_match: seeded ${top.damage_received} by ${top.riot_puuid}`);
 }
 
+async function backfillDeathsMatch() {
+  const rows = await db.select().from(matchRecords).where(isNotNull(matchRecords.riot_puuid)).orderBy(desc(matchRecords.deaths)).limit(1);
+  if (rows.length === 0) {
+    console.log('deaths_match: no match records yet, skipping');
+    return;
+  }
+  const top = rows[0]!;
+  if (top.deaths <= 0) return;
+  await db.insert(allTimeRecords).values({
+    record_type: 'deaths_match',
+    weapon: '',
+    riot_puuid: top.riot_puuid!,
+    value: top.deaths,
+    match_id: top.match_id,
+    achieved_at: top.started_at,
+    prev_value: null,
+    prev_puuid: null,
+  }).onConflictDoNothing();
+  console.log(`deaths_match: seeded ${top.deaths} by ${top.riot_puuid}`);
+}
+
+async function backfillHeadshotsMatch() {
+  const rows = await db.select().from(matchRecords)
+    .where(and(isNotNull(matchRecords.riot_puuid), isNotNull(matchRecords.headshots)))
+    .orderBy(desc(matchRecords.headshots))
+    .limit(1);
+  if (rows.length === 0) {
+    console.log('headshots_match: no match records with headshots data yet, skipping');
+    return;
+  }
+  const top = rows[0]!;
+  if (top.headshots == null || top.headshots <= 0) return;
+  await db.insert(allTimeRecords).values({
+    record_type: 'headshots_match',
+    weapon: '',
+    riot_puuid: top.riot_puuid!,
+    value: top.headshots,
+    match_id: top.match_id,
+    achieved_at: top.started_at,
+    prev_value: null,
+    prev_puuid: null,
+  }).onConflictDoNothing();
+  console.log(`headshots_match: seeded ${top.headshots} by ${top.riot_puuid}`);
+}
+
+async function backfillLegshotsMatch() {
+  const rows = await db.select().from(matchRecords)
+    .where(and(isNotNull(matchRecords.riot_puuid), isNotNull(matchRecords.legshots)))
+    .orderBy(desc(matchRecords.legshots))
+    .limit(1);
+  if (rows.length === 0) {
+    console.log('legshots_match: no match records with legshots data yet, skipping');
+    return;
+  }
+  const top = rows[0]!;
+  if (top.legshots == null || top.legshots <= 0) return;
+  await db.insert(allTimeRecords).values({
+    record_type: 'legshots_match',
+    weapon: '',
+    riot_puuid: top.riot_puuid!,
+    value: top.legshots,
+    match_id: top.match_id,
+    achieved_at: top.started_at,
+    prev_value: null,
+    prev_puuid: null,
+  }).onConflictDoNothing();
+  console.log(`legshots_match: seeded ${top.legshots} by ${top.riot_puuid}`);
+}
+
 /**
  * Compute ISO week string for a given timestamp (Kyiv timezone, Thursday-anchor).
  */
@@ -170,5 +239,8 @@ async function backfillWeeklyMvpRecords() {
 await backfillKillsMatch();
 await backfillDamageDealtMatch();
 await backfillDamageReceivedMatch();
+await backfillDeathsMatch();
+await backfillHeadshotsMatch();
+await backfillLegshotsMatch();
 await backfillWeeklyMvpRecords();
 process.exit(0);

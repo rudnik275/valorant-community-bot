@@ -3,14 +3,14 @@ import { upsertRecord } from '../record-tracker.ts';
 import { users } from '../../db/schema/users.ts';
 import { eq } from 'drizzle-orm';
 
-export const recordKillsMatchDetector: Detector = {
-  type: 'record_kills_match',
+export const recordDeathsMatchDetector: Detector = {
+  type: 'record_deaths_match',
   detect: () => [],  // not used — async path only
   detectAsync: async (record: MatchRecord, _prev: MatchRecord[], deps: DetectorDeps): Promise<DetectedEvent[]> => {
     if (!record.riot_puuid) return [];
     const result = await upsertRecord(deps.db, {
-      recordType: 'kills_match',
-      value: record.kills,
+      recordType: 'deaths_match',
+      value: record.deaths,
       riotPuuid: record.riot_puuid,
       matchId: record.match_id,
       achievedAt: record.started_at,
@@ -31,11 +31,11 @@ export const recordKillsMatchDetector: Detector = {
 
     return [
       {
-        type: 'record_kills_match',
+        type: 'record_deaths_match',
         riot_puuid: record.riot_puuid,
         match_id: record.match_id,
         payload: {
-          value: record.kills,
+          value: record.deaths,
           prev_value: result.prev?.value ?? null,
           prev_puuid: result.prev?.puuid ?? null,
           prev_name: prevName,
