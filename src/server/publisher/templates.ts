@@ -89,7 +89,8 @@ const templates: Record<EventType, TemplateFn> = {
     const roundCount = rounds.length > 1 ? ` (${rounds.length}×)` : '';
     const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
     const opponentsStr = renderOpponentsPeak(payload);
-    return `🎯 Эйс! У ${playerTag(user)} 5 убийств в раунде${roundCount}${mapStr}${opponentsStr}`;
+    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
+    return `🎯 <b>AAAAAAACE!</b> ${playerTag(user)} — 5 фрагов в раунде${roundCount}${mapStr}${matchLink}${opponentsStr}`;
   },
 
   ace_rare_weapon: (payload, user, match) => {
@@ -102,46 +103,47 @@ const templates: Record<EventType, TemplateFn> = {
   },
 
   rank_promo: (payload, user, _match) => {
-    const toRank = payload['to'] != null ? String(payload['to']) : null;
-    const toIcon = rankToEmojiHtml(toRank);
-    const toFamily = toRank ? (toRank.split(' ')[0] ?? '') : '';
-
-    if (toRank && toIcon && toFamily) {
-      return `📈 ${playerTag(user)} апнул ранг — ${toIcon} ${esc(toFamily)}`;
+    const to = payload['to'] ?? '';
+    const rankEmoji = rankToEmojiHtml(to as string);
+    if (rankEmoji) {
+      return `🎖 <b>Повышение по службе</b> — ${playerTag(user)} ${rankEmoji} ${esc(String(to))}`;
     }
-    if (toRank) {
-      // Unknown rank label (rank-emoji map miss) — keep full label as-is
-      return `📈 ${playerTag(user)} апнул ранг — ${esc(toRank)}`;
+    if (to) {
+      return `🎖 <b>Повышение по службе</b> — ${playerTag(user)} ${esc(String(to))}`;
     }
-    return `📈 ${playerTag(user)} апнул ранг`;
+    return `🎖 <b>Повышение по службе</b> — ${playerTag(user)}`;
   },
 
   winstreak_10plus: (payload, user, _match) => {
     const streak = payload['streak'] ?? 10;
-    return `🔥 Винстрик! ${streak} побед подряд у ${playerTag(user)}`;
+    return `🔥 <b>Винстрик:</b> ${playerTag(user)} — ${esc(String(streak))} побед подряд`;
   },
 
-  giant_slayer: (payload, user, _match) => {
-    const enemyAvg = payload['enemy_avg'] ? ` рангом ${esc(String(payload['enemy_avg']))}` : '';
-    const own = payload['own'] ? ` (ранг: ${esc(String(payload['own']))})` : '';
-    return `⚔️ Гигантоборец! ${playerTag(user)} взял команду${enemyAvg}${own}`;
+  giant_slayer: (payload, user, match) => {
+    const own = payload['own'] ?? '';
+    const enemy = payload['enemy_avg'] ?? '';
+    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
+    return `🦣 ${playerTag(user)} (${esc(String(own))}) — <b>машина для убийства</b>, победа в матче с превосходящим врагом, средний ранг противника — ${esc(String(enemy))}${matchLink}`;
   },
 
   return_after_pause: (payload, user, _match) => {
-    const days = payload['days_paused'] ? `${esc(String(payload['days_paused']))} дней` : 'долгого перерыва';
-    return `👋 С возвращением! ${playerTag(user)} снова в строю после ${days}`;
+    const days = payload['days_paused'] ?? '?';
+    return `👋 <b>С возвращением</b>, ${playerTag(user)}! После ${esc(String(days))} дней паузы снова в строю`;
   },
 
-  teamkill: (payload, user, _match) => {
+  teamkill: (payload, user, match) => {
     const roundNumbers = Array.isArray(payload['round_numbers']) ? payload['round_numbers'] : [];
-    const count = roundNumbers.length > 0 ? roundNumbers.length : payload['count'] ?? '?';
-    return `🤦 ${playerTag(user)} случайно своих... (${count}× за матч)`;
+    const count = roundNumbers.length > 0 ? ` (${roundNumbers.length}× за матч)` : '';
+    const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
+    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
+    return `🐀 <b>Ля ты и крыса</b>, ${playerTag(user)} — стрельнул в своего${count}${mapStr}${matchLink}`;
   },
 
   fall_damage_death: (payload, user, match) => {
-    const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
     const count = payload['count'] ? ` (${esc(String(payload['count']))}×)` : '';
-    return `🤡 ${playerTag(user)} встретился с гравитацией${mapStr}${count}`;
+    const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
+    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
+    return `🪂 ${playerTag(user)} — <b>звезда паркура против гравитации, 1:0 в пользу гравитации</b> (смерть от падения)${count}${mapStr}${matchLink}`;
   },
 
   record_kills_match: (payload, user, match) => {

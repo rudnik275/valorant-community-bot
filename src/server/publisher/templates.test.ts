@@ -60,9 +60,9 @@ describe('renderTemplate — all event types render without throwing', () => {
 
     it(`${eventType} output does not contain unescaped <`, () => {
       const output = renderTemplate(eventType, minimalPayloads[eventType]!, safeUser);
-      // Allow <b> and </b> tags (intentional HTML), but no raw < from user input
-      // Strip out allowed HTML tags, then check no < remains
-      const stripped = output.replace(/<\/?b>/g, '');
+      // Allow intentional HTML tags (<b>, <a href=...>, <tg-emoji ...>), but no raw < from user input.
+      // Strip all valid HTML tags, then check no < remains.
+      const stripped = output.replace(/<[^>]+>/g, '');
       expect(stripped).not.toContain('<');
     });
   }
@@ -95,67 +95,133 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('Ascent');
   });
 
+  it('ace: contains AAAAAAACE heading', () => {
+    const output = renderTemplate('ace', {}, safeUser);
+    expect(output).toContain('AAAAAAACE');
+  });
+
+  it('ace: includes match link when match_id present', () => {
+    const output = renderTemplate('ace', {}, safeUser, { match_id: 'abc123' });
+    expect(output).toContain('tracker.gg/valorant/match/abc123');
+  });
+
   it('ace_rare_weapon: shows weapons', () => {
     const output = renderTemplate('ace_rare_weapon', { weapons: ['Odin', 'Ares'] }, safeUser);
     expect(output).toContain('Odin');
     expect(output).toContain('Ares');
   });
 
-  it('rank_promo: Ascendant 1 shows icon + family name without sub-tier number', () => {
+  it('rank_promo: Ascendant 1 shows "Повышение по службе" heading + icon + full rank label', () => {
     const output = renderTemplate('rank_promo', { from: 'Diamond 3', to: 'Ascendant 1' }, safeUser);
-    expect(output).toBe('📈 <b>Player#TAG</b> апнул ранг — <tg-emoji emoji-id="5188550815484256589">🟩</tg-emoji> Ascendant');
+    expect(output).toContain('Повышение по службе');
+    expect(output).toContain('<b>Player#TAG</b>');
+    expect(output).toContain('<tg-emoji emoji-id="5188550815484256589">🟩</tg-emoji>');
+    expect(output).toContain('Ascendant 1');
     expect(output).not.toContain('Diamond 3');
-    expect(output).not.toContain('Ascendant 1');
-    expect(output).not.toContain(' → ');
-    expect(output).not.toContain('!');
   });
 
-  it('rank_promo: Immortal 1 (to-only branch) shows icon + family name', () => {
+  it('rank_promo: Immortal 1 shows icon + full rank label', () => {
     const output = renderTemplate('rank_promo', { to: 'Immortal 1' }, safeUser);
-    expect(output).toBe('📈 <b>Player#TAG</b> апнул ранг — <tg-emoji emoji-id="5188459714932943688">♦️</tg-emoji> Immortal');
+    expect(output).toContain('Повышение по службе');
+    expect(output).toContain('<tg-emoji emoji-id="5188459714932943688">♦️</tg-emoji>');
+    expect(output).toContain('Immortal 1');
   });
 
-  it('rank_promo: Radiant (single-word family) shows icon + Radiant', () => {
+  it('rank_promo: Radiant shows icon + Radiant', () => {
     const output = renderTemplate('rank_promo', { to: 'Radiant' }, safeUser);
-    expect(output).toBe('📈 <b>Player#TAG</b> апнул ранг — <tg-emoji emoji-id="5190818141604715555">🌟</tg-emoji> Radiant');
+    expect(output).toContain('Повышение по службе');
+    expect(output).toContain('<tg-emoji emoji-id="5190818141604715555">🌟</tg-emoji>');
+    expect(output).toContain('Radiant');
   });
 
-  it('rank_promo: no-payload produces апнул ранг with no trailing punctuation', () => {
+  it('rank_promo: no-payload produces Повышение по службе with player tag', () => {
     const output = renderTemplate('rank_promo', {}, safeUser);
-    expect(output).toBe('📈 <b>Player#TAG</b> апнул ранг');
+    expect(output).toContain('Повышение по службе');
+    expect(output).toContain('<b>Player#TAG</b>');
     expect(output).not.toContain('<tg-emoji');
-    expect(output).not.toContain('!');
   });
 
   it('rank_promo: unknown rank label renders escaped plain text without tg-emoji', () => {
     const output = renderTemplate('rank_promo', { to: 'MetaTier 1' }, safeUser);
-    expect(output).toBe('📈 <b>Player#TAG</b> апнул ранг — MetaTier 1');
+    expect(output).toContain('Повышение по службе');
+    expect(output).toContain('MetaTier 1');
     expect(output).not.toContain('<tg-emoji');
   });
 
-  it('winstreak_10plus: shows streak count', () => {
+  it('winstreak_10plus: shows streak count and Винстрик heading', () => {
     const output = renderTemplate('winstreak_10plus', { streak: 10 }, safeUser);
     expect(output).toContain('10');
+    expect(output).toContain('Винстрик');
+    expect(output).toContain('побед подряд');
   });
 
-  it('giant_slayer: shows enemy avg rank', () => {
+  it('winstreak_10plus: player tag appears before count', () => {
+    const output = renderTemplate('winstreak_10plus', { streak: 15 }, safeUser);
+    expect(output).toContain('<b>Player#TAG</b>');
+    expect(output).toContain('15');
+  });
+
+  it('giant_slayer: shows enemy avg rank and машина для убийства text', () => {
     const output = renderTemplate('giant_slayer', { own: 'Silver 2', enemy_avg: 'Platinum 1', delta: 2 }, safeUser);
     expect(output).toContain('Platinum 1');
+    expect(output).toContain('машина для убийства');
   });
 
-  it('return_after_pause: shows days_paused', () => {
+  it('giant_slayer: shows own rank', () => {
+    const output = renderTemplate('giant_slayer', { own: 'Silver 2', enemy_avg: 'Platinum 1' }, safeUser);
+    expect(output).toContain('Silver 2');
+  });
+
+  it('giant_slayer: includes match link when match_id present', () => {
+    const output = renderTemplate('giant_slayer', { own: 'Gold 1', enemy_avg: 'Diamond 2' }, safeUser, { match_id: 'xyz789' });
+    expect(output).toContain('tracker.gg/valorant/match/xyz789');
+  });
+
+  it('return_after_pause: shows days_paused and С возвращением text', () => {
     const output = renderTemplate('return_after_pause', { days_paused: 14 }, safeUser);
     expect(output).toContain('14');
+    expect(output).toContain('С возвращением');
+    expect(output).toContain('дней паузы');
   });
 
-  it('teamkill: shows round count from round_numbers', () => {
+  it('return_after_pause: fallback ? when days_paused missing', () => {
+    const output = renderTemplate('return_after_pause', {}, safeUser);
+    expect(output).toContain('С возвращением');
+    expect(output).toContain('? дней паузы');
+  });
+
+  it('teamkill: shows round count from round_numbers and Ля ты и крыса text', () => {
     const output = renderTemplate('teamkill', { round_numbers: [3, 7, 12] }, safeUser);
+    expect(output).toContain('3×');
+    expect(output).toContain('Ля ты и крыса');
+  });
+
+  it('teamkill: no count suffix when round_numbers is empty', () => {
+    const output = renderTemplate('teamkill', {}, safeUser);
+    expect(output).toContain('Ля ты и крыса');
+    expect(output).not.toContain('×');
+  });
+
+  it('teamkill: includes map and match link', () => {
+    const output = renderTemplate('teamkill', { round_numbers: [2] }, safeUser, { map: 'Bind', match_id: 'mID1' });
+    expect(output).toContain('Bind');
+    expect(output).toContain('tracker.gg/valorant/match/mID1');
+  });
+
+  it('fall_damage_death: includes map and звезда паркура text', () => {
+    const output = renderTemplate('fall_damage_death', { count: 2 }, safeUser, { map: 'Icebox' });
+    expect(output).toContain('Icebox');
+    expect(output).toContain('звезда паркура');
+  });
+
+  it('fall_damage_death: shows count when present', () => {
+    const output = renderTemplate('fall_damage_death', { count: 3 }, safeUser);
     expect(output).toContain('3×');
   });
 
-  it('fall_damage_death: includes map', () => {
-    const output = renderTemplate('fall_damage_death', { count: 2 }, safeUser, { map: 'Icebox' });
-    expect(output).toContain('Icebox');
+  it('fall_damage_death: includes match link when match_id present', () => {
+    const output = renderTemplate('fall_damage_death', {}, safeUser, { match_id: 'fall42' });
+    expect(output).toContain('tracker.gg/valorant/match/fall42');
   });
 
   it('ace_rare_weapon: weapons are HTML-escaped', () => {
@@ -223,7 +289,7 @@ describe('renderTemplate — opponents_peak in ace', () => {
 
     expect(output).not.toContain('Жертвы');
     // Base message should still render
-    expect(output).toContain('Эйс');
+    expect(output).toContain('AAAAAAACE');
   });
 
   it('ace: does NOT render Жертвы section when opponents_peak is absent', () => {
