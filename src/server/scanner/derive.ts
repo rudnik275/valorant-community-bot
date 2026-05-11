@@ -32,6 +32,7 @@ export interface MatchRecordInsert {
   team_rounds_won: number | null;
   team_rounds_lost: number | null;
   game_length_ms: number | null;
+  is_match_mvp: number | null;
 }
 
 // ─── kill_events_compact entry ────────────────────────────────────────────────
@@ -135,6 +136,18 @@ export function deriveMatchRecord(match: HenrikMatchV4, puuid: string): MatchRec
     return k.weapon?.id === 'Fall' || k.weapon?.name === 'Fall';
   }).length;
 
+  // is_match_mvp: 1 if this player's combat score is the max among all players in
+  // the match, 0 otherwise. Null when our player has no score, or when no other
+  // player in the match has a score (can't establish a max). Ties → all tied
+  // players are flagged as MVP.
+  const playerScore = player.stats?.score ?? null;
+  const allScores = match.players
+    .map((p) => p.stats?.score)
+    .filter((s): s is number => typeof s === 'number');
+  const isMatchMvp = playerScore != null && allScores.length > 0
+    ? (playerScore >= Math.max(...allScores) ? 1 : 0)
+    : null;
+
   // kill_events_compact: compact array consumed by clutch, ace, teamkill detectors.
   // Shape: [{round, attacker_team, victim_team, weapon, attacker_puuid, victim_puuid}]
   const killEventsCompact: KillEventCompact[] = match.kills.map((k) => ({
@@ -171,5 +184,6 @@ export function deriveMatchRecord(match: HenrikMatchV4, puuid: string): MatchRec
     team_rounds_won: playerTeam?.rounds?.won ?? null,
     team_rounds_lost: playerTeam?.rounds?.lost ?? null,
     game_length_ms: match.metadata.game_length_in_ms ?? null,
+    is_match_mvp: isMatchMvp,
   };
 }

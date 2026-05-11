@@ -57,6 +57,13 @@
       "when": 1778485911190,
       "tag": "0007_slippery_cassandra_nova",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1778490722017,
+      "tag": "0008_past_lockjaw",
+      "breakpoints": true
     }
   ]
 }

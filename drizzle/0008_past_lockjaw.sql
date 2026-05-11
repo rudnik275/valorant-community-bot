@@ -1,0 +1,1 @@
+ALTER TABLE `match_records` ADD `is_match_mvp` integer;

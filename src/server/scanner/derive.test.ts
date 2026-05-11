@@ -124,6 +124,58 @@ describe('deriveMatchRecord (v4)', () => {
       expect(record!.game_length_ms).toBe(2211603);
     });
 
+    it('flags is_match_mvp=1 when target has the highest score in the match', () => {
+      // Fixture: target score=5800, highest among all 10 players
+      const record = deriveMatchRecord(v4Fixture as HenrikMatchV4, TARGET_PUUID);
+      expect(record!.is_match_mvp).toBe(1);
+    });
+
+    it('flags is_match_mvp=0 when another player has higher score', () => {
+      const losingMvpMatch: HenrikMatchV4 = {
+        ...v4Fixture,
+        players: (v4Fixture as HenrikMatchV4).players.map((p) =>
+          p.puuid === 'enemy-1'
+            ? { ...p, stats: { ...p.stats!, score: 9999 } }
+            : p,
+        ),
+      } as HenrikMatchV4;
+
+      const record = deriveMatchRecord(losingMvpMatch, TARGET_PUUID);
+      expect(record!.is_match_mvp).toBe(0);
+    });
+
+    it('flags is_match_mvp=1 for all players tied for max score', () => {
+      const tieMatch: HenrikMatchV4 = {
+        ...v4Fixture,
+        players: (v4Fixture as HenrikMatchV4).players.map((p) =>
+          p.puuid === 'enemy-1'
+            ? { ...p, stats: { ...p.stats!, score: 5800 } } // ties target's 5800
+            : p,
+        ),
+      } as HenrikMatchV4;
+
+      const targetRecord = deriveMatchRecord(tieMatch, TARGET_PUUID);
+      const enemyRecord = deriveMatchRecord(tieMatch, 'enemy-1');
+      expect(targetRecord!.is_match_mvp).toBe(1);
+      expect(enemyRecord!.is_match_mvp).toBe(1);
+    });
+
+    it('returns is_match_mvp=null when target has no score', () => {
+      const noScoreMatch: HenrikMatchV4 = {
+        ...v4Fixture,
+        players: [
+          {
+            ...(v4Fixture as HenrikMatchV4).players[0]!,
+            stats: { kills: 5, deaths: 5, assists: 5 },
+          },
+          ...(v4Fixture as HenrikMatchV4).players.slice(1),
+        ],
+      } as HenrikMatchV4;
+
+      const record = deriveMatchRecord(noScoreMatch, TARGET_PUUID);
+      expect(record!.is_match_mvp).toBeNull();
+    });
+
     it('returns null for stats fields when Henrik omits them', () => {
       const noStatsMatch: HenrikMatchV4 = {
         ...v4Fixture,
