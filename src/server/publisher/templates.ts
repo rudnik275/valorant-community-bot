@@ -171,6 +171,26 @@ const templates: Record<EventType, TemplateFn> = {
     return `🔪 <b>Заколол баранчика</b> ${playerTag(user)} — зарезал${countStr} с ножа${mapStr}${matchLink}`;
   },
 
+  record_mvp_count_week: (payload, user, _match) => {
+    const value = payload['value'];
+    const prevValue = payload['prev_value'];
+    const prevName = payload['prev_name'];
+    const prevTag = payload['prev_tag'];
+    const prevPuuid = payload['prev_puuid'];
+    const samePlayer = prevPuuid === user.riot_puuid;
+    let prevStr = '';
+    if (prevValue !== null && prevValue !== undefined && Number(prevValue) > 0) {
+      if (samePlayer) {
+        prevStr = `\nпрошлый рекорд: ${esc(String(prevValue))} (тоже его)`;
+      } else if (prevName) {
+        prevStr = `\nпрошлый рекорд: ${esc(String(prevValue))} у <b>${esc(String(prevName))}${prevTag ? '#' + esc(String(prevTag)) : ''}</b>`;
+      } else {
+        prevStr = `\nпрошлый рекорд: ${esc(String(prevValue))}`;
+      }
+    }
+    return `🏅 <b>${playerTag(user)} отказался от личной жизни</b> и взял ${esc(String(value))} MVP-матчей за неделю${prevStr}`;
+  },
+
   match_comeback: (payload, user, match) => {
     const dp = payload['deficit_score_player'] ?? '?';
     const dop = payload['deficit_score_opponent'] ?? '?';
