@@ -5,15 +5,12 @@ import type { EventType } from './types.ts';
 const ALL_EVENT_TYPES: EventType[] = [
   'ace',
   'ace_rare_weapon',
-  'clutch_1vN',
   'rank_promo',
   'winstreak_9',
   'giant_slayer',
-  'comeback',
-  'lostrick_9',
+  'return_after_pause',
   'teamkill',
   'fall_damage_death',
-  'zero_match',
 ];
 
 const safeUser = {
@@ -31,15 +28,12 @@ const injectionUser = {
 const minimalPayloads: Record<EventType, Record<string, unknown>> = {
   ace: {},
   ace_rare_weapon: {},
-  clutch_1vN: {},
   rank_promo: {},
   winstreak_9: {},
   giant_slayer: {},
-  comeback: {},
-  lostrick_9: {},
+  return_after_pause: {},
   teamkill: {},
   fall_damage_death: {},
-  zero_match: {},
 };
 
 describe('esc()', () => {
@@ -101,16 +95,6 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('Ares');
   });
 
-  it('clutch_1vN: uses n from payload', () => {
-    const output = renderTemplate('clutch_1vN', { n: 3 }, safeUser);
-    expect(output).toContain('1v3');
-  });
-
-  it('clutch_1vN: falls back to kills if n missing', () => {
-    const output = renderTemplate('clutch_1vN', { kills: 4 }, safeUser);
-    expect(output).toContain('1v4');
-  });
-
   it('rank_promo: Ascendant 1 shows icon + family name without sub-tier number', () => {
     const output = renderTemplate('rank_promo', { from: 'Diamond 3', to: 'Ascendant 1' }, safeUser);
     expect(output).toBe('📈 <b>Player#TAG</b> апнул ранг — <tg-emoji emoji-id="5188550815484256589">🟩</tg-emoji> Ascendant');
@@ -153,14 +137,9 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('Platinum 1');
   });
 
-  it('comeback: shows days_paused', () => {
-    const output = renderTemplate('comeback', { days_paused: 14 }, safeUser);
+  it('return_after_pause: shows days_paused', () => {
+    const output = renderTemplate('return_after_pause', { days_paused: 14 }, safeUser);
     expect(output).toContain('14');
-  });
-
-  it('lostrick_9: shows streak count', () => {
-    const output = renderTemplate('lostrick_9', { streak: 9 }, safeUser);
-    expect(output).toContain('9');
   });
 
   it('teamkill: shows round count from round_numbers', () => {
@@ -173,11 +152,6 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('Icebox');
   });
 
-  it('zero_match: shows round count', () => {
-    const output = renderTemplate('zero_match', { rounds: 24, deaths: 15 }, safeUser);
-    expect(output).toContain('24');
-  });
-
   it('ace_rare_weapon: weapons are HTML-escaped', () => {
     const output = renderTemplate('ace_rare_weapon', { weapons: ['<Odin>'] }, safeUser);
     expect(output).not.toContain('<Odin>');
@@ -187,7 +161,7 @@ describe('renderTemplate — payload-specific behavior', () => {
 
 // ─── opponents_peak rendering ─────────────────────────────────────────────────
 
-describe('renderTemplate — opponents_peak in ace and clutch_1vN', () => {
+describe('renderTemplate — opponents_peak in ace', () => {
   const victims = [
     { puuid: 'p1', name: 'Pink', tag: '1234' },
     { puuid: 'p2', name: 'El Bicho', tag: '5678' },
@@ -265,30 +239,6 @@ describe('renderTemplate — opponents_peak in ace and clutch_1vN', () => {
     expect(output).not.toContain('<Diamond>');
     expect(output).toContain('&lt;script&gt;');
     expect(output).toContain('&lt;Diamond&gt;');
-  });
-
-  it('clutch_1vN: renders Жертвы section with peak ranks', () => {
-    const output = renderTemplate('clutch_1vN', {
-      rounds: [{ round: 5, kills: 3 }],
-      n: 3,
-      victims: victims.slice(0, 2),
-      victim_names_for_template: ['Pink', 'El Bicho'],
-      opponents_peak: {
-        p1: { tier_id: 19, tier_name: 'Diamond 2', season_short: 'e9' },
-        p2: { tier_id: 21, tier_name: 'Ascendant 1', season_short: 'e9' },
-      },
-    }, safeUser);
-
-    expect(output).toContain('Клатч');
-    expect(output).toContain('Жертвы:');
-    expect(output).toContain('Pink (peak Diamond 2)');
-    expect(output).toContain('El Bicho (peak Ascendant 1)');
-  });
-
-  it('clutch_1vN: renders without Жертвы when opponents_peak absent', () => {
-    const output = renderTemplate('clutch_1vN', { n: 3 }, safeUser);
-    expect(output).not.toContain('Жертвы');
-    expect(output).toContain('Клатч');
   });
 
   it('ace: renders only peak when victim name is empty string', () => {

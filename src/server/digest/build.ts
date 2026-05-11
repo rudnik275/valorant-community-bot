@@ -18,9 +18,6 @@ import { matchRecords } from '../db/schema/match_records.ts';
 import { detectedEvents } from '../db/schema/detected_events.ts';
 import { users } from '../db/schema/users.ts';
 import { optOuts } from '../db/schema/opt_outs.ts';
-import type { EventType } from '../publisher/types.ts';
-import { ANTISTAT_TYPES } from '../publisher/decide.ts';
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
 
@@ -41,16 +38,14 @@ function esc(s: string): string {
 /** Event weights for digest "epic moment" selection. */
 const EVENT_WEIGHTS: Record<string, number> = {
   ace_rare_weapon: 10,
-  clutch_1vN: 9,
   ace: 8,
   giant_slayer: 6,
-  comeback: 5,
+  return_after_pause: 5,
   rank_promo: 5,
   winstreak_9: 4,
 };
 
 function getEventWeight(eventType: string): number {
-  if (ANTISTAT_TYPES.has(eventType as EventType)) return 0;
   return EVENT_WEIGHTS[eventType] ?? 0;
 }
 
@@ -77,14 +72,10 @@ function renderDigestEpicLine(
       const rStr = rounds.length > 1 ? ` (${rounds.length}×)` : '';
       return `🌟 Самый яркий момент недели — эйс${rStr} от ${name}${mapStr}`;
     }
-    case 'clutch_1vN': {
-      const n = payload['n'] ?? payload['kills'] ?? '?';
-      return `🌟 Самый яркий момент недели — клатч 1v${esc(String(n))} от ${name}${mapStr}`;
-    }
     case 'giant_slayer': {
       return `🌟 Самый яркий момент недели — гигантоборец ${name}${mapStr}`;
     }
-    case 'comeback': {
+    case 'return_after_pause': {
       return `🌟 Самый яркий момент недели — возвращение ${name}`;
     }
     case 'rank_promo': {

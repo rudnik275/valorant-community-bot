@@ -67,7 +67,7 @@ export function startDetectionListener(deps: DetectionDeps): () => void {
 
       // Augment ace/clutch events with opponents' peak ranks before insert
       const aceLikeEvents = allEvents.filter(
-        (ev) => ev.type === 'ace' || ev.type === 'clutch_1vN',
+        (ev) => ev.type === 'ace',
       );
 
       if (aceLikeEvents.length > 0) {

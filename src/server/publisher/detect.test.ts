@@ -35,7 +35,7 @@ function makeRecord(overrides: Partial<MatchRecord> = {}): MatchRecord {
     started_at: 1750000000000,
     map: 'Ascent',
     agent: 'Jett',
-    kills: 0, // zero kills → triggers zero_match
+    kills: 5,
     deaths: 12,
     assists: 2,
     result: 'loss',
@@ -89,21 +89,6 @@ describe('startDetectionListener', () => {
     cleanup();
   });
 
-  it('inserts zero_match event for 0-kill match', async () => {
-    const cleanup = startDetectionListener({ db, getPrevRecords: async () => [] });
-
-    scannerEvents.emit('newRecord', makeRecord({ kills: 0, rounds_played: 20 }));
-
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    const rows = sqlite.prepare(
-      "SELECT event_type FROM detected_events WHERE riot_puuid = ? AND event_type = 'zero_match'",
-    ).all(TARGET_PUUID);
-    expect(rows).toHaveLength(1);
-
-    cleanup();
-  });
-
   it('does NOT insert when newRecord is NOT emitted (initial backfill path)', async () => {
     const cleanup = startDetectionListener({ db, getPrevRecords: async () => [] });
 
@@ -121,7 +106,7 @@ describe('startDetectionListener', () => {
   it('handles UNIQUE conflict (duplicate event) without throwing', async () => {
     const cleanup = startDetectionListener({ db, getPrevRecords: async () => [] });
 
-    const record = makeRecord();
+    const record = makeRecord({ fall_damage_kills: 2 });
 
     // Emit the same record twice → second insert should hit UNIQUE constraint
     scannerEvents.emit('newRecord', record);
@@ -131,7 +116,7 @@ describe('startDetectionListener', () => {
 
     // Should only have one row per event type despite two emissions
     const rows = sqlite.prepare(
-      "SELECT event_type, COUNT(*) as count FROM detected_events WHERE riot_puuid = ? AND event_type = 'zero_match' GROUP BY event_type",
+      "SELECT event_type, COUNT(*) as count FROM detected_events WHERE riot_puuid = ? AND event_type = 'fall_damage_death' GROUP BY event_type",
     ).all(TARGET_PUUID) as { event_type: string; count: number }[];
     expect(rows).toHaveLength(1);
     expect(rows[0]!.count).toBe(1);

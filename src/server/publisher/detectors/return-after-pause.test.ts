@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { comebackDetector } from './comeback.ts';
+import { returnAfterPauseDetector } from './return-after-pause.ts';
 import type { MatchRecord } from '../types.ts';
 
 const MS_PER_DAY = 86_400_000;
@@ -36,39 +36,39 @@ function makeRecord(matchId: string, startedAt: number): MatchRecord {
   };
 }
 
-describe('comebackDetector', () => {
-  it('detects comeback after 14+ day pause', () => {
+describe('returnAfterPauseDetector', () => {
+  it('detects return_after_pause after 14+ day pause', () => {
     const record = makeRecord('current', NOW);
     const prev = makeRecord('prev', NOW - 15 * MS_PER_DAY);
-    const events = comebackDetector.detect(record, [prev]);
+    const events = returnAfterPauseDetector.detect(record, [prev]);
     expect(events).toHaveLength(1);
-    expect(events[0]!.type).toBe('comeback');
+    expect(events[0]!.type).toBe('return_after_pause');
     expect(events[0]!.payload.days_paused).toBe(15);
   });
 
   it('does NOT emit when pause is exactly 13 days', () => {
     const record = makeRecord('current', NOW);
     const prev = makeRecord('prev', NOW - 13 * MS_PER_DAY);
-    expect(comebackDetector.detect(record, [prev])).toHaveLength(0);
+    expect(returnAfterPauseDetector.detect(record, [prev])).toHaveLength(0);
   });
 
-  it('detects comeback at exactly 14 days', () => {
+  it('detects return_after_pause at exactly 14 days', () => {
     const record = makeRecord('current', NOW);
     const prev = makeRecord('prev', NOW - 14 * MS_PER_DAY);
-    const events = comebackDetector.detect(record, [prev]);
+    const events = returnAfterPauseDetector.detect(record, [prev]);
     expect(events).toHaveLength(1);
     expect(events[0]!.payload.days_paused).toBe(14);
   });
 
   it('does NOT emit when prevRecords is empty (first match)', () => {
     const record = makeRecord('current', NOW);
-    expect(comebackDetector.detect(record, [])).toHaveLength(0);
+    expect(returnAfterPauseDetector.detect(record, [])).toHaveLength(0);
   });
 
   it('includes rounded days in payload', () => {
     const record = makeRecord('current', NOW);
     const prev = makeRecord('prev', NOW - 20.7 * MS_PER_DAY);
-    const events = comebackDetector.detect(record, [prev]);
+    const events = returnAfterPauseDetector.detect(record, [prev]);
     expect(events[0]!.payload.days_paused).toBe(21);
   });
 });
