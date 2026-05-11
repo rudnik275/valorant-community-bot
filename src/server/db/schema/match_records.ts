@@ -29,6 +29,7 @@ export const matchRecords = sqliteTable(
     team_rounds_won: integer('team_rounds_won'),
     team_rounds_lost: integer('team_rounds_lost'),
     game_length_ms: integer('game_length_ms'),
+    is_match_mvp: integer('is_match_mvp'),
     inserted_at: integer('inserted_at').notNull().default(sql`(unixepoch() * 1000)`),
   },
   (table) => [

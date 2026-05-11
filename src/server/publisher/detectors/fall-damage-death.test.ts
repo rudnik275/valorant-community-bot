@@ -27,6 +27,7 @@ const BASE_RECORD: MatchRecord = {
   team_rounds_won: null,
   team_rounds_lost: null,
   game_length_ms: null,
+  is_match_mvp: null,
   inserted_at: 1700000000000,
 };
 
