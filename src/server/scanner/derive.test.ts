@@ -94,6 +94,55 @@ describe('deriveMatchRecord (v4)', () => {
       expect(typeof first.victim_puuid).toBe('string');
     });
 
+    it('maps score from players[].stats.score', () => {
+      const record = deriveMatchRecord(v4Fixture as HenrikMatchV4, TARGET_PUUID);
+      expect(record!.score).toBe(5800);
+    });
+
+    it('maps headshots/bodyshots/legshots from players[].stats', () => {
+      const record = deriveMatchRecord(v4Fixture as HenrikMatchV4, TARGET_PUUID);
+      expect(record!.headshots).toBe(35);
+      expect(record!.bodyshots).toBe(60);
+      expect(record!.legshots).toBe(5);
+    });
+
+    it('maps damage_dealt/damage_received from players[].stats.damage', () => {
+      const record = deriveMatchRecord(v4Fixture as HenrikMatchV4, TARGET_PUUID);
+      expect(record!.damage_dealt).toBe(4200);
+      expect(record!.damage_received).toBe(3100);
+    });
+
+    it('maps team_rounds_won/lost from player team rounds', () => {
+      // Blue (target team): won=14, lost=11
+      const record = deriveMatchRecord(v4Fixture as HenrikMatchV4, TARGET_PUUID);
+      expect(record!.team_rounds_won).toBe(14);
+      expect(record!.team_rounds_lost).toBe(11);
+    });
+
+    it('maps game_length_ms from metadata.game_length_in_ms', () => {
+      const record = deriveMatchRecord(v4Fixture as HenrikMatchV4, TARGET_PUUID);
+      expect(record!.game_length_ms).toBe(2211603);
+    });
+
+    it('returns null for stats fields when Henrik omits them', () => {
+      const noStatsMatch: HenrikMatchV4 = {
+        ...v4Fixture,
+        players: [
+          {
+            ...(v4Fixture as HenrikMatchV4).players[0]!,
+            stats: { kills: 5, deaths: 5, assists: 5 },
+          },
+          ...(v4Fixture as HenrikMatchV4).players.slice(1),
+        ],
+      } as HenrikMatchV4;
+
+      const record = deriveMatchRecord(noStatsMatch, TARGET_PUUID);
+      expect(record!.score).toBeNull();
+      expect(record!.headshots).toBeNull();
+      expect(record!.damage_dealt).toBeNull();
+      expect(record!.damage_received).toBeNull();
+    });
+
     it('kill_events_compact first entry maps correctly from v4 killer/victim/weapon', () => {
       const record = deriveMatchRecord(v4Fixture as HenrikMatchV4, TARGET_PUUID);
       const events = JSON.parse(record!.kill_events_compact) as Array<{

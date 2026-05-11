@@ -50,6 +50,13 @@
       "when": 1778413617633,
       "tag": "0006_brief_blue_shield",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1778485911190,
+      "tag": "0007_slippery_cassandra_nova",
+      "breakpoints": true
     }
   ]
 }

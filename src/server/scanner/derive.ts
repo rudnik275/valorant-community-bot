@@ -23,6 +23,15 @@ export interface MatchRecordInsert {
   enemy_avg_rank: string | null;
   fall_damage_kills: number;
   kill_events_compact: string;
+  score: number | null;
+  headshots: number | null;
+  bodyshots: number | null;
+  legshots: number | null;
+  damage_dealt: number | null;
+  damage_received: number | null;
+  team_rounds_won: number | null;
+  team_rounds_lost: number | null;
+  game_length_ms: number | null;
 }
 
 // ─── kill_events_compact entry ────────────────────────────────────────────────
@@ -153,5 +162,14 @@ export function deriveMatchRecord(match: HenrikMatchV4, puuid: string): MatchRec
     enemy_avg_rank: calcEnemyAvgRank(match, playerTeamId),
     fall_damage_kills: fallDamageKills,
     kill_events_compact: JSON.stringify(killEventsCompact),
+    score: player.stats?.score ?? null,
+    headshots: player.stats?.headshots ?? null,
+    bodyshots: player.stats?.bodyshots ?? null,
+    legshots: player.stats?.legshots ?? null,
+    damage_dealt: player.stats?.damage?.dealt ?? null,
+    damage_received: player.stats?.damage?.received ?? null,
+    team_rounds_won: playerTeam?.rounds?.won ?? null,
+    team_rounds_lost: playerTeam?.rounds?.lost ?? null,
+    game_length_ms: match.metadata.game_length_in_ms ?? null,
   };
 }

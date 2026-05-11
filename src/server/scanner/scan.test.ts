@@ -457,6 +457,114 @@ describe('scanForPuuid', () => {
     matchesSpy.mockRestore();
   });
 
+  // ── peak_rank_up event ──────────────────────────────────────────────────────
+
+  it('emits peak_rank_up detected_event when new peak strictly exceeds old peak (detection=true)', async () => {
+    seedUser();
+    sqlite.exec(`UPDATE users SET peak_tier_id = 18, peak_tier_name = 'Diamond 1' WHERE riot_puuid = '${TARGET_PUUID}'`);
+
+    const mmrSpy = vi.spyOn(henrik, 'getMmrByPuuid').mockResolvedValueOnce({
+      current: { tier: { id: 20, name: 'Diamond 3' }, rr: 50, last_change: 25 },
+      peak: { tier: { id: 21, name: 'Immortal 1' }, rr: 0, season: 'e8a1' },
+    });
+    const accountSpy = vi.spyOn(henrik, 'getAccountByPuuid').mockResolvedValue({
+      puuid: TARGET_PUUID, region: 'eu', name: 'TestPlayer', tag: 'EU1', cardId: null,
+    });
+    const matchesSpy = vi.spyOn(henrik, 'getMatches').mockResolvedValueOnce([]);
+
+    await scanForPuuid(db, TARGET_PUUID, { detection: true });
+
+    const row = sqlite.prepare(
+      `SELECT event_type, payload_json, status FROM detected_events WHERE riot_puuid = ? AND event_type = 'peak_rank_up'`,
+    ).get(TARGET_PUUID) as { event_type: string; payload_json: string; status: string } | undefined;
+    expect(row).toBeDefined();
+    expect(row!.status).toBe('digest-only');
+    const payload = JSON.parse(row!.payload_json) as Record<string, unknown>;
+    expect(payload['from_tier_id']).toBe(18);
+    expect(payload['from_tier_name']).toBe('Diamond 1');
+    expect(payload['to_tier_id']).toBe(21);
+    expect(payload['to_tier_name']).toBe('Immortal 1');
+
+    mmrSpy.mockRestore();
+    accountSpy.mockRestore();
+    matchesSpy.mockRestore();
+  });
+
+  it('does NOT emit peak_rank_up when detection=false (onboarding bulk scan)', async () => {
+    seedUser();
+    sqlite.exec(`UPDATE users SET peak_tier_id = 18, peak_tier_name = 'Diamond 1' WHERE riot_puuid = '${TARGET_PUUID}'`);
+
+    const mmrSpy = vi.spyOn(henrik, 'getMmrByPuuid').mockResolvedValueOnce({
+      current: { tier: { id: 20, name: 'Diamond 3' }, rr: 50, last_change: 25 },
+      peak: { tier: { id: 21, name: 'Immortal 1' }, rr: 0, season: 'e8a1' },
+    });
+    const accountSpy = vi.spyOn(henrik, 'getAccountByPuuid').mockResolvedValue({
+      puuid: TARGET_PUUID, region: 'eu', name: 'TestPlayer', tag: 'EU1', cardId: null,
+    });
+    const matchesSpy = vi.spyOn(henrik, 'getMatches').mockResolvedValueOnce([]);
+
+    await scanForPuuid(db, TARGET_PUUID, { detection: false });
+
+    const rows = sqlite.prepare(
+      `SELECT id FROM detected_events WHERE event_type = 'peak_rank_up'`,
+    ).all();
+    expect(rows).toHaveLength(0);
+
+    mmrSpy.mockRestore();
+    accountSpy.mockRestore();
+    matchesSpy.mockRestore();
+  });
+
+  it('does NOT emit peak_rank_up when old peak is null (first observation)', async () => {
+    seedUser();
+    // peak_tier_id stays NULL — first time we see this user
+
+    const mmrSpy = vi.spyOn(henrik, 'getMmrByPuuid').mockResolvedValueOnce({
+      current: { tier: { id: 18, name: 'Diamond 1' }, rr: 50, last_change: 25 },
+      peak: { tier: { id: 18, name: 'Diamond 1' }, rr: 100, season: 'e8a1' },
+    });
+    const accountSpy = vi.spyOn(henrik, 'getAccountByPuuid').mockResolvedValue({
+      puuid: TARGET_PUUID, region: 'eu', name: 'TestPlayer', tag: 'EU1', cardId: null,
+    });
+    const matchesSpy = vi.spyOn(henrik, 'getMatches').mockResolvedValueOnce([]);
+
+    await scanForPuuid(db, TARGET_PUUID, { detection: true });
+
+    const rows = sqlite.prepare(
+      `SELECT id FROM detected_events WHERE event_type = 'peak_rank_up'`,
+    ).all();
+    expect(rows).toHaveLength(0);
+
+    mmrSpy.mockRestore();
+    accountSpy.mockRestore();
+    matchesSpy.mockRestore();
+  });
+
+  it('does NOT emit peak_rank_up when new peak equals old peak', async () => {
+    seedUser();
+    sqlite.exec(`UPDATE users SET peak_tier_id = 21, peak_tier_name = 'Immortal 1' WHERE riot_puuid = '${TARGET_PUUID}'`);
+
+    const mmrSpy = vi.spyOn(henrik, 'getMmrByPuuid').mockResolvedValueOnce({
+      current: { tier: { id: 18, name: 'Diamond 1' }, rr: 50, last_change: 25 },
+      peak: { tier: { id: 21, name: 'Immortal 1' }, rr: 0, season: 'e8a1' },
+    });
+    const accountSpy = vi.spyOn(henrik, 'getAccountByPuuid').mockResolvedValue({
+      puuid: TARGET_PUUID, region: 'eu', name: 'TestPlayer', tag: 'EU1', cardId: null,
+    });
+    const matchesSpy = vi.spyOn(henrik, 'getMatches').mockResolvedValueOnce([]);
+
+    await scanForPuuid(db, TARGET_PUUID, { detection: true });
+
+    const rows = sqlite.prepare(
+      `SELECT id FROM detected_events WHERE event_type = 'peak_rank_up'`,
+    ).all();
+    expect(rows).toHaveLength(0);
+
+    mmrSpy.mockRestore();
+    accountSpy.mockRestore();
+    matchesSpy.mockRestore();
+  });
+
   it('preserves all known-good fields when both current and peak arrive null', async () => {
     seedUser();
     sqlite.exec(`UPDATE users SET current_tier_id = 15, current_tier_name = 'Platinum 3',

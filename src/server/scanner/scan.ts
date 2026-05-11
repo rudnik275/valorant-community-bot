@@ -16,6 +16,7 @@ import { deriveMatchRecord, type MatchRecordInsert } from './derive.ts';
 import { scannerEvents } from './events.ts';
 import { users } from '../db/schema/users.ts';
 import { matchRecords } from '../db/schema/match_records.ts';
+import { detectedEvents } from '../db/schema/detected_events.ts';
 import logger from '../lib/log.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -54,6 +55,8 @@ export async function scanForPuuid(
   const userRows = await db
     .select({
       riot_region: users.riot_region,
+      peak_tier_id: users.peak_tier_id,
+      peak_tier_name: users.peak_tier_name,
     })
     .from(users)
     .where(eq(users.riot_puuid, puuid))
@@ -97,6 +100,8 @@ export async function scanForPuuid(
   // Never overwrite an existing DB value with null — last-known-good wins until
   // Henrik returns a real new value. True "unranked" is tier_id 0, not null.
   // mmr_fetched_at always updates as a liveness probe.
+  const oldPeakTierId = user.peak_tier_id as number | null;
+  const oldPeakTierName = user.peak_tier_name as string | null;
   try {
     const mmr = await getMmrByPuuid(puuid, region, 'console');
     const mmrUpdate: Partial<typeof users.$inferInsert> = {
@@ -110,6 +115,32 @@ export async function scanForPuuid(
       mmrUpdate.peak_tier_id = mmr.peak.tier.id;
       mmrUpdate.peak_tier_name = mmr.peak.tier.name ?? null;
       mmrUpdate.peak_season_short = mmr.peak.season ?? null;
+
+      // peak_rank_up event: emit only when we have a prior peak in DB and the new
+      // peak strictly exceeds it. Gated on opts.detection so onboarding bulk
+      // scans don't fire historical events.
+      // status='digest-only' — consumed by the weekly digest, no realtime push.
+      if (
+        opts.detection &&
+        oldPeakTierId != null &&
+        mmr.peak.tier.id > oldPeakTierId
+      ) {
+        await db
+          .insert(detectedEvents)
+          .values({
+            event_type: 'peak_rank_up',
+            riot_puuid: puuid,
+            match_id: `peak:${mmr.peak.tier.id}`,
+            payload_json: JSON.stringify({
+              from_tier_id: oldPeakTierId,
+              from_tier_name: oldPeakTierName,
+              to_tier_id: mmr.peak.tier.id,
+              to_tier_name: mmr.peak.tier.name ?? null,
+            }),
+            status: 'digest-only',
+          })
+          .onConflictDoNothing();
+      }
     }
     await db.update(users).set(mmrUpdate).where(eq(users.riot_puuid, puuid));
   } catch (err) {
