@@ -12,6 +12,7 @@ const ALL_EVENT_TYPES: EventType[] = [
   'teamkill',
   'fall_damage_death',
   'record_kills_match',
+  'knife_kill',
 ];
 
 const safeUser = {
@@ -36,6 +37,7 @@ const minimalPayloads: Record<EventType, Record<string, unknown>> = {
   teamkill: {},
   fall_damage_death: {},
   record_kills_match: { value: 30, prev_value: null, prev_puuid: null },
+  knife_kill: {},
 };
 
 describe('esc()', () => {
