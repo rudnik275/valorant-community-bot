@@ -1,13 +1,17 @@
 /**
  * build.ts — Pure aggregator for weekly digest content.
  *
- * Queries DB over a 7-day window and renders sections:
- * 1. Pulse — total_matches, unique_players, avg_per_player
- * 2. Epic Moment — top detected_event by weight (opt-out: skip to next)
- * 3. Rank Progress — rank_promo events (opt-out ignored: positive progress)
- * 4. Most Active — top player by match count (opt-out: skip to next)
- * 5. Top Agents — top 3 by pick count
- * 6. Best K/D One Match — gate ≥10 rounds (opt-out: skip to next)
+ * Queries DB over a rolling 7-day window and renders sections in block layout:
+ *
+ * BRIGHT EVENTS (top block — omitted if none):
+ *   record_kills_match, winstreak_10plus, giant_slayer, ace_rare_weapon,
+ *   ace, rank_promo
+ * Divider ━━━━━━━━━━━━━━
+ *
+ * ALWAYS-SECTIONS (bottom block):
+ *   Pulse → Top Player → Top Maps → Top Agents
+ *
+ * Last line: #digest
  *
  * Anti-coercion: NEVER mentions who didn't play, who opted out, or
  * includes "play more / come back" calls (memory rule: valorant_no_qol_coercion).
@@ -35,30 +39,37 @@ function esc(s: string): string {
     .replace(/'/g, '&#39;');
 }
 
-/** Event weights for digest "epic moment" selection. */
-const EVENT_WEIGHTS: Record<string, number> = {
+/**
+ * Bright event types rendered in the top block of the digest.
+ * Ordered by display priority (highest weight first for sort).
+ */
+const BRIGHT_EVENT_WEIGHTS: Record<string, number> = {
   ace_rare_weapon: 10,
   ace: 8,
   record_kills_match: 7,
   giant_slayer: 6,
-  return_after_pause: 5,
-  rank_promo: 5,
   winstreak_10plus: 4,
+  rank_promo: 3,
 };
 
-function getEventWeight(eventType: string): number {
-  return EVENT_WEIGHTS[eventType] ?? 0;
+function isBrightEvent(eventType: string): boolean {
+  return eventType in BRIGHT_EVENT_WEIGHTS;
+}
+
+function getBrightEventWeight(eventType: string): number {
+  return BRIGHT_EVENT_WEIGHTS[eventType] ?? 0;
 }
 
 /**
- * Render a one-line description of the epic moment for digest use.
+ * Render a 2–4 line block for a bright event, suitable for the top section of the digest.
+ * Returns null if event type is not a recognized bright event.
  */
-function renderDigestEpicLine(
+function renderBrightBlock(
   eventType: string,
   payload: Record<string, unknown>,
   user: { riot_name: string; riot_tag: string },
   map?: string,
-): string {
+): string | null {
   const name = `<b>${esc(user.riot_name)}#${esc(user.riot_tag)}</b>`;
   const mapStr = map ? ` на ${esc(map)}` : '';
 
@@ -66,33 +77,47 @@ function renderDigestEpicLine(
     case 'ace_rare_weapon': {
       const weapons = Array.isArray(payload['weapons']) ? payload['weapons'] : [];
       const wStr = weapons.length > 0 ? ` (${weapons.map((w) => esc(String(w))).join(', ')})` : '';
-      return `🌟 Самый яркий момент недели — эйс редким оружием${wStr} от ${name}${mapStr}`;
+      return `🔪 Эйс редким оружием${wStr} — ${name}${mapStr}`;
     }
     case 'ace': {
       const rounds = Array.isArray(payload['rounds']) ? payload['rounds'] : [];
       const rStr = rounds.length > 1 ? ` (${rounds.length}×)` : '';
-      return `🌟 Самый яркий момент недели — эйс${rStr} от ${name}${mapStr}`;
+      return `🎯 Эйс${rStr} — ${name}${mapStr}`;
     }
     case 'giant_slayer': {
-      return `🌟 Самый яркий момент недели — гигантоборец ${name}${mapStr}`;
-    }
-    case 'return_after_pause': {
-      return `🌟 Самый яркий момент недели — возвращение ${name}`;
+      const enemyAvg = payload['enemy_avg'] ? ` рангом ${esc(String(payload['enemy_avg']))}` : '';
+      const own = payload['own'] ? ` (ранг: ${esc(String(payload['own']))})` : '';
+      return `⚔️ Гигантоборец — ${name} взял команду${enemyAvg}${own}`;
     }
     case 'rank_promo': {
       const from = payload['from'] ? esc(String(payload['from'])) : null;
       const to = payload['to'] ? esc(String(payload['to'])) : null;
       if (from && to) {
-        return `🌟 Самый яркий момент недели — апгрейд ранга у ${name} (${from} → ${to})`;
+        return `📈 Повышение по службе — ${name} (${from} → ${to})`;
       }
-      return `🌟 Самый яркий момент недели — апгрейд ранга у ${name}`;
+      if (to) {
+        return `📈 Повышение по службе — ${name} (→ ${to})`;
+      }
+      return `📈 Повышение по службе — ${name}`;
     }
     case 'winstreak_10plus': {
-      const streak = payload['streak'] ?? 9;
-      return `🌟 Самый яркий момент недели — ${esc(String(streak))} побед подряд у ${name}`;
+      const streak = payload['streak'] ?? 10;
+      return `🔥 Серия побед — ${esc(String(streak))} подряд у ${name}`;
+    }
+    case 'record_kills_match': {
+      const value = payload['value'];
+      const prevValue = payload['prev_value'];
+      const matchLink = payload['match_id']
+        ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(payload['match_id']))}">→ матч</a>`
+        : '';
+      let prevLine = '';
+      if (prevValue !== null && prevValue !== undefined) {
+        prevLine = `\nпрошлый рекорд: ${esc(String(prevValue))}`;
+      }
+      return `🔪 <b>Мирного рішення не буде</b>\n${name} — ${esc(String(value))} фрагов${mapStr}${prevLine}${matchLink}`;
     }
     default:
-      return `🌟 Самый яркий момент недели — событие у ${name}${mapStr}`;
+      return null;
   }
 }
 
@@ -113,14 +138,13 @@ export interface BuildDigestResult {
 /**
  * Build the weekly digest text.
  *
- * Returns `{ text: null }` when no sections produce content (empty window or
- * all users opted out from individual sections).
+ * Returns `{ text: null }` when no matches exist in the window (completely empty week).
+ * When matches > 0, always returns a non-null text (pulse + bottom sections + #digest).
  */
 export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestResult> {
   const { db, weekStart, weekEnd } = deps;
 
   const sectionsIncluded: string[] = [];
-  const sectionTexts: string[] = [];
 
   // ─── Opt-out helpers ────────────────────────────────────────────────────────
 
@@ -143,35 +167,34 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
     return row ?? null;
   }
 
-  // ─── Section 1: Pulse ───────────────────────────────────────────────────────
-  {
-    const [totalRow] = await db
-      .select({ count: sql<number>`COUNT(*)` })
-      .from(matchRecords)
-      .where(and(gte(matchRecords.started_at, weekStart), lt(matchRecords.started_at, weekEnd)));
+  // ─── Check if any matches exist in window ───────────────────────────────────
+  const [totalRow] = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(matchRecords)
+    .where(and(gte(matchRecords.started_at, weekStart), lt(matchRecords.started_at, weekEnd)));
 
-    const [uniqueRow] = await db
-      .select({ count: sql<number>`COUNT(DISTINCT ${matchRecords.riot_puuid})` })
-      .from(matchRecords)
-      .where(and(gte(matchRecords.started_at, weekStart), lt(matchRecords.started_at, weekEnd)));
+  const totalMatches = Number(totalRow?.count ?? 0);
 
-    const totalMatches = Number(totalRow?.count ?? 0);
-    const uniquePlayers = Number(uniqueRow?.count ?? 0);
-
-    if (totalMatches > 0) {
-      const avgPerPlayer = uniquePlayers > 0
-        ? Math.round(totalMatches / uniquePlayers)
-        : 0;
-      sectionTexts.push(
-        `📊 За неделю мы сыграли ${totalMatches} матчей, в среднем ${avgPerPlayer} матчей на игрока`,
-      );
-      sectionsIncluded.push('pulse');
-    }
+  if (totalMatches === 0) {
+    return { text: null, sectionsIncluded: [] };
   }
 
-  // ─── Section 2: Epic Moment ──────────────────────────────────────────────────
+  // ─── Header ─────────────────────────────────────────────────────────────────
+  const headerDate = new Intl.DateTimeFormat('ru-RU', {
+    timeZone: 'Europe/Kyiv',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(weekEnd);
+  const header = `📅 <b>Дайджест за неделю · ${headerDate}</b>`;
+
+  // ─── BRIGHT EVENTS (top block) ───────────────────────────────────────────────
+  const brightBlocks: string[] = [];
+
   {
-    // Fetch all detected events in window, ordered by detected_at (for tie-breaking)
+    const optedOut = await getOptOutSet();
+
+    // Fetch all bright event types in window
     const events = await db
       .select({
         id: detectedEvents.id,
@@ -190,24 +213,26 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       )
       .orderBy(detectedEvents.detected_at);
 
-    // Sort by weight desc, then detected_at asc (already ordered by detected_at)
-    const sorted = [...events].sort((a, b) => {
-      const wa = getEventWeight(a.event_type as string);
-      const wb = getEventWeight(b.event_type as string);
+    // Filter to bright events only
+    const brightEvents = events.filter((ev: { event_type: string }) => isBrightEvent(ev.event_type as string));
+
+    // Sort: by weight desc, then detected_at asc (already sorted by detected_at)
+    const sorted = [...brightEvents].sort((a: { event_type: string; detected_at: number }, b: { event_type: string; detected_at: number }) => {
+      const wa = getBrightEventWeight(a.event_type as string);
+      const wb = getBrightEventWeight(b.event_type as string);
       if (wb !== wa) return wb - wa;
       return Number(a.detected_at) - Number(b.detected_at);
     });
 
-    const optedOut = await getOptOutSet();
-
-    // Find first top event whose owner is NOT opted out
     for (const ev of sorted) {
       const puuid = ev.riot_puuid as string;
       const user = await getUserByPuuid(puuid);
       if (!user) continue;
-      if (optedOut.has(user.telegram_id)) continue;
 
-      // Found a non-opted-out event
+      // rank_promo renders even for opted-out players (positive progress)
+      // Other bright events: skip opted-out players
+      if (ev.event_type !== 'rank_promo' && optedOut.has(user.telegram_id)) continue;
+
       const payload = safeParseJson(ev.payload_json as string);
 
       // Fetch map from match_records
@@ -224,62 +249,32 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
 
       const map: string | undefined = matchRow?.map ?? undefined;
 
-      const line = renderDigestEpicLine(ev.event_type as string, payload, user, map);
-      sectionTexts.push(line);
-      sectionsIncluded.push('epicMoment');
-      break;
-    }
-  }
+      // For record_kills_match, attach match_id to payload for link
+      if (ev.event_type === 'record_kills_match' && ev.match_id) {
+        payload['match_id'] = ev.match_id;
+      }
 
-  // ─── Section 3: Rank Progress ────────────────────────────────────────────────
-  {
-    // Opt-out does NOT apply (positive individual progress)
-    const rankEvents = await db
-      .select({
-        riot_puuid: detectedEvents.riot_puuid,
-        payload_json: detectedEvents.payload_json,
-      })
-      .from(detectedEvents)
-      .where(
-        and(
-          gte(detectedEvents.detected_at, weekStart),
-          lt(detectedEvents.detected_at, weekEnd),
-          eq(detectedEvents.event_type, 'rank_promo'),
-        ),
-      )
-      .orderBy(detectedEvents.detected_at);
-
-    const promotions: string[] = [];
-    for (const ev of rankEvents) {
-      const puuid = ev.riot_puuid as string;
-      const user = await getUserByPuuid(puuid);
-      if (!user) continue;
-
-      const payload = safeParseJson(ev.payload_json as string);
-      const from = payload['from'] ? String(payload['from']) : null;
-      const to = payload['to'] ? String(payload['to']) : null;
-
-      const name = `${user.riot_name}#${user.riot_tag}`;
-      if (from && to) {
-        promotions.push(`${esc(name)} (${esc(from)} → ${esc(to)})`);
-      } else if (to) {
-        promotions.push(`${esc(name)} (→ ${esc(to)})`);
-      } else {
-        promotions.push(esc(name));
+      const block = renderBrightBlock(ev.event_type as string, payload, user, map);
+      if (block) {
+        brightBlocks.push(block);
+        sectionsIncluded.push(ev.event_type as string);
       }
     }
-
-    if (promotions.length > 0) {
-      sectionTexts.push(`📈 На этой неделе ранг апнули: ${promotions.join(', ')}`);
-      sectionsIncluded.push('rankProgress');
-    }
   }
 
-  // ─── Section 4: Most Active ──────────────────────────────────────────────────
+  // ─── ALWAYS-SECTIONS ─────────────────────────────────────────────────────────
+  const alwaysSections: string[] = [];
+
+  // Pulse (simplified)
+  {
+    alwaysSections.push(`📊 За неделю мы сыграли ${totalMatches} матчей`);
+    sectionsIncluded.push('pulse');
+  }
+
+  // Top Player (Most Active) — top by match count, ≥5 matches
   {
     const optedOut = await getOptOutSet();
 
-    // Fetch top players by match count (up to optedOut.size + 1 candidates)
     const candidates = await db
       .select({
         riot_puuid: matchRecords.riot_puuid,
@@ -293,20 +288,42 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
     for (const row of candidates) {
       const puuid = row.riot_puuid as string;
       const cnt = Number(row.cnt);
-      if (cnt < 5) break; // all remaining also < 5
+      if (cnt < 5) break;
 
       const user = await getUserByPuuid(puuid);
       if (!user) continue;
       if (optedOut.has(user.telegram_id)) continue;
 
       const name = `<b>${esc(user.riot_name)}#${esc(user.riot_tag)}</b>`;
-      sectionTexts.push(`🏆 Больше всех матчей сыграл ${name} (${cnt} за неделю)`);
+      alwaysSections.push(`🏆 Больше всех матчей — ${name} (${cnt} за неделю)`);
       sectionsIncluded.push('mostActive');
       break;
     }
   }
 
-  // ─── Section 5: Top Agents ───────────────────────────────────────────────────
+  // Top Maps — top 3 maps by match count
+  {
+    const maps = await db
+      .select({
+        map: matchRecords.map,
+        cnt: sql<number>`COUNT(*)`,
+      })
+      .from(matchRecords)
+      .where(and(gte(matchRecords.started_at, weekStart), lt(matchRecords.started_at, weekEnd)))
+      .groupBy(matchRecords.map)
+      .orderBy(sql`COUNT(*) DESC`)
+      .limit(3);
+
+    if (maps.length > 0) {
+      const mapStr = maps
+        .map((m: { map: string; cnt: number }) => `<b>${esc(String(m.map))}</b> (${Number(m.cnt)}×)`)
+        .join(', ');
+      alwaysSections.push(`🗺 Чаще всего играли на: ${mapStr}`);
+      sectionsIncluded.push('topMaps');
+    }
+  }
+
+  // Top Agents — top 3 by pick count
   {
     const agents = await db
       .select({
@@ -321,134 +338,29 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
 
     if (agents.length > 0) {
       const agentStr = agents
-        .map((a: { agent: string; cnt: number }) => `${esc(String(a.agent))} (${Number(a.cnt)}×)`)
+        .map((a: { agent: string; cnt: number }) => `<b>${esc(String(a.agent))}</b> (${Number(a.cnt)}×)`)
         .join(', ');
-      sectionTexts.push(`🎭 На этой неделе чаще всего пикали: ${agentStr}`);
+      alwaysSections.push(`🎭 Чаще всего пикали: ${agentStr}`);
       sectionsIncluded.push('topAgents');
     }
   }
 
-  // ─── Section 6: Best K/D One Match ──────────────────────────────────────────
-  {
-    const optedOut = await getOptOutSet();
-
-    // Fetch candidates ordered by k/d ratio desc, gate ≥10 rounds
-    const candidates = await db
-      .select({
-        riot_puuid: matchRecords.riot_puuid,
-        kills: matchRecords.kills,
-        deaths: matchRecords.deaths,
-        map: matchRecords.map,
-        rounds_played: matchRecords.rounds_played,
-        kd_ratio: sql<number>`(${matchRecords.kills} * 1.0 / MAX(${matchRecords.deaths}, 1))`,
-      })
-      .from(matchRecords)
-      .where(
-        and(
-          gte(matchRecords.started_at, weekStart),
-          lt(matchRecords.started_at, weekEnd),
-          gte(matchRecords.rounds_played, 10),
-        ),
-      )
-      .orderBy(sql`(${matchRecords.kills} * 1.0 / MAX(${matchRecords.deaths}, 1)) DESC`);
-
-    for (const row of candidates) {
-      const puuid = row.riot_puuid as string;
-      const user = await getUserByPuuid(puuid);
-      if (!user) continue;
-      if (optedOut.has(user.telegram_id)) continue;
-
-      const kills = Number(row.kills);
-      const deaths = Number(row.deaths);
-      const map = row.map as string;
-
-      const name = `<b>${esc(user.riot_name)}#${esc(user.riot_tag)}</b>`;
-      sectionTexts.push(`⚖️ Самый ровный матч недели — у ${name}: ${kills}/${deaths} на ${esc(map)}`);
-      sectionsIncluded.push('bestKDMatch');
-      break;
-    }
-  }
-
-  // ─── Section 7: All-Time Records (kills/match) ──────────────────────────────
-  {
-    const recordEvents = await db
-      .select({
-        riot_puuid: detectedEvents.riot_puuid,
-        match_id: detectedEvents.match_id,
-        payload_json: detectedEvents.payload_json,
-        detected_at: detectedEvents.detected_at,
-      })
-      .from(detectedEvents)
-      .where(
-        and(
-          gte(detectedEvents.detected_at, weekStart),
-          lt(detectedEvents.detected_at, weekEnd),
-          eq(detectedEvents.event_type, 'record_kills_match'),
-        ),
-      )
-      .orderBy(detectedEvents.detected_at);
-
-    for (const ev of recordEvents) {
-      const puuid = ev.riot_puuid as string;
-      const user = await getUserByPuuid(puuid);
-      if (!user) continue;
-
-      const payload = safeParseJson(ev.payload_json as string);
-      const value = payload['value'];
-      const prevValue = payload['prev_value'];
-      const prevPuuid = payload['prev_puuid'];
-
-      const [matchRow] = await db
-        .select({ map: matchRecords.map })
-        .from(matchRecords)
-        .where(
-          and(
-            eq(matchRecords.match_id, ev.match_id as string),
-            eq(matchRecords.riot_puuid, puuid),
-          ),
-        )
-        .limit(1);
-
-      const map: string | undefined = matchRow?.map ?? undefined;
-      const mapStr = map ? ` на ${esc(map)}` : '';
-
-      const name = `<b>${esc(user.riot_name)}#${esc(user.riot_tag)}</b>`;
-      const samePlayer = prevPuuid === puuid;
-
-      let prevLine = '';
-      if (prevValue !== null && prevValue !== undefined) {
-        if (samePlayer) {
-          prevLine = `\nпрошлый: ${esc(String(prevValue))} у него же`;
-        } else if (prevPuuid) {
-          const prevUser = await getUserByPuuid(prevPuuid as string);
-          const prevName = prevUser
-            ? `<b>${esc(prevUser.riot_name)}#${esc(prevUser.riot_tag)}</b>`
-            : esc(String(prevPuuid));
-          prevLine = `\nпрошлый: ${esc(String(prevValue))} у ${prevName}`;
-        } else {
-          prevLine = `\nпрошлый: ${esc(String(prevValue))}`;
-        }
-      }
-
-      const matchLink = ev.match_id
-        ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(ev.match_id))}">→ матч</a>`
-        : '';
-
-      sectionTexts.push(
-        `🔪 <b>Мирного рішення не буде</b>\n${name} — ${esc(String(value))} фрагов${mapStr}${prevLine}${matchLink}`,
-      );
-      sectionsIncluded.push('recordKillsMatch');
-      // Only show the latest record in the window (loop breaks after first)
-      break;
-    }
-  }
-
   // ─── Compose ─────────────────────────────────────────────────────────────────
-  if (sectionTexts.length === 0) {
-    return { text: null, sectionsIncluded: [] };
+  const parts: string[] = [header];
+
+  if (brightBlocks.length > 0) {
+    parts.push('');
+    parts.push(brightBlocks.join('\n\n'));
+    parts.push('');
+    parts.push('━━━━━━━━━━━━━━');
   }
 
-  const text = `📅 <b>Дайджест недели</b>\n\n${sectionTexts.join('\n\n')}`;
+  parts.push('');
+  parts.push(alwaysSections.join('\n'));
+  parts.push('');
+  parts.push('#digest');
+
+  const text = parts.join('\n');
   return { text, sectionsIncluded };
 }
 

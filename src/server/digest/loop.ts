@@ -1,7 +1,7 @@
 /**
  * loop.ts — Digest scheduler: posts weekly aggregate to primary chat.
  *
- * Croner '0 20 * * 0' (Sunday 20:00) with timezone Europe/Kyiv.
+ * Croner '0 19 * * 5' (Friday 19:00) with timezone Europe/Kyiv.
  *
  * Idempotency: dedup via digest_runs.week_iso UNIQUE — safe against
  * container restarts that land exactly on the cron minute.
@@ -39,43 +39,50 @@ export interface DigestLoopDeps {
 export interface DigestNowKyiv {
   /** Current Unix ms. */
   nowMs: number;
-  /** ISO week string e.g. "2026-W19". */
+  /**
+   * ISO week string e.g. "2026-W19".
+   * Computed as the ISO week of the publication moment (Friday).
+   * Friday is in the same ISO week as the preceding Monday by ISO 8601 convention.
+   * Used as the UNIQUE key in digest_runs to prevent duplicate digests per cycle.
+   */
   weekIso: string;
-  /** Window start: Monday 00:00 Kyiv (ms). */
+  /** Window start: now - 7 days (rolling 7-day window, ms). */
   weekStart: number;
-  /** Window end: Sunday 00:00 Kyiv = today midnight (ms). */
+  /** Window end: now (publication moment, ms). */
   weekEnd: number;
 }
 
 /**
- * Compute ISO 8601 week info anchored to Europe/Kyiv, based on the current moment.
+ * Compute rolling 7-day window info anchored to the current moment (publication time).
  *
- * ISO 8601: weeks start on Monday; week 1 is the week containing the first Thursday.
- * Thursday-anchored: add 3 days to Monday to get Thursday, then derive week number.
+ * New window logic (post-#149):
+ *   weekEnd   = now (the publication moment — Friday 19:00 Kyiv)
+ *   weekStart = weekEnd - 7 * 86400000 (rolling 7-day window)
  *
- * We approximate Kyiv timezone using UTC+3 for midnight boundaries (same approach as publisher).
+ * weekIso = ISO week of the publication day (Friday).
+ * ISO 8601: Friday is in the same week as the preceding Monday (weeks start Mon).
+ * This is used as the UNIQUE key in digest_runs — prevents duplicate digests per Friday cycle.
+ *
+ * We compute ISO week via Thursday-anchor method (standard ISO 8601 algorithm).
  */
 export function getDigestNowKyiv(nowMs?: number): DigestNowKyiv {
   const ms = nowMs ?? Date.now();
 
-  const fmt = new Intl.DateTimeFormat('en-CA', {
+  // Rolling 7-day window: end = now, start = now - 7 days
+  const weekEndMs = ms;
+  const weekStartMs = ms - 7 * 86400000;
+
+  // Compute ISO week of the publication moment (for UNIQUE dedup key)
+  // We need the day-of-week in Kyiv to find the Monday of this ISO week, then Thursday-anchor.
+  const fmtDate = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/Kyiv',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
   });
-
-  const parts = fmt.formatToParts(ms);
+  const parts = fmtDate.formatToParts(ms);
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '00';
 
-  const year = parseInt(get('year'), 10);
-  const month = parseInt(get('month'), 10);
-  const day = parseInt(get('day'), 10);
-
-  // Build today's midnight in Kyiv (UTC+3 approximation)
-  const todayMidnightMs = Date.parse(`${get('year')}-${get('month')}-${get('day')}T00:00:00+03:00`);
-
-  // Day of week in Kyiv: 0=Sun,1=Mon,...,6=Sat
   const fmtWeekday = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Europe/Kyiv',
     weekday: 'short',
@@ -84,28 +91,20 @@ export function getDigestNowKyiv(nowMs?: number): DigestNowKyiv {
   const weekdayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
   const weekday = weekdayMap[weekdayStr] ?? 0;
 
-  // Monday of this ISO week (weekday 1)
-  // If Sunday (0) → Monday was 6 days ago; if Mon (1) → 0 days ago; etc.
+  // Find Monday midnight of the ISO week containing `ms`
+  const todayMidnightMs = Date.parse(`${get('year')}-${get('month')}-${get('day')}T00:00:00+03:00`);
   const daysFromMonday = weekday === 0 ? 6 : weekday - 1;
-  const weekStartMs = todayMidnightMs - daysFromMonday * 86400000;
-  // weekEnd = today midnight (the digest runs at 20:00 so "this week" = Mon to Sun 00:00)
-  const weekEndMs = todayMidnightMs;
+  const mondayMs = todayMidnightMs - daysFromMonday * 86400000;
 
   // ISO week number via Thursday anchor
-  const thursdayMs = weekStartMs + 3 * 86400000; // Thursday of this ISO week
+  const thursdayMs = mondayMs + 3 * 86400000;
   const thursdayDate = new Date(thursdayMs);
   const thurYear = thursdayDate.getUTCFullYear();
-  // Week 1 is the week containing Jan 4 (first Thursday in year)
   const jan4 = Date.UTC(thurYear, 0, 4);
   const jan4Weekday = new Date(jan4).getUTCDay();
   const jan4Monday = jan4 - (jan4Weekday === 0 ? 6 : jan4Weekday - 1) * 86400000;
   const weekNumber = Math.floor((thursdayMs - jan4Monday) / (7 * 86400000)) + 1;
-
-  // If weekStart falls in previous year, use that year's week number
-  // (handled via Thursday-anchor: thurYear already accounts for this)
   const weekIso = `${thurYear}-W${String(weekNumber).padStart(2, '0')}`;
-
-  void year; void month; void day; // used indirectly via todayMidnightMs
 
   return { nowMs: ms, weekIso, weekStart: weekStartMs, weekEnd: weekEndMs };
 }
@@ -208,14 +207,14 @@ export async function runDigestNow(deps: DigestLoopDeps): Promise<void> {
 
 export function startDigestLoop(deps: DigestLoopDeps): () => void {
   const cronJob = new Cron(
-    '0 20 * * 0',
+    '0 19 * * 5',
     { timezone: 'Europe/Kyiv', protect: true },
     () => {
       void runDigestNow(deps);
     },
   );
 
-  logger.info({ module: 'digest', cron: '0 20 * * 0', tz: 'Europe/Kyiv' }, 'Digest loop started');
+  logger.info({ module: 'digest', cron: '0 19 * * 5', tz: 'Europe/Kyiv' }, 'Digest loop started');
 
   return function stopDigestLoop() {
     cronJob.stop();
