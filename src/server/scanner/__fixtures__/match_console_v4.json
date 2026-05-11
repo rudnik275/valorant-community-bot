@@ -18,7 +18,7 @@
       "platform": "playstation",
       "agent": { "id": "add6443a-41bd-e414-f6ad-e58d267f4e95", "name": "Jett" },
       "tier": { "id": 18, "name": "Diamond 1" },
-      "stats": { "kills": 22, "deaths": 14, "assists": 4, "score": 5800 }
+      "stats": { "kills": 22, "deaths": 14, "assists": 4, "score": 5800, "headshots": 35, "bodyshots": 60, "legshots": 5, "damage": { "dealt": 4200, "received": 3100 } }
     },
     {
       "puuid": "ally-1",

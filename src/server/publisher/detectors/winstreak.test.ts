@@ -19,6 +19,15 @@ function makeRecord(matchId: string, result: 'win' | 'loss' | 'draw', startedAt:
     enemy_avg_rank: 'Diamond 1',
     fall_damage_kills: 0,
     kill_events_compact: '[]',
+    score: null,
+    headshots: null,
+    bodyshots: null,
+    legshots: null,
+    damage_dealt: null,
+    damage_received: null,
+    team_rounds_won: null,
+    team_rounds_lost: null,
+    game_length_ms: null,
     inserted_at: startedAt,
   };
 }

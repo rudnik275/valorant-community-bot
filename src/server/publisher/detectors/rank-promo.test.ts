@@ -22,6 +22,15 @@ const BASE_RECORD: MatchRecord = {
   enemy_avg_rank: 'Diamond 2',
   fall_damage_kills: 0,
   kill_events_compact: '[]',
+  score: null,
+  headshots: null,
+  bodyshots: null,
+  legshots: null,
+  damage_dealt: null,
+  damage_received: null,
+  team_rounds_won: null,
+  team_rounds_lost: null,
+  game_length_ms: null,
   inserted_at: ACT_START_PLUS_30_DAYS + 86_400_000,
 };
 
