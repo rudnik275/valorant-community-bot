@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { Database } from 'bun:sqlite';
-import { drizzle } from 'drizzle-orm/bun-sqlite';
-import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
+import Database from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { join } from 'node:path';
 import { teamkillDetector } from './teamkill.ts';
 import type { MatchRecord } from '../types.ts';
@@ -11,6 +11,7 @@ const MIGRATIONS_FOLDER = join(process.cwd(), 'drizzle');
 
 function makeTestDb() {
   const sqlite = new Database(':memory:');
+  sqlite.exec('PRAGMA foreign_keys=OFF;');
   const db = drizzle(sqlite);
   migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
   return { db, sqlite };

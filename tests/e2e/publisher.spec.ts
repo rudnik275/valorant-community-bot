@@ -161,8 +161,8 @@ describe('e2e: publisher loop', () => {
     const calledText = sendMessage.mock.calls[0][1] as string;
     expect(calledText).toContain('HeroPlayer');
     expect(calledText).toContain('HP1');
-    // ace template uses emoji 🎯 and "Эйс"
-    expect(calledText).toContain('Эйс');
+    // ace template uses emoji 🎯 and "AAAAAAACE!"
+    expect(calledText).toContain('AAAAAAACE!');
   });
 
   it('second pending event for the same user is also posted (no antispam quota)', async () => {
