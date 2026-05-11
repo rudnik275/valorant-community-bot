@@ -134,9 +134,12 @@ const templates: Record<EventType, TemplateFn> = {
   teamkill: (payload, user, match) => {
     const roundNumbers = Array.isArray(payload['round_numbers']) ? payload['round_numbers'] : [];
     const count = roundNumbers.length > 0 ? ` (${roundNumbers.length}× за матч)` : '';
+    const victimNames = Array.isArray(payload['victim_names_for_template']) ? payload['victim_names_for_template'] as string[] : [];
+    const uniqueVictims = Array.from(new Set(victimNames.filter((n) => n && n.length > 0)));
+    const victimStr = uniqueVictims.length > 0 ? ` (${uniqueVictims.map((n) => `<b>${esc(n)}</b>`).join(', ')})` : '';
     const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
     const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
-    return `🐀 <b>Ля ты и крыса</b>, ${playerTag(user)} — стрельнул в своего${count}${mapStr}${matchLink}`;
+    return `🐀 <b>Ля ты и крыса</b>, ${playerTag(user)} — стрельнул в своего${victimStr}${count}${mapStr}${matchLink}`;
   },
 
   fall_damage_death: (payload, user, match) => {
