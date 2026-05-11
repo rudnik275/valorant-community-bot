@@ -130,7 +130,7 @@ describe('startPublisherLoop', () => {
     it('marks all pending events as silent when publishing not yet enabled', async () => {
       seedUser(sqlite, 1, 'puuid-1');
       const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'ace' });
-      const id2 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'winstreak_9' });
+      const id2 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'winstreak_10plus' });
 
       const future = new Date(Date.now() + 999999999).toISOString();
       vi.stubEnv('EVENTS_PUBLISHING_ENABLED_AFTER', future);
@@ -243,7 +243,7 @@ describe('startPublisherLoop', () => {
 
       const now = Date.now();
       const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'ace', detectedAt: now - 5000 });
-      const id2 = seedPendingEvent(sqlite, { puuid: 'puuid-2', eventType: 'winstreak_9', detectedAt: now - 1000 });
+      const id2 = seedPendingEvent(sqlite, { puuid: 'puuid-2', eventType: 'winstreak_10plus', detectedAt: now - 1000 });
 
       const { stop } = makeLoop(db, sendMessage, {
         kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: now - 86400000 },
@@ -399,7 +399,7 @@ describe('startPublisherLoop', () => {
       seedUser(sqlite, 2, 'puuid-2');
 
       const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'ace' });
-      const id2 = seedPendingEvent(sqlite, { puuid: 'puuid-2', eventType: 'winstreak_9' });
+      const id2 = seedPendingEvent(sqlite, { puuid: 'puuid-2', eventType: 'winstreak_10plus' });
       const id3 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'teamkill' });
 
       const future = new Date(Date.now() + 999999).toISOString();

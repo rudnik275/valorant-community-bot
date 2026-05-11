@@ -116,8 +116,8 @@ const templates: Record<EventType, TemplateFn> = {
     return `📈 ${playerTag(user)} апнул ранг`;
   },
 
-  winstreak_9: (payload, user, _match) => {
-    const streak = payload['streak'] ?? 9;
+  winstreak_10plus: (payload, user, _match) => {
+    const streak = payload['streak'] ?? 10;
     return `🔥 Винстрик! ${streak} побед подряд у ${playerTag(user)}`;
   },
 

@@ -24,7 +24,8 @@ function rankToNumeric(rank: string | null | undefined): number | null {
 
 /**
  * Giant Slayer detector: player wins against a team whose average rank is
- * ≥1.5 tiers above the player's own rank.
+ * ≥2 macro tiers above the player's own rank.
+ * Macro tiers: Iron/Bronze/Silver/Gold/Platinum/Diamond/Ascendant/Immortal/Radiant; sub-tiers ignored.
  */
 export const giantSlayerDetector: Detector = {
   type: 'giant_slayer',
@@ -37,7 +38,7 @@ export const giantSlayerDetector: Detector = {
     if (ownNumeric === null || enemyNumeric === null) return [];
 
     const delta = enemyNumeric - ownNumeric;
-    if (delta < 1.5) return [];
+    if (delta < 2) return [];
 
     return [
       {
