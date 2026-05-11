@@ -321,19 +321,19 @@ describe('buildDigest', () => {
     });
   });
 
-  describe('bright events — rank_promo', () => {
-    it('renders rank promo as a bright block', async () => {
+  describe('bright events — peak_rank_up', () => {
+    it('renders peak rank up as a bright block', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'Climber', riotTag: 'UP' });
       seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW });
       seedEvent(sqlite, {
         puuid: 'p1',
-        eventType: 'rank_promo',
-        payload: { from: 'Gold 1', to: 'Platinum 1' },
+        eventType: 'peak_rank_up',
+        payload: { from_tier_name: 'Gold 1', to_tier_name: 'Platinum 1' },
         detectedAt: IN_WINDOW,
       });
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
-      expect(result.sectionsIncluded).toContain('rank_promo');
+      expect(result.sectionsIncluded).toContain('peak_rank_up');
       expect(result.text).toContain('Gold 1');
       expect(result.text).toContain('Platinum 1');
       expect(result.text).toContain('Climber');
@@ -540,19 +540,19 @@ describe('buildDigest', () => {
       expect(result.sectionsIncluded).not.toContain('ace');
     });
 
-    it('opted-out player still gets rank_promo in bright block (positive progress)', async () => {
+    it('opted-out player still gets peak_rank_up in bright block (positive progress)', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'Climber', riotTag: 'UP' });
       seedOptOut(sqlite, 1, 1); // p1 opted out
       seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW });
       seedEvent(sqlite, {
         puuid: 'p1',
-        eventType: 'rank_promo',
-        payload: { from: 'Gold', to: 'Plat' },
+        eventType: 'peak_rank_up',
+        payload: { from_tier_name: 'Gold', to_tier_name: 'Plat' },
         detectedAt: IN_WINDOW,
       });
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
-      expect(result.sectionsIncluded).toContain('rank_promo');
+      expect(result.sectionsIncluded).toContain('peak_rank_up');
       expect(result.text).toContain('Climber');
     });
 

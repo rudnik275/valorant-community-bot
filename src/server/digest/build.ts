@@ -61,7 +61,7 @@ const BRIGHT_EVENT_WEIGHTS: Record<string, number> = {
   record_longest_match_rounds: 7,
   giant_slayer: 6,
   winstreak_10plus: 4,
-  rank_promo: 3,
+  peak_rank_up: 3,
 };
 
 function isBrightEvent(eventType: string): boolean {
@@ -111,16 +111,16 @@ function renderBrightBlock(
       const own = payload['own'] ? ` (ранг: ${esc(String(payload['own']))})` : '';
       return `⚔️ Гигантоборец — ${name} взял команду${enemyAvg}${own}`;
     }
-    case 'rank_promo': {
-      const from = payload['from'] ? esc(String(payload['from'])) : null;
-      const to = payload['to'] ? esc(String(payload['to'])) : null;
+    case 'peak_rank_up': {
+      const from = payload['from_tier_name'] ? esc(String(payload['from_tier_name'])) : null;
+      const to = payload['to_tier_name'] ? esc(String(payload['to_tier_name'])) : null;
       if (from && to) {
-        return `📈 Повышение по службе — ${name} (${from} → ${to})`;
+        return `🎖 Повышение по службе — ${name} (${from} → ${to})`;
       }
       if (to) {
-        return `📈 Повышение по службе — ${name} (→ ${to})`;
+        return `🎖 Повышение по службе — ${name} (→ ${to})`;
       }
-      return `📈 Повышение по службе — ${name}`;
+      return `🎖 Повышение по службе — ${name}`;
     }
     case 'winstreak_10plus': {
       const streak = payload['streak'] ?? 10;
@@ -495,9 +495,9 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       const user = await getUserByPuuid(puuid);
       if (!user) continue;
 
-      // rank_promo renders even for opted-out players (positive progress)
+      // peak_rank_up renders even for opted-out players (positive progress)
       // Other bright events: skip opted-out players
-      if (ev.event_type !== 'rank_promo' && optedOut.has(user.telegram_id)) continue;
+      if (ev.event_type !== 'peak_rank_up' && optedOut.has(user.telegram_id)) continue;
 
       const payload = safeParseJson(ev.payload_json as string);
 

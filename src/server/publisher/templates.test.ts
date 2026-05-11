@@ -5,7 +5,7 @@ import type { EventType } from './types.ts';
 const ALL_EVENT_TYPES: EventType[] = [
   'ace',
   'ace_rare_weapon_week',
-  'rank_promo',
+  'peak_rank_up',
   'winstreak_10plus',
   'giant_slayer',
   'return_after_pause',
@@ -41,7 +41,7 @@ const injectionUser = {
 const minimalPayloads: Record<EventType, Record<string, unknown>> = {
   ace: {},
   ace_rare_weapon_week: {},
-  rank_promo: {},
+  peak_rank_up: {},
   winstreak_10plus: {},
   giant_slayer: {},
   return_after_pause: {},
@@ -139,7 +139,7 @@ describe('renderTemplate — payload-specific behavior', () => {
   });
 
   it('rank_promo: Ascendant 1 shows "Повышение по службе" heading + icon + full rank label', () => {
-    const output = renderTemplate('rank_promo', { from: 'Diamond 3', to: 'Ascendant 1' }, safeUser);
+    const output = renderTemplate('peak_rank_up', { from_tier_name: 'Diamond 3', to_tier_name: 'Ascendant 1' }, safeUser);
     expect(output).toContain('Повышение по службе');
     expect(output).toContain('<b>Player#TAG</b>');
     expect(output).toContain('<tg-emoji emoji-id="5188550815484256589">🟩</tg-emoji>');
@@ -148,28 +148,28 @@ describe('renderTemplate — payload-specific behavior', () => {
   });
 
   it('rank_promo: Immortal 1 shows icon + full rank label', () => {
-    const output = renderTemplate('rank_promo', { to: 'Immortal 1' }, safeUser);
+    const output = renderTemplate('peak_rank_up', { to_tier_name: 'Immortal 1' }, safeUser);
     expect(output).toContain('Повышение по службе');
     expect(output).toContain('<tg-emoji emoji-id="5188459714932943688">♦️</tg-emoji>');
     expect(output).toContain('Immortal 1');
   });
 
   it('rank_promo: Radiant shows icon + Radiant', () => {
-    const output = renderTemplate('rank_promo', { to: 'Radiant' }, safeUser);
+    const output = renderTemplate('peak_rank_up', { to_tier_name: 'Radiant' }, safeUser);
     expect(output).toContain('Повышение по службе');
     expect(output).toContain('<tg-emoji emoji-id="5190818141604715555">🌟</tg-emoji>');
     expect(output).toContain('Radiant');
   });
 
   it('rank_promo: no-payload produces Повышение по службе with player tag', () => {
-    const output = renderTemplate('rank_promo', {}, safeUser);
+    const output = renderTemplate('peak_rank_up', {}, safeUser);
     expect(output).toContain('Повышение по службе');
     expect(output).toContain('<b>Player#TAG</b>');
     expect(output).not.toContain('<tg-emoji');
   });
 
   it('rank_promo: unknown rank label renders escaped plain text without tg-emoji', () => {
-    const output = renderTemplate('rank_promo', { to: 'MetaTier 1' }, safeUser);
+    const output = renderTemplate('peak_rank_up', { to_tier_name: 'MetaTier 1' }, safeUser);
     expect(output).toContain('Повышение по службе');
     expect(output).toContain('MetaTier 1');
     expect(output).not.toContain('<tg-emoji');
