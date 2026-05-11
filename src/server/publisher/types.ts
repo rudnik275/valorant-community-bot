@@ -11,7 +11,8 @@ export type EventType =
   | 'giant_slayer'
   | 'return_after_pause'
   | 'teamkill'
-  | 'fall_damage_death';
+  | 'fall_damage_death'
+  | 'record_kills_match';
 
 export interface DetectedEvent {
   type: EventType;
@@ -20,7 +21,14 @@ export interface DetectedEvent {
   payload: Record<string, unknown>;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export interface DetectorDeps {
+  db: any;
+}
+
 export interface Detector {
   type: EventType;
   detect: (record: MatchRecord, prevRecords: MatchRecord[]) => DetectedEvent[];
+  /** Optional async alternative — used by detectors that need DB access (e.g. record detectors). */
+  detectAsync?: (record: MatchRecord, prevRecords: MatchRecord[], deps: DetectorDeps) => Promise<DetectedEvent[]>;
 }

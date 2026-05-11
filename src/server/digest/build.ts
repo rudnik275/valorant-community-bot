@@ -39,6 +39,7 @@ function esc(s: string): string {
 const EVENT_WEIGHTS: Record<string, number> = {
   ace_rare_weapon: 10,
   ace: 8,
+  record_kills_match: 7,
   giant_slayer: 6,
   return_after_pause: 5,
   rank_promo: 5,
@@ -364,6 +365,80 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       const name = `<b>${esc(user.riot_name)}#${esc(user.riot_tag)}</b>`;
       sectionTexts.push(`⚖️ Самый ровный матч недели — у ${name}: ${kills}/${deaths} на ${esc(map)}`);
       sectionsIncluded.push('bestKDMatch');
+      break;
+    }
+  }
+
+  // ─── Section 7: All-Time Records (kills/match) ──────────────────────────────
+  {
+    const recordEvents = await db
+      .select({
+        riot_puuid: detectedEvents.riot_puuid,
+        match_id: detectedEvents.match_id,
+        payload_json: detectedEvents.payload_json,
+        detected_at: detectedEvents.detected_at,
+      })
+      .from(detectedEvents)
+      .where(
+        and(
+          gte(detectedEvents.detected_at, weekStart),
+          lt(detectedEvents.detected_at, weekEnd),
+          eq(detectedEvents.event_type, 'record_kills_match'),
+        ),
+      )
+      .orderBy(detectedEvents.detected_at);
+
+    for (const ev of recordEvents) {
+      const puuid = ev.riot_puuid as string;
+      const user = await getUserByPuuid(puuid);
+      if (!user) continue;
+
+      const payload = safeParseJson(ev.payload_json as string);
+      const value = payload['value'];
+      const prevValue = payload['prev_value'];
+      const prevPuuid = payload['prev_puuid'];
+
+      const [matchRow] = await db
+        .select({ map: matchRecords.map })
+        .from(matchRecords)
+        .where(
+          and(
+            eq(matchRecords.match_id, ev.match_id as string),
+            eq(matchRecords.riot_puuid, puuid),
+          ),
+        )
+        .limit(1);
+
+      const map: string | undefined = matchRow?.map ?? undefined;
+      const mapStr = map ? ` на ${esc(map)}` : '';
+
+      const name = `<b>${esc(user.riot_name)}#${esc(user.riot_tag)}</b>`;
+      const samePlayer = prevPuuid === puuid;
+
+      let prevLine = '';
+      if (prevValue !== null && prevValue !== undefined) {
+        if (samePlayer) {
+          prevLine = `\nпрошлый: ${esc(String(prevValue))} у него же`;
+        } else if (prevPuuid) {
+          const prevUser = await getUserByPuuid(prevPuuid as string);
+          const prevName = prevUser
+            ? `<b>${esc(prevUser.riot_name)}#${esc(prevUser.riot_tag)}</b>`
+            : esc(String(prevPuuid));
+          prevLine = `\nпрошлый: ${esc(String(prevValue))} у ${prevName}`;
+        } else {
+          prevLine = `\nпрошлый: ${esc(String(prevValue))}`;
+        }
+      }
+
+      const matchLink = ev.match_id
+        ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(ev.match_id))}">→ матч</a>`
+        : '';
+
+      sectionTexts.push(
+        `🔪 <b>Мирного рішення не буде</b>\n${name} — ${esc(String(value))} фрагов${mapStr}${prevLine}${matchLink}`,
+      );
+      sectionsIncluded.push('recordKillsMatch');
+      // Only show the latest record in the window (loop breaks after first)
       break;
     }
   }
