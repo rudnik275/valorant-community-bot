@@ -57,6 +57,8 @@ const BRIGHT_EVENT_WEIGHTS: Record<string, number> = {
   record_legshots_match: 7,
   record_mvp_count_week: 7,
   record_kills_per_weapon: 7,
+  record_longest_match_minutes: 7,
+  record_longest_match_rounds: 7,
   giant_slayer: 6,
   winstreak_10plus: 4,
   rank_promo: 3,
@@ -246,6 +248,52 @@ function renderBrightBlock(
         }
       }
       return `🔫 <b>Рекорд из ${esc(String(weapon))}:</b> ${name} — ${esc(String(value))} фрагов${mapStr}${prevStr}${matchLink}`;
+    }
+    case 'record_longest_match_minutes': {
+      const value = payload['value'];
+      const prevValue = payload['prev_value'];
+      const prevName = payload['prev_name'];
+      const prevTag = payload['prev_tag'];
+      const players = Array.isArray(payload['community_players'])
+        ? payload['community_players'] as Array<{ puuid: string; name: string; tag: string }>
+        : [];
+      const playerNames = players
+        .map((p) => p.name ? `<b>${esc(p.name)}</b>` : '')
+        .filter((s) => s)
+        .join(', ') || name;
+      const verb = players.length > 1 ? 'проинвестировали' : 'проинвестировал';
+      let prevStr = '';
+      if (prevValue !== null && prevValue !== undefined) {
+        if (prevName) {
+          prevStr = ` (прошлый: ${esc(String(prevValue))}, у <b>${esc(String(prevName))}${prevTag ? '#' + esc(String(prevTag)) : ''}</b>)`;
+        } else {
+          prevStr = ` (прошлый: ${esc(String(prevValue))})`;
+        }
+      }
+      return `⏱ ${playerNames} ${verb} своё время правильно — ${esc(String(value))} минут${mapStr}${prevStr}`;
+    }
+    case 'record_longest_match_rounds': {
+      const value = payload['value'];
+      const prevValue = payload['prev_value'];
+      const prevName = payload['prev_name'];
+      const prevTag = payload['prev_tag'];
+      const players = Array.isArray(payload['community_players'])
+        ? payload['community_players'] as Array<{ puuid: string; name: string; tag: string }>
+        : [];
+      const playerNames = players
+        .map((p) => p.name ? `<b>${esc(p.name)}</b>` : '')
+        .filter((s) => s)
+        .join(', ') || name;
+      const verb = players.length > 1 ? 'пережили' : 'пережил';
+      let prevStr = '';
+      if (prevValue !== null && prevValue !== undefined) {
+        if (prevName) {
+          prevStr = ` (прошлый: ${esc(String(prevValue))}, у <b>${esc(String(prevName))}${prevTag ? '#' + esc(String(prevTag)) : ''}</b>)`;
+        } else {
+          prevStr = ` (прошлый: ${esc(String(prevValue))})`;
+        }
+      }
+      return `😰 ${playerNames} ${verb} ${esc(String(value))} раундов — надеюсь это того стоило${mapStr}${prevStr}`;
     }
     default:
       return null;
@@ -483,7 +531,9 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
           ev.event_type === 'record_damage_received_match' ||
           ev.event_type === 'record_deaths_match' ||
           ev.event_type === 'record_headshots_match' ||
-          ev.event_type === 'record_legshots_match') &&
+          ev.event_type === 'record_legshots_match' ||
+          ev.event_type === 'record_longest_match_minutes' ||
+          ev.event_type === 'record_longest_match_rounds') &&
         ev.match_id
       ) {
         payload['match_id'] = ev.match_id;

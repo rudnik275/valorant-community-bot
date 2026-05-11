@@ -121,6 +121,26 @@ async function backfillHeadshotsMatch() {
     weapon: '',
     riot_puuid: top.riot_puuid!,
     value: top.headshots,
+async function backfillLongestMatchMinutes() {
+  const rows = await db
+    .select()
+    .from(matchRecords)
+    .where(isNotNull(matchRecords.game_length_ms))
+    .orderBy(desc(matchRecords.game_length_ms))
+    .limit(1);
+  if (rows.length === 0) {
+    console.log('longest_match_minutes: no match records with game_length_ms yet, skipping');
+    return;
+  }
+  const top = rows[0]!;
+  if (top.game_length_ms == null || top.game_length_ms <= 0) return;
+  const minutes = Math.round(top.game_length_ms / 60000);
+  if (minutes <= 0) return;
+  await db.insert(allTimeRecords).values({
+    record_type: 'longest_match_minutes',
+    weapon: '',
+    riot_puuid: top.riot_puuid!,
+    value: minutes,
     match_id: top.match_id,
     achieved_at: top.started_at,
     prev_value: null,
@@ -145,12 +165,34 @@ async function backfillLegshotsMatch() {
     weapon: '',
     riot_puuid: top.riot_puuid!,
     value: top.legshots,
+  console.log(`longest_match_minutes: seeded ${minutes} minutes by ${top.riot_puuid}`);
+}
+
+async function backfillLongestMatchRounds() {
+  const rows = await db
+    .select()
+    .from(matchRecords)
+    .where(isNotNull(matchRecords.riot_puuid))
+    .orderBy(desc(matchRecords.rounds_played))
+    .limit(1);
+  if (rows.length === 0) {
+    console.log('longest_match_rounds: no match records yet, skipping');
+    return;
+  }
+  const top = rows[0]!;
+  if (top.rounds_played == null || top.rounds_played <= 0) return;
+  await db.insert(allTimeRecords).values({
+    record_type: 'longest_match_rounds',
+    weapon: '',
+    riot_puuid: top.riot_puuid!,
+    value: top.rounds_played,
     match_id: top.match_id,
     achieved_at: top.started_at,
     prev_value: null,
     prev_puuid: null,
   }).onConflictDoNothing();
   console.log(`legshots_match: seeded ${top.legshots} by ${top.riot_puuid}`);
+  console.log(`longest_match_rounds: seeded ${top.rounds_played} rounds by ${top.riot_puuid}`);
 }
 
 /**
@@ -336,6 +378,8 @@ await backfillDamageReceivedMatch();
 await backfillDeathsMatch();
 await backfillHeadshotsMatch();
 await backfillLegshotsMatch();
+await backfillLongestMatchMinutes();
+await backfillLongestMatchRounds();
 await backfillWeeklyMvpRecords();
 await backfillKillsPerWeapon();
 process.exit(0);
