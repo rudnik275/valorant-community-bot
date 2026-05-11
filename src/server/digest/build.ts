@@ -4,7 +4,7 @@
  * Queries DB over a rolling 7-day window and renders sections in block layout:
  *
  * BRIGHT EVENTS (top block — omitted if none):
- *   record_kills_match, winstreak_10plus, giant_slayer, ace_rare_weapon,
+ *   record_kills_match, winstreak_10plus, giant_slayer, ace_rare_weapon_week,
  *   ace, rank_promo
  * Divider ━━━━━━━━━━━━━━
  *
@@ -44,7 +44,7 @@ function esc(s: string): string {
  * Ordered by display priority (highest weight first for sort).
  */
 const BRIGHT_EVENT_WEIGHTS: Record<string, number> = {
-  ace_rare_weapon: 10,
+  ace_rare_weapon_week: 10,
   ace: 8,
   record_kills_match: 7,
   giant_slayer: 6,
@@ -74,10 +74,20 @@ function renderBrightBlock(
   const mapStr = map ? ` на ${esc(map)}` : '';
 
   switch (eventType) {
-    case 'ace_rare_weapon': {
-      const weapons = Array.isArray(payload['weapons']) ? payload['weapons'] : [];
-      const wStr = weapons.length > 0 ? ` (${weapons.map((w) => esc(String(w))).join(', ')})` : '';
-      return `🔪 Эйс редким оружием${wStr} — ${name}${mapStr}`;
+    case 'ace_rare_weapon_week': {
+      const weaponsPerRound = Array.isArray(payload['weapons_per_round']) ? payload['weapons_per_round'] as string[][] : [];
+      const KNIFE_TOKENS = new Set(['Knife', '2f59173c-4bed-b6c3-2191-dea9b58be9c7']);
+      const CLASSIC_TOKENS = new Set(['Classic', '29a0cfab-485b-f5d5-779a-b59f85e204a8']);
+      const rareNames = new Set<string>();
+      for (const round of weaponsPerRound) {
+        if (!Array.isArray(round)) continue;
+        for (const w of round) {
+          if (KNIFE_TOKENS.has(w)) rareNames.add('Knife');
+          else if (CLASSIC_TOKENS.has(w)) rareNames.add('Classic');
+        }
+      }
+      const weaponStr = Array.from(rareNames).join(', ') || 'редким';
+      return `💎 ${name} знает толк в извращениях. Эйс — <b>${esc(weaponStr)}</b>${mapStr}`;
     }
     case 'ace': {
       const rounds = Array.isArray(payload['rounds']) ? payload['rounds'] : [];

@@ -5,7 +5,7 @@ export type MatchRecord = InferSelectModel<typeof matchRecords>;
 
 export type EventType =
   | 'ace'
-  | 'ace_rare_weapon'
+  | 'ace_rare_weapon_week'
   | 'rank_promo'
   | 'winstreak_10plus'
   | 'giant_slayer'

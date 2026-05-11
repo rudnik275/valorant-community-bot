@@ -27,7 +27,7 @@ function isRareWeapon(weapon: string): boolean {
  * (same UNIQUE constraint reasoning as ace detector).
  */
 export const aceRareWeaponDetector: Detector = {
-  type: 'ace_rare_weapon',
+  type: 'ace_rare_weapon_week',
   detect(record: MatchRecord, _prevRecords: MatchRecord[]): DetectedEvent[] {
     const aces = findAces(record);
     if (aces.length === 0) return [];
@@ -40,7 +40,7 @@ export const aceRareWeaponDetector: Detector = {
 
     return [
       {
-        type: 'ace_rare_weapon',
+        type: 'ace_rare_weapon_week',
         riot_puuid: record.riot_puuid ?? '',
         match_id: record.match_id,
         payload: {

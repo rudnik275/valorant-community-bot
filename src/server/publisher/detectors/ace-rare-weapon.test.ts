@@ -73,7 +73,7 @@ describe('aceRareWeaponDetector', () => {
     };
     const events = aceRareWeaponDetector.detect(record, []);
     expect(events).toHaveLength(1);
-    expect(events[0]!.type).toBe('ace_rare_weapon');
+    expect(events[0]!.type).toBe('ace_rare_weapon_week');
     expect(events[0]!.payload.rare_weapon_counts).toEqual([2]);
   });
 

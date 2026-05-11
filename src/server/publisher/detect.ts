@@ -124,6 +124,11 @@ export function startDetectionListener(deps: DetectionDeps): () => void {
         }
       }
 
+      // Map of event_type → initial status. Default is 'pending' (realtime).
+      const INITIAL_STATUS: Partial<Record<string, 'pending' | 'digest-only'>> = {
+        ace_rare_weapon_week: 'digest-only',
+      };
+
       // Insert all events
       for (const ev of allEvents) {
         const result = await db
@@ -133,6 +138,7 @@ export function startDetectionListener(deps: DetectionDeps): () => void {
             riot_puuid: ev.riot_puuid,
             match_id: ev.match_id,
             payload_json: JSON.stringify(ev.payload),
+            status: INITIAL_STATUS[ev.type] ?? 'pending',
           })
           .onConflictDoNothing();
 
