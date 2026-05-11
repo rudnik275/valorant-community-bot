@@ -127,6 +127,7 @@ export function startDetectionListener(deps: DetectionDeps): () => void {
       // Map of event_type → initial status. Default is 'pending' (realtime).
       const INITIAL_STATUS: Partial<Record<string, 'pending' | 'digest-only'>> = {
         ace_rare_weapon_week: 'digest-only',
+        winstreak_10plus: 'digest-only',
         record_kills_match: 'digest-only',
         record_deaths_match: 'digest-only',
         record_headshots_match: 'digest-only',
