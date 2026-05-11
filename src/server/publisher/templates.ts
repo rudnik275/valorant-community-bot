@@ -253,6 +253,39 @@ const templates: Record<EventType, TemplateFn> = {
     const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
     return `👏 <b>Мы вами гордимся</b>, ${playerTag(user)}\n🥂 проигрывали со счётом ${dp}:${dop}\nно закончили победой ${fp}:${fop}${mapStr}${matchLink}`;
   },
+
+  community_clash: (payload, _user, match) => {
+    const teams = Array.isArray(payload['teams'])
+      ? payload['teams'] as Array<{ team_id: string; players: Array<{ puuid: string; name: string | null; tag: string | null }> }>
+      : [];
+    const winnerTeamId = payload['winner_team_id'] as string | null | undefined;
+    const mapStr = match?.map ? ` ${esc(match.map)}` : '';
+    const matchLink = match?.match_id ? `<a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
+
+    const renderTeam = (idx: number, players: Array<{ puuid: string; name: string | null; tag: string | null }>) => {
+      const namesList = players
+        .map((p) => p.name ? `<b>${esc(p.name)}</b>` : `<b>${esc(p.puuid)}</b>`)
+        .join(', ');
+      return `Команда ${idx + 1} — ${namesList}`;
+    };
+
+    const lines: string[] = [`⚔️ <b>Френдлифаер</b>`];
+    teams.forEach((t, i) => lines.push(renderTeam(i, t.players)));
+
+    if (winnerTeamId) {
+      const winnerIdx = teams.findIndex((t) => t.team_id === winnerTeamId);
+      if (winnerIdx >= 0) {
+        lines.push(`🥇 Победитель — <b>Команда ${winnerIdx + 1}</b>`);
+      }
+    } else {
+      lines.push(`🏳️ Ничья`);
+    }
+
+    if (mapStr || matchLink) {
+      lines.push(`${mapStr.trim()}${mapStr && matchLink ? ' · ' : ''}${matchLink}`);
+    }
+    return lines.join('\n');
+  },
 };
 
 /**

@@ -33,6 +33,20 @@ type InsertedRow = { event_type: string; riot_puuid: string; match_id: string; p
 function makeMockDb() {
   const insertedRows: InsertedRow[] = [];
 
+  // Fluent query builder that resolves to [] at any await point while
+  // still supporting arbitrary method chaining (handles .innerJoin, .limit, etc.)
+  function emptyQueryBuilder(): unknown {
+    const methods = ['from', 'where', 'innerJoin', 'leftJoin', 'orderBy', 'limit', 'offset', 'groupBy'];
+    // Make the builder itself a thenable that resolves to []
+    const builder: Record<string, unknown> = {
+      then: (resolve: (v: unknown[]) => void) => resolve([]),
+    };
+    for (const m of methods) {
+      builder[m] = () => emptyQueryBuilder();
+    }
+    return builder;
+  }
+
   const db = {
     insert: (_table: unknown) => ({
       values: (row: InsertedRow) => {
@@ -40,13 +54,7 @@ function makeMockDb() {
         return { onConflictDoNothing: () => Promise.resolve({ changes: 1 }) };
       },
     }),
-    select: () => ({
-      from: () => ({
-        where: () => ({
-          limit: () => Promise.resolve([]),
-        }),
-      }),
-    }),
+    select: () => emptyQueryBuilder(),
     _insertedRows: insertedRows,
   };
 
