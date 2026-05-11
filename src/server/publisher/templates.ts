@@ -99,13 +99,6 @@ const templates: Record<EventType, TemplateFn> = {
     return `🔪 Эйс редким оружием! ${playerTag(user)}${mapStr}${weaponsStr}`;
   },
 
-  clutch_1vN: (payload, user, match) => {
-    const n = payload['n'] ?? payload['kills'] ?? '?';
-    const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
-    const opponentsStr = renderOpponentsPeak(payload);
-    return `🥷 Клатч 1v${esc(String(n))}! ${playerTag(user)} вытащил раунд${mapStr}${opponentsStr}`;
-  },
-
   rank_promo: (payload, user, _match) => {
     const toRank = payload['to'] != null ? String(payload['to']) : null;
     const toIcon = rankToEmojiHtml(toRank);
@@ -132,14 +125,9 @@ const templates: Record<EventType, TemplateFn> = {
     return `⚔️ Гигантоборец! ${playerTag(user)} взял команду${enemyAvg}${own}`;
   },
 
-  comeback: (payload, user, _match) => {
+  return_after_pause: (payload, user, _match) => {
     const days = payload['days_paused'] ? `${esc(String(payload['days_paused']))} дней` : 'долгого перерыва';
     return `👋 С возвращением! ${playerTag(user)} снова в строю после ${days}`;
-  },
-
-  lostrick_9: (payload, user, _match) => {
-    const streak = payload['streak'] ?? 9;
-    return `🌧️ ${streak} поражений подряд у ${playerTag(user)} — держись, всё пройдёт!`;
   },
 
   teamkill: (payload, user, _match) => {
@@ -152,11 +140,6 @@ const templates: Record<EventType, TemplateFn> = {
     const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
     const count = payload['count'] ? ` (${esc(String(payload['count']))}×)` : '';
     return `🤡 ${playerTag(user)} встретился с гравитацией${mapStr}${count}`;
-  },
-
-  zero_match: (payload, user, _match) => {
-    const rounds = payload['rounds'] ? `${esc(String(payload['rounds']))} раундов` : '? раундов';
-    return `😬 Нулевой матч у ${playerTag(user)} (${rounds}) — бывает!`;
   },
 };
 

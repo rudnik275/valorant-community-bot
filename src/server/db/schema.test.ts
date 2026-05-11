@@ -92,7 +92,7 @@ describe('DB schema', () => {
 
     // Insert first event
     db.insert(detectedEvents).values({
-      event_type: 'clutch_1vN',
+      event_type: 'ace',
       riot_puuid: 'puuid-xyz-456',
       match_id: 'match-002',
       payload_json: '{"n":3}',
@@ -101,7 +101,7 @@ describe('DB schema', () => {
     // Duplicate insert should throw
     expect(() => {
       db.insert(detectedEvents).values({
-        event_type: 'clutch_1vN',
+        event_type: 'ace',
         riot_puuid: 'puuid-xyz-456',
         match_id: 'match-002',
         payload_json: '{"n":5}',

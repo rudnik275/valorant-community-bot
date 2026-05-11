@@ -139,7 +139,7 @@ describe('startDetectionListener — opponent peak augmentation', () => {
     expect(payload.opponents_peak['enemy-2']).toMatchObject({ tier_name: 'Ascendant 1' });
   });
 
-  it('does NOT add opponents_peak to non-ace/clutch events (e.g., zero_match)', async () => {
+  it('does NOT add opponents_peak to non-ace events (e.g., fall_damage_death)', async () => {
     const getOpponentPeakRanksFn = vi.fn().mockResolvedValue(new Map());
 
     const db = makeMockDb();
@@ -150,10 +150,10 @@ describe('startDetectionListener — opponent peak augmentation', () => {
       getOpponentPeakRanksFn,
     });
 
-    // 0 kills → triggers zero_match, no ace/clutch
+    // fall_damage_kills > 0 → triggers fall_damage_death, no ace
     const record = makeRecord({
-      kills: 0,
-      result: 'loss',
+      kills: 3,
+      fall_damage_kills: 2,
       kill_events_compact: '[]',
     });
 
@@ -162,11 +162,11 @@ describe('startDetectionListener — opponent peak augmentation', () => {
 
     cleanup();
 
-    const zeroMatchRow = db._insertedRows.find((r) => r.event_type === 'zero_match');
-    expect(zeroMatchRow).toBeDefined();
-    const payload = JSON.parse(zeroMatchRow!.payload_json);
+    const fallRow = db._insertedRows.find((r) => r.event_type === 'fall_damage_death');
+    expect(fallRow).toBeDefined();
+    const payload = JSON.parse(fallRow!.payload_json);
     expect(payload.opponents_peak).toBeUndefined();
-    // getOpponentPeakRanks should NOT be called (no ace/clutch events)
+    // getOpponentPeakRanks should NOT be called (no ace events)
     expect(getOpponentPeakRanksFn).not.toHaveBeenCalled();
   });
 

@@ -8,8 +8,6 @@
  * Covers:
  * - A pending event transitions to 'posted' and sendMessage is called with
  *   HTML-templated text and correct parse_mode.
- * - A second pending event for the same user in the same day is 'digest-only'
- *   (user quota = 1/day) — second event stays out of chat.
  * - Opted-out user event becomes 'opted-out' without calling sendMessage.
  */
 
@@ -97,7 +95,7 @@ function getEventStatus(sqlite: Database.Database, id: number): string {
   return row?.status ?? 'NOT_FOUND';
 }
 
-// A Kyiv time past noon so the publisher is not blocked by quiet-hours
+// A Kyiv time value (no longer used for quiet-hours gate, kept for interface compat)
 const AFTER_NOON: KyivTime = { hour: 14, today_start_ms: 0 };
 
 async function runOneTick(stopFn: () => void) {
@@ -167,11 +165,10 @@ describe('e2e: publisher loop', () => {
     expect(calledText).toContain('Эйс');
   });
 
-  it('second pending event for the same user becomes digest-only (user quota = 1/day)', async () => {
+  it('second pending event for the same user is also posted (no antispam quota)', async () => {
     seedUser(sqlite, 1002, 'e2e-puuid-pub-2');
-    const now = Date.now();
-    const todayStart = now - 3600000; // 1h ago
 
+    const now = Date.now();
     const id1 = seedPendingEvent(sqlite, {
       puuid: 'e2e-puuid-pub-2',
       eventType: 'ace',
@@ -188,7 +185,7 @@ describe('e2e: publisher loop', () => {
     const stop1 = startPublisherLoop({
       db,
       sendMessage,
-      getNowKyiv: () => ({ ...AFTER_NOON, today_start_ms: todayStart }),
+      getNowKyiv: () => ({ ...AFTER_NOON, today_start_ms: Date.now() - 86400000 }),
       getPrimaryChatId: () => -1009998887777,
       intervalCron: '* * * * * *',
     });
@@ -197,18 +194,18 @@ describe('e2e: publisher loop', () => {
     expect(getEventStatus(sqlite, id1)).toBe('posted');
     expect(sendMessage).toHaveBeenCalledTimes(1);
 
-    // Second tick: id2 is from same user → digest-only
+    // Second tick: id2 from same user — no quota, also posted
     const stop2 = startPublisherLoop({
       db,
       sendMessage,
-      getNowKyiv: () => ({ ...AFTER_NOON, today_start_ms: todayStart }),
+      getNowKyiv: () => ({ ...AFTER_NOON, today_start_ms: Date.now() - 86400000 }),
       getPrimaryChatId: () => -1009998887777,
       intervalCron: '* * * * * *',
     });
     await runOneTick(stop2);
 
-    expect(getEventStatus(sqlite, id2)).toBe('digest-only');
-    expect(sendMessage).toHaveBeenCalledTimes(1); // no second call
+    expect(getEventStatus(sqlite, id2)).toBe('posted');
+    expect(sendMessage).toHaveBeenCalledTimes(2);
   });
 
   it('opted-out user event becomes opted-out without calling sendMessage', async () => {
@@ -230,7 +227,7 @@ describe('e2e: publisher loop', () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  it('all 11 event types render without throwing (template coverage)', async () => {
+  it('all 8 active event types render without throwing (template coverage)', async () => {
     // One user for all event types
     seedUser(sqlite, 1004, 'e2e-puuid-pub-4', { riotName: 'MultiEvent', riotTag: 'ME1' });
 
@@ -238,21 +235,14 @@ describe('e2e: publisher loop', () => {
     const eventTypes = [
       ['ace',               { rounds: [3] }],
       ['ace_rare_weapon',   { weapons: ['Classic'] }],
-      ['clutch_1vN',        { n: 4, kills: 4 }],
       ['rank_promo',        { from: 'Bronze 1', to: 'Bronze 2' }],
       ['winstreak_9',       { streak: 9 }],
       ['giant_slayer',      { enemy_avg: 'Gold 1', own: 'Silver 3' }],
-      ['comeback',          { days_paused: 14 }],
-      ['lostrick_9',        { streak: 9 }],
+      ['return_after_pause', { days_paused: 14 }],
       ['teamkill',          { round_numbers: [2, 8], count: 2 }],
       ['fall_damage_death', { count: 1 }],
-      ['zero_match',        { rounds: 6 }],
     ] as const;
 
-    // Only test the first event type per loop (quota resets between tests)
-    // We want to confirm each template renders without error, so we post them
-    // one at a time using fresh loops and bumping today_start_ms to yesterday
-    // so quota is always 0.
     for (let i = 0; i < eventTypes.length; i++) {
       const [type, payload] = eventTypes[i];
       const sendMsg = vi.fn().mockResolvedValue({ message_id: 100 + i });
@@ -266,7 +256,6 @@ describe('e2e: publisher loop', () => {
         detectedAt: now + i * 1000,
       });
 
-      // Use a today_start_ms far in the past so all previous posts don't count
       const stop = startPublisherLoop({
         db,
         sendMsg,
@@ -278,11 +267,8 @@ describe('e2e: publisher loop', () => {
 
       await runOneTick(stop);
 
-      // Each event should be posted (not silenced by quota — today_start_ms is 7 days ago)
       const status = getEventStatus(sqlite, evtId);
-      // Status may be 'posted' or 'digest-only' depending on quota state;
-      // the important thing is no error was thrown
-      expect(['posted', 'digest-only']).toContain(status);
+      expect(status).toBe('posted');
     }
   });
 });

@@ -6,15 +6,12 @@ export type MatchRecord = InferSelectModel<typeof matchRecords>;
 export type EventType =
   | 'ace'
   | 'ace_rare_weapon'
-  | 'clutch_1vN'
   | 'rank_promo'
   | 'winstreak_9'
   | 'giant_slayer'
-  | 'comeback'
-  | 'lostrick_9'
+  | 'return_after_pause'
   | 'teamkill'
-  | 'fall_damage_death'
-  | 'zero_match';
+  | 'fall_damage_death';
 
 export interface DetectedEvent {
   type: EventType;

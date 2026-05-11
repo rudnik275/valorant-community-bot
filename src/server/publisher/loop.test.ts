@@ -63,26 +63,6 @@ function seedPendingEvent(
   return result.lastInsertRowid as number;
 }
 
-function seedPostedEvent(
-  sqlite: Database.Database,
-  opts: {
-    puuid: string;
-    eventType?: string;
-    postedAt: number;
-  },
-) {
-  sqlite.prepare(
-    `INSERT INTO detected_events (event_type, riot_puuid, match_id, payload_json, detected_at, status, posted_at, posted_message_id)
-     VALUES (?, ?, ?, '{}', ?, 'posted', ?, 999)`,
-  ).run(
-    opts.eventType ?? 'ace',
-    opts.puuid,
-    `match-posted-${Date.now()}-${Math.random()}`,
-    opts.postedAt - 60000,
-    opts.postedAt,
-  );
-}
-
 function getEventStatus(sqlite: Database.Database, eventId: number): string {
   const row = sqlite.prepare('SELECT status FROM detected_events WHERE id = ?').get(eventId) as { status: string } | undefined;
   return row?.status ?? 'NOT_FOUND';
@@ -94,7 +74,6 @@ function getAllEventStatuses(sqlite: Database.Database): { id: number; status: s
 
 // Clock helpers
 const AFTER_NOON_KYIV: KyivTime = { hour: 14, today_start_ms: 0 };
-const BEFORE_NOON_KYIV: KyivTime = { hour: 10, today_start_ms: 0 };
 
 function makeLoop(
   db: ReturnType<typeof makeTestDb>['db'],
@@ -185,27 +164,27 @@ describe('startPublisherLoop', () => {
     });
   });
 
-  describe('quiet hours', () => {
-    it('leaves events pending when before 12:00 Kyiv', async () => {
+  describe('posts events at any hour', () => {
+    it('posts events before noon (no quiet hours gate)', async () => {
       seedUser(sqlite, 1, 'puuid-1');
       const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'ace' });
 
       const { stop } = makeLoop(db, sendMessage, {
-        kyivTime: { ...BEFORE_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
+        kyivTime: { hour: 10, today_start_ms: Date.now() - 86400000 },
       });
 
       await runOneTick(stop);
 
-      expect(getEventStatus(sqlite, id1)).toBe('pending');
-      expect(sendMessage).not.toHaveBeenCalled();
+      expect(getEventStatus(sqlite, id1)).toBe('posted');
+      expect(sendMessage).toHaveBeenCalledOnce();
     });
 
-    it('posts events after 12:00 Kyiv', async () => {
+    it('posts events after noon', async () => {
       seedUser(sqlite, 1, 'puuid-1');
       const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'ace' });
 
       const { stop } = makeLoop(db, sendMessage, {
-        kyivTime: { hour: 12, today_start_ms: Date.now() - 86400000 },
+        kyivTime: { hour: 14, today_start_ms: Date.now() - 86400000 },
       });
 
       await runOneTick(stop);
@@ -242,118 +221,6 @@ describe('startPublisherLoop', () => {
       await runOneTick(stop);
 
       expect(getEventStatus(sqlite, id1)).toBe('posted');
-    });
-  });
-
-  describe('chat quota: max 2 per day', () => {
-    it('3 pending events: first 2 posted, 3rd digest-only on subsequent ticks', async () => {
-      seedUser(sqlite, 1, 'puuid-1');
-      seedUser(sqlite, 2, 'puuid-2');
-      seedUser(sqlite, 3, 'puuid-3');
-
-      const now = Date.now();
-      const todayStart = now - 3600000; // 1h ago = today
-
-      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'ace', detectedAt: now - 3000 });
-      const id2 = seedPendingEvent(sqlite, { puuid: 'puuid-2', eventType: 'rank_promo', detectedAt: now - 2000 });
-      const id3 = seedPendingEvent(sqlite, { puuid: 'puuid-3', eventType: 'winstreak_9', detectedAt: now - 1000 });
-
-      const { stop: stop1 } = makeLoop(db, sendMessage, {
-        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: todayStart },
-      });
-      await runOneTick(stop1);
-      expect(getEventStatus(sqlite, id1)).toBe('posted');
-
-      const { stop: stop2 } = makeLoop(db, sendMessage, {
-        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: todayStart },
-      });
-      await runOneTick(stop2);
-      expect(getEventStatus(sqlite, id2)).toBe('posted');
-
-      const { stop: stop3 } = makeLoop(db, sendMessage, {
-        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: todayStart },
-      });
-      await runOneTick(stop3);
-      expect(getEventStatus(sqlite, id3)).toBe('digest-only');
-
-      expect(sendMessage).toHaveBeenCalledTimes(2);
-    });
-  });
-
-  describe('user quota: max 1 per user per day', () => {
-    it('2 pending from same user: first posted, second digest-only', async () => {
-      seedUser(sqlite, 1, 'puuid-1');
-
-      const now = Date.now();
-      const todayStart = now - 3600000;
-
-      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'ace', detectedAt: now - 2000 });
-      const id2 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'winstreak_9', detectedAt: now - 1000 });
-
-      const { stop: stop1 } = makeLoop(db, sendMessage, {
-        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: todayStart },
-      });
-      await runOneTick(stop1);
-      expect(getEventStatus(sqlite, id1)).toBe('posted');
-
-      const { stop: stop2 } = makeLoop(db, sendMessage, {
-        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: todayStart },
-      });
-      await runOneTick(stop2);
-      expect(getEventStatus(sqlite, id2)).toBe('digest-only');
-
-      expect(sendMessage).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe('antistat quota: max 1 per day', () => {
-    it('2 antistat events: first posted, second digest-only', async () => {
-      seedUser(sqlite, 1, 'puuid-1');
-      seedUser(sqlite, 2, 'puuid-2');
-
-      const now = Date.now();
-      const todayStart = now - 3600000;
-
-      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'lostrick_9', detectedAt: now - 2000 });
-      const id2 = seedPendingEvent(sqlite, { puuid: 'puuid-2', eventType: 'fall_damage_death', detectedAt: now - 1000 });
-
-      const { stop: stop1 } = makeLoop(db, sendMessage, {
-        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: todayStart },
-      });
-      await runOneTick(stop1);
-      expect(getEventStatus(sqlite, id1)).toBe('posted');
-
-      const { stop: stop2 } = makeLoop(db, sendMessage, {
-        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: todayStart },
-      });
-      await runOneTick(stop2);
-      expect(getEventStatus(sqlite, id2)).toBe('digest-only');
-
-      expect(sendMessage).toHaveBeenCalledTimes(1);
-    });
-
-    it('antistat + non-antistat: both can post (antistat quota only for antistats)', async () => {
-      seedUser(sqlite, 1, 'puuid-1');
-      seedUser(sqlite, 2, 'puuid-2');
-
-      const now = Date.now();
-      const todayStart = now - 3600000;
-
-      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'lostrick_9', detectedAt: now - 2000 });
-      const id2 = seedPendingEvent(sqlite, { puuid: 'puuid-2', eventType: 'ace', detectedAt: now - 1000 });
-
-      const { stop: stop1 } = makeLoop(db, sendMessage, {
-        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: todayStart },
-      });
-      await runOneTick(stop1);
-      expect(getEventStatus(sqlite, id1)).toBe('posted');
-
-      const { stop: stop2 } = makeLoop(db, sendMessage, {
-        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: todayStart },
-      });
-      await runOneTick(stop2);
-      // ace is not an antistat — can still post despite antistat_count=1
-      expect(getEventStatus(sqlite, id2)).toBe('posted');
     });
   });
 
@@ -533,7 +400,7 @@ describe('startPublisherLoop', () => {
 
       const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'ace' });
       const id2 = seedPendingEvent(sqlite, { puuid: 'puuid-2', eventType: 'winstreak_9' });
-      const id3 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'lostrick_9' });
+      const id3 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'teamkill' });
 
       const future = new Date(Date.now() + 999999).toISOString();
       vi.stubEnv('EVENTS_PUBLISHING_ENABLED_AFTER', future);

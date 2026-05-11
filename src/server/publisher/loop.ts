@@ -2,44 +2,19 @@
  * loop.ts — Publisher loop that reads pending detected_events and posts them.
  *
  * Runs every minute via croner. On each tick:
- * 1. Compute current Kyiv time and today's start in ms.
- * 2. If EVENTS_PUBLISHING_ENABLED_AFTER is in the future → mark all pending as 'silent'.
- * 3. If before 12:00 Kyiv → defer (skip this tick).
- * 4. Fetch the oldest pending event.
- * 5. Apply anti-spam quotas via decide().
- * 6. Either post, update status, or defer.
- *
- * Kyiv timezone: Europe/Kyiv (UTC+2 in winter, UTC+3 in summer / DST).
- * We use Intl.DateTimeFormat formatToParts to robustly extract date components,
- * then reconstruct today's midnight in Kyiv by parsing a local ISO string.
- *
- * Approach for today_start_ms:
- *   - Format "now" in Europe/Kyiv → extract year/month/day parts.
- *   - Build a string like "YYYY-MM-DDT00:00:00" and parse it in Kyiv timezone.
- *   - We use Intl to get the UTC offset at midnight so we can do Date.parse correctly.
- *   - Simpler: use `new Date(Date.UTC(y, m-1, d))` then subtract the Kyiv offset at midnight.
- *   - Simplest robust approach: format "YYYY-MM-DD 00:00:00" then use another Intl call
- *     to compute what UTC ms that corresponds to. We pick the simplest: format date string
- *     as "YYYY-MM-DDTHH:MM:SS" in Kyiv, parse back. Since we can't directly, we use:
- *     compute now_kyiv_parts → build `YYYY-MM-DDT00:00:00` → get UTC ms via a binary
- *     approach: find UTC ms where Kyiv date matches. But that's overengineered.
- *   - Practical: Kyiv is UTC+2 or UTC+3. We format "now" to get Kyiv date string,
- *     then try midnight UTC+2 and UTC+3, pick whichever gives matching Kyiv date.
- *     Actually simplest correct approach: use date-fns-tz (not a dep) or the manual calc:
- *     build ISO string "YYYY-MM-DDT00:00:00+03:00" — this approximates (may be off by 1h
- *     near DST boundaries). For our use-case (determining "today's posts") this is fine.
- *     The spec itself suggests: `Date.parse(date_str + 'T00:00:00+03:00')` noting "Kyiv is UTC+3".
- *   - We follow the spec suggestion with a note: may be off by 1h near spring/autumn DST.
- *     For a gaming community bot, this is acceptable.
+ * 1. If EVENTS_PUBLISHING_ENABLED_AFTER is in the future → mark all pending as 'silent'.
+ * 2. Fetch the oldest pending event.
+ * 3. Apply opt-out check via decide().
+ * 4. Either post or update status.
  */
 
 import { Cron } from 'croner';
-import { eq, and, gte, inArray, sql } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { detectedEvents } from '../db/schema/detected_events.ts';
 import { users } from '../db/schema/users.ts';
 import { optOuts } from '../db/schema/opt_outs.ts';
 import { matchRecords } from '../db/schema/match_records.ts';
-import { decide, ANTISTAT_TYPES } from './decide.ts';
+import { decide } from './decide.ts';
 import { renderTemplate } from './templates.ts';
 import type { EventType } from './types.ts';
 import logger from '../lib/log.ts';
@@ -55,40 +30,6 @@ export interface KyivTime {
   today_start_ms: number;
 }
 
-/**
- * Compute current Kyiv time info.
- *
- * Uses Intl.DateTimeFormat to extract date parts in Europe/Kyiv, then
- * constructs today's midnight as `YYYY-MM-DDT00:00:00+03:00` per spec.
- * (May be ±1h near DST boundaries — acceptable for anti-spam use case.)
- */
-export function getKyivTime(nowMs?: number): KyivTime {
-  const now = nowMs ?? Date.now();
-
-  const fmt = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Kyiv',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    hour12: false,
-  });
-
-  const parts = fmt.formatToParts(now);
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '00';
-
-  const year = get('year');
-  const month = get('month');
-  const day = get('day');
-  const hour = parseInt(get('hour'), 10);
-
-  // Build today_start_ms as midnight Kyiv (using UTC+3 approximation per spec)
-  const dateStr = `${year}-${month}-${day}T00:00:00+03:00`;
-  const today_start_ms = Date.parse(dateStr);
-
-  return { hour, today_start_ms };
-}
-
 export interface PublisherLoopDeps {
   db: AnyDb;
   /** Send a message to a chat. Should use safeSendMessage. */
@@ -99,7 +40,7 @@ export interface PublisherLoopDeps {
   ) => Promise<{ message_id: number }>;
   /** Get the primary chat ID to post to. Defaults to TELEGRAM_PRIMARY_CHAT_ID env var. */
   getPrimaryChatId?: () => number;
-  /** Injectable Kyiv time for testing. */
+  /** Injectable Kyiv time for testing (kept for API compatibility). */
   getNowKyiv?: () => KyivTime;
   /** Override cron expression for tests. */
   intervalCron?: string;
@@ -116,13 +57,9 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
   const getPrimaryChatId = deps.getPrimaryChatId
     ?? (() => Number(process.env['TELEGRAM_PRIMARY_CHAT_ID'] ?? '0'));
 
-  const getNowKyiv = deps.getNowKyiv ?? getKyivTime;
-
   async function runTick(): Promise<void> {
     try {
       const nowMs = Date.now();
-      const kyivTime = getNowKyiv();
-      const { hour, today_start_ms } = kyivTime;
 
       // Step 1: Check if publishing period has started
       if (!isPublishingEnabled(new Date(nowMs))) {
@@ -141,13 +78,7 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
         return;
       }
 
-      // Step 2: Quiet hours check — before 12:00 Kyiv
-      if (hour < 12) {
-        logger.debug({ module: 'publisher', hour }, 'Quiet hours — skipping publisher tick');
-        return;
-      }
-
-      // Step 3: Fetch the oldest pending event
+      // Step 2: Fetch the oldest pending event
       const [pendingEvent] = await db
         .select()
         .from(detectedEvents)
@@ -163,7 +94,7 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
       const eventType = pendingEvent.event_type as EventType;
       const puuid = pendingEvent.riot_puuid as string;
 
-      // Step 4: Fetch user info
+      // Step 3: Fetch user info
       const [userRow] = await db
         .select()
         .from(users)
@@ -181,7 +112,7 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
 
       const telegramId = userRow.telegram_id as number;
 
-      // Step 5: Check opt-out
+      // Step 4: Check opt-out
       const [optOutRow] = await db
         .select()
         .from(optOuts)
@@ -190,53 +121,11 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
 
       const is_opted_out = optOutRow?.chat_realtime_disabled === 1;
 
-      // Step 6: Compute counters
-      const [chatCountRow] = await db
-        .select({ count: sql<number>`COUNT(*)` })
-        .from(detectedEvents)
-        .where(
-          and(
-            eq(detectedEvents.status, 'posted'),
-            gte(detectedEvents.posted_at, today_start_ms),
-          ),
-        );
-
-      const [userCountRow] = await db
-        .select({ count: sql<number>`COUNT(*)` })
-        .from(detectedEvents)
-        .where(
-          and(
-            eq(detectedEvents.status, 'posted'),
-            gte(detectedEvents.posted_at, today_start_ms),
-            eq(detectedEvents.riot_puuid, puuid),
-          ),
-        );
-
-      const antistatTypesList = [...ANTISTAT_TYPES] as string[];
-      const [antistatCountRow] = await db
-        .select({ count: sql<number>`COUNT(*)` })
-        .from(detectedEvents)
-        .where(
-          and(
-            eq(detectedEvents.status, 'posted'),
-            gte(detectedEvents.posted_at, today_start_ms),
-            inArray(detectedEvents.event_type, antistatTypesList),
-          ),
-        );
-
-      const today_chat_count = Number(chatCountRow?.count ?? 0);
-      const today_user_count = Number(userCountRow?.count ?? 0);
-      const today_antistat_count = Number(antistatCountRow?.count ?? 0);
-
-      // Step 7: Decide
+      // Step 5: Decide
       const decision = decide({
         event: { event_type: eventType, riot_puuid: puuid },
-        today_chat_count,
-        today_user_count,
-        today_antistat_count,
         is_opted_out,
         events_publishing_enabled: true, // already checked above
-        in_quiet_hours: false,           // already checked above
       });
 
       logger.info(
@@ -245,21 +134,13 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
           event_id: eventId,
           event_type: eventType,
           decision,
-          today_chat_count,
-          today_user_count,
-          today_antistat_count,
           is_opted_out,
         },
         'Publisher decision',
       );
 
-      // Step 8: Act on decision
-      if (decision === 'defer') {
-        // Don't update status — try again next tick
-        return;
-      }
-
-      if (decision === 'silent' || decision === 'opted-out' || decision === 'digest-only') {
+      // Step 6: Act on decision
+      if (decision === 'silent' || decision === 'opted-out') {
         await db
           .update(detectedEvents)
           .set({ status: decision })
