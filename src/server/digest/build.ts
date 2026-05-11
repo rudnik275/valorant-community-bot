@@ -43,7 +43,7 @@ const EVENT_WEIGHTS: Record<string, number> = {
   giant_slayer: 6,
   return_after_pause: 5,
   rank_promo: 5,
-  winstreak_9: 4,
+  winstreak_10plus: 4,
 };
 
 function getEventWeight(eventType: string): number {
@@ -87,7 +87,7 @@ function renderDigestEpicLine(
       }
       return `🌟 Самый яркий момент недели — апгрейд ранга у ${name}`;
     }
-    case 'winstreak_9': {
+    case 'winstreak_10plus': {
       const streak = payload['streak'] ?? 9;
       return `🌟 Самый яркий момент недели — ${esc(String(streak))} побед подряд у ${name}`;
     }

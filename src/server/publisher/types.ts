@@ -7,7 +7,7 @@ export type EventType =
   | 'ace'
   | 'ace_rare_weapon'
   | 'rank_promo'
-  | 'winstreak_9'
+  | 'winstreak_10plus'
   | 'giant_slayer'
   | 'return_after_pause'
   | 'teamkill'
@@ -22,8 +22,8 @@ export interface DetectedEvent {
   payload: Record<string, unknown>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export interface DetectorDeps {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   db: any;
 }
 

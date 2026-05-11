@@ -32,28 +32,47 @@ const BASE_RECORD: MatchRecord = {
 };
 
 describe('giantSlayerDetector', () => {
-  it('detects giant slayer when enemy is 2 tiers higher (Silver vs Platinum)', () => {
-    // Silver=3, Platinum=5, delta=2 → qualifies
+  it('detects giant slayer when enemy is 2 macro tiers higher (Silver vs Platinum)', () => {
+    // Silver=3, Platinum=5, delta=2 → qualifies (≥2 macro tiers)
     const events = giantSlayerDetector.detect(BASE_RECORD, []);
     expect(events).toHaveLength(1);
     expect(events[0]!.type).toBe('giant_slayer');
-    expect(events[0]!.payload.delta).toBeGreaterThanOrEqual(1.5);
+    expect(events[0]!.payload.delta).toBeGreaterThanOrEqual(2);
   });
 
-  it('detects giant slayer at exact threshold 1.5', () => {
-    // Bronze=2, Gold=4 → delta=2 → qualifies; we need delta exactly 1.5 which is between tiers
-    // Iron=1, Gold=4 would be 3; Diamond=6 vs Ascendant=7 is 1 tier, not enough
-    // Use Silver=3, Ascendant=7 → delta=4 → qualifies
+  it('detects giant slayer at exact threshold 2 (Silver vs Platinum boundary)', () => {
+    // Silver=3, Platinum=5 → delta=2 → exactly at threshold → qualifies
     const record: MatchRecord = {
       ...BASE_RECORD,
       rank_after: 'Silver 3',
-      enemy_avg_rank: 'Ascendant',
+      enemy_avg_rank: 'Platinum',
     };
     const events = giantSlayerDetector.detect(record, []);
     expect(events).toHaveLength(1);
   });
 
-  it('does NOT emit when delta is less than 1.5 (1 tier difference)', () => {
+  it('detects giant slayer: Gold I vs Diamond III (delta=2 macro, ignoring subtier)', () => {
+    // Gold=4, Diamond=6 → delta=2 → qualifies
+    const record: MatchRecord = {
+      ...BASE_RECORD,
+      rank_after: 'Gold 1',
+      enemy_avg_rank: 'Diamond 3',
+    };
+    const events = giantSlayerDetector.detect(record, []);
+    expect(events).toHaveLength(1);
+  });
+
+  it('does NOT emit when delta is 1 (Gold III vs Platinum I — 1 macro tier)', () => {
+    // Gold=4, Platinum=5 → delta=1 → not enough
+    const record: MatchRecord = {
+      ...BASE_RECORD,
+      rank_after: 'Gold 3',
+      enemy_avg_rank: 'Platinum 1',
+    };
+    expect(giantSlayerDetector.detect(record, [])).toHaveLength(0);
+  });
+
+  it('does NOT emit when delta is less than 2 (1 tier difference — Silver vs Gold)', () => {
     // Silver=3, Gold=4 → delta=1 → not enough
     const record: MatchRecord = {
       ...BASE_RECORD,

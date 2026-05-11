@@ -45,7 +45,7 @@ describe('decide()', () => {
     });
 
     it('returns post for any event type when not opted out', () => {
-      const types: EventType[] = ['ace', 'ace_rare_weapon', 'rank_promo', 'winstreak_9', 'giant_slayer', 'return_after_pause', 'teamkill', 'fall_damage_death'];
+      const types: EventType[] = ['ace', 'ace_rare_weapon', 'rank_promo', 'winstreak_10plus', 'giant_slayer', 'return_after_pause', 'teamkill', 'fall_damage_death'];
       for (const eventType of types) {
         expect(decide(makeCtx({ event: { event_type: eventType, riot_puuid: 'puuid-1' } }))).toBe('post');
       }

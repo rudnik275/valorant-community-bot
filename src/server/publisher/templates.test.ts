@@ -6,7 +6,7 @@ const ALL_EVENT_TYPES: EventType[] = [
   'ace',
   'ace_rare_weapon',
   'rank_promo',
-  'winstreak_9',
+  'winstreak_10plus',
   'giant_slayer',
   'return_after_pause',
   'teamkill',
@@ -31,7 +31,7 @@ const minimalPayloads: Record<EventType, Record<string, unknown>> = {
   ace: {},
   ace_rare_weapon: {},
   rank_promo: {},
-  winstreak_9: {},
+  winstreak_10plus: {},
   giant_slayer: {},
   return_after_pause: {},
   teamkill: {},
@@ -131,9 +131,9 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).not.toContain('<tg-emoji');
   });
 
-  it('winstreak_9: shows streak count', () => {
-    const output = renderTemplate('winstreak_9', { streak: 9 }, safeUser);
-    expect(output).toContain('9');
+  it('winstreak_10plus: shows streak count', () => {
+    const output = renderTemplate('winstreak_10plus', { streak: 10 }, safeUser);
+    expect(output).toContain('10');
   });
 
   it('giant_slayer: shows enemy avg rank', () => {
