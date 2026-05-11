@@ -10,6 +10,9 @@ import { fallDamageDeathDetector } from './fall-damage-death.ts';
 import { recordKillsMatchDetector } from './record-kills-match.ts';
 import { recordDamageDealtMatchDetector } from './record-damage-dealt-match.ts';
 import { recordDamageReceivedMatchDetector } from './record-damage-received-match.ts';
+import { recordDeathsMatchDetector } from './record-deaths-match.ts';
+import { recordHeadshotsMatchDetector } from './record-headshots-match.ts';
+import { recordLegshotsMatchDetector } from './record-legshots-match.ts';
 import { knifeKillDetector } from './knife-kill.ts';
 import { matchComebackDetector } from './match-comeback.ts';
 import { communityClashDetector } from './community-clash.ts';
@@ -26,6 +29,9 @@ export const ALL_DETECTORS: Detector[] = [
   recordKillsMatchDetector,
   recordDamageDealtMatchDetector,
   recordDamageReceivedMatchDetector,
+  recordDeathsMatchDetector,
+  recordHeadshotsMatchDetector,
+  recordLegshotsMatchDetector,
   knifeKillDetector,
   matchComebackDetector,
   communityClashDetector,
