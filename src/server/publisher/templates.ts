@@ -93,13 +93,23 @@ const templates: Record<EventType, TemplateFn> = {
     return `🎯 <b>AAAAAAACE!</b> ${playerTag(user)} — 5 фрагов в раунде${roundCount}${mapStr}${matchLink}${opponentsStr}`;
   },
 
-  ace_rare_weapon: (payload, user, match) => {
-    const weapons = Array.isArray(payload['weapons']) ? payload['weapons'] : [];
-    const weaponsStr = weapons.length > 0
-      ? ` (${weapons.map((w) => esc(String(w))).join(', ')})`
-      : '';
+  ace_rare_weapon_week: (payload, user, match) => {
+    const weaponsPerRound = Array.isArray(payload['weapons_per_round']) ? payload['weapons_per_round'] as string[][] : [];
+    const KNIFE_TOKENS = new Set(['Knife', '2f59173c-4bed-b6c3-2191-dea9b58be9c7']);
+    const CLASSIC_TOKENS = new Set(['Classic', '29a0cfab-485b-f5d5-779a-b59f85e204a8']);
+
+    const rareNames = new Set<string>();
+    for (const round of weaponsPerRound) {
+      if (!Array.isArray(round)) continue;
+      for (const w of round) {
+        if (KNIFE_TOKENS.has(w)) rareNames.add('Knife');
+        else if (CLASSIC_TOKENS.has(w)) rareNames.add('Classic');
+      }
+    }
+    const weaponStr = Array.from(rareNames).join(', ') || 'редким';
     const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
-    return `🔪 Эйс редким оружием! ${playerTag(user)}${mapStr}${weaponsStr}`;
+    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
+    return `💎 ${playerTag(user)} знает толк в извращениях. Эйс — <b>${esc(weaponStr)}</b>${mapStr}${matchLink}`;
   },
 
   rank_promo: (payload, user, _match) => {

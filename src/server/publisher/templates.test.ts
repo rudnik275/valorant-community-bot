@@ -4,7 +4,7 @@ import type { EventType } from './types.ts';
 
 const ALL_EVENT_TYPES: EventType[] = [
   'ace',
-  'ace_rare_weapon',
+  'ace_rare_weapon_week',
   'rank_promo',
   'winstreak_10plus',
   'giant_slayer',
@@ -30,7 +30,7 @@ const injectionUser = {
 
 const minimalPayloads: Record<EventType, Record<string, unknown>> = {
   ace: {},
-  ace_rare_weapon: {},
+  ace_rare_weapon_week: {},
   rank_promo: {},
   winstreak_10plus: {},
   giant_slayer: {},
@@ -105,10 +105,12 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('tracker.gg/valorant/match/abc123');
   });
 
-  it('ace_rare_weapon: shows weapons', () => {
-    const output = renderTemplate('ace_rare_weapon', { weapons: ['Odin', 'Ares'] }, safeUser);
-    expect(output).toContain('Odin');
-    expect(output).toContain('Ares');
+  it('ace_rare_weapon_week: shows Classic weapon from weapons_per_round', () => {
+    const output = renderTemplate('ace_rare_weapon_week', {
+      weapons_per_round: [['Classic', 'Classic', 'Vandal', 'Vandal', 'Classic']],
+    }, safeUser);
+    expect(output).toContain('Classic');
+    expect(output).toContain('знает толк в извращениях');
   });
 
   it('rank_promo: Ascendant 1 shows "Повышение по службе" heading + icon + full rank label', () => {
@@ -224,10 +226,11 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('tracker.gg/valorant/match/fall42');
   });
 
-  it('ace_rare_weapon: weapons are HTML-escaped', () => {
-    const output = renderTemplate('ace_rare_weapon', { weapons: ['<Odin>'] }, safeUser);
-    expect(output).not.toContain('<Odin>');
-    expect(output).toContain('&lt;Odin&gt;');
+  it('ace_rare_weapon_week: weapon name from rare set is HTML-escaped in fallback text', () => {
+    // When weapons_per_round has no known rare tokens, weaponStr falls back to 'редким'
+    const output = renderTemplate('ace_rare_weapon_week', { weapons_per_round: [['Vandal', 'Phantom']] }, safeUser);
+    expect(output).toContain('редким');
+    expect(output).toContain('знает толк в извращениях');
   });
 });
 

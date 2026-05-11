@@ -166,4 +166,62 @@ describe('startDetectionListener', () => {
 
     cleanup();
   });
+
+  it('inserts ace_rare_weapon_week with status=digest-only', async () => {
+    const cleanup = startDetectionListener({ db, getPrevRecords: async () => [] });
+
+    // Build a record that triggers the ace_rare_weapon_week detector:
+    // need exactly 5 kills in one round, ≥2 of them rare (Classic)
+    const kills = [
+      { round: 3, attacker_team: 'Blue', victim_team: 'Red', weapon: 'Classic', attacker_puuid: TARGET_PUUID, victim_puuid: 'e1' },
+      { round: 3, attacker_team: 'Blue', victim_team: 'Red', weapon: 'Classic', attacker_puuid: TARGET_PUUID, victim_puuid: 'e2' },
+      { round: 3, attacker_team: 'Blue', victim_team: 'Red', weapon: 'Vandal', attacker_puuid: TARGET_PUUID, victim_puuid: 'e3' },
+      { round: 3, attacker_team: 'Blue', victim_team: 'Red', weapon: 'Vandal', attacker_puuid: TARGET_PUUID, victim_puuid: 'e4' },
+      { round: 3, attacker_team: 'Blue', victim_team: 'Red', weapon: 'Phantom', attacker_puuid: TARGET_PUUID, victim_puuid: 'e5' },
+    ];
+    const record = makeRecord({
+      match_id: 'match-rare-weapon-001',
+      kill_events_compact: JSON.stringify(kills),
+    });
+
+    scannerEvents.emit('newRecord', record);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const rows = sqlite
+      .prepare("SELECT status FROM detected_events WHERE event_type = 'ace_rare_weapon_week' AND riot_puuid = ?")
+      .all(TARGET_PUUID) as { status: string }[];
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.status).toBe('digest-only');
+
+    cleanup();
+  });
+
+  it('inserts regular ace event with status=pending', async () => {
+    const cleanup = startDetectionListener({ db, getPrevRecords: async () => [] });
+
+    const kills = [
+      { round: 1, attacker_team: 'Blue', victim_team: 'Red', weapon: 'Vandal', attacker_puuid: TARGET_PUUID, victim_puuid: 'e1' },
+      { round: 1, attacker_team: 'Blue', victim_team: 'Red', weapon: 'Vandal', attacker_puuid: TARGET_PUUID, victim_puuid: 'e2' },
+      { round: 1, attacker_team: 'Blue', victim_team: 'Red', weapon: 'Vandal', attacker_puuid: TARGET_PUUID, victim_puuid: 'e3' },
+      { round: 1, attacker_team: 'Blue', victim_team: 'Red', weapon: 'Vandal', attacker_puuid: TARGET_PUUID, victim_puuid: 'e4' },
+      { round: 1, attacker_team: 'Blue', victim_team: 'Red', weapon: 'Vandal', attacker_puuid: TARGET_PUUID, victim_puuid: 'e5' },
+    ];
+    const record = makeRecord({
+      match_id: 'match-ace-pending-001',
+      kill_events_compact: JSON.stringify(kills),
+    });
+
+    scannerEvents.emit('newRecord', record);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const rows = sqlite
+      .prepare("SELECT status FROM detected_events WHERE event_type = 'ace' AND riot_puuid = ?")
+      .all(TARGET_PUUID) as { status: string }[];
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.status).toBe('pending');
+
+    cleanup();
+  });
 });

@@ -351,7 +351,7 @@ describe('buildDigest', () => {
   });
 
   describe('bright events ordering — weight-based', () => {
-    it('renders both ace_rare_weapon and ace (all bright events, not just top-1)', async () => {
+    it('renders both ace_rare_weapon_week and ace (all bright events, not just top-1)', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'PlayerAce', riotTag: 'ACE' });
       seedUser(sqlite, 2, 'p2', { riotName: 'PlayerRare', riotTag: 'RAR' });
 
@@ -359,7 +359,13 @@ describe('buildDigest', () => {
       seedMatch(sqlite, { puuid: 'p2', matchId: 'm2', startedAt: IN_WINDOW });
 
       seedEvent(sqlite, { puuid: 'p1', matchId: 'm1', eventType: 'ace', detectedAt: IN_WINDOW });
-      seedEvent(sqlite, { puuid: 'p2', matchId: 'm2', eventType: 'ace_rare_weapon', detectedAt: IN_WINDOW + 5000 });
+      seedEvent(sqlite, {
+        puuid: 'p2',
+        matchId: 'm2',
+        eventType: 'ace_rare_weapon_week',
+        payload: { weapons_per_round: [['Classic', 'Classic', 'Vandal', 'Vandal', 'Phantom']] },
+        detectedAt: IN_WINDOW + 5000,
+      });
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
 
@@ -367,7 +373,7 @@ describe('buildDigest', () => {
       expect(result.text).toContain('PlayerAce');
       expect(result.text).toContain('PlayerRare');
       expect(result.sectionsIncluded).toContain('ace');
-      expect(result.sectionsIncluded).toContain('ace_rare_weapon');
+      expect(result.sectionsIncluded).toContain('ace_rare_weapon_week');
     });
   });
 
