@@ -21,6 +21,7 @@ const ALL_EVENT_TYPES: EventType[] = [
   'match_comeback',
   'record_mvp_count_week',
   'community_clash',
+  'record_kills_per_weapon',
 ];
 
 const safeUser = {
@@ -54,6 +55,7 @@ const minimalPayloads: Record<EventType, Record<string, unknown>> = {
   match_comeback: {},
   record_mvp_count_week: { value: 5, prev_value: null, prev_puuid: null },
   community_clash: { teams: [], winner_team_id: null },
+  record_kills_per_weapon: { weapon: 'Operator', value: 5, prev_value: 3, prev_puuid: 'other-puuid', prev_name: 'OldHolder', prev_tag: 'OLD', real_match_id: 'match-xyz' },
 };
 
 describe('esc()', () => {

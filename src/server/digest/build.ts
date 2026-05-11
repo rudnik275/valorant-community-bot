@@ -56,6 +56,7 @@ const BRIGHT_EVENT_WEIGHTS: Record<string, number> = {
   record_headshots_match: 7,
   record_legshots_match: 7,
   record_mvp_count_week: 7,
+  record_kills_per_weapon: 7,
   giant_slayer: 6,
   winstreak_10plus: 4,
   rank_promo: 3,
@@ -224,6 +225,27 @@ function renderBrightBlock(
         }
       }
       return `🏅 <b>${name} отказался от личной жизни</b> и взял ${esc(String(value))} MVP-матчей за неделю${prevLine}`;
+    }
+    case 'record_kills_per_weapon': {
+      const weapon = payload['weapon'] ?? '?';
+      const value = payload['value'];
+      const prevValue = payload['prev_value'];
+      const prevName = payload['prev_name'];
+      const prevTag = payload['prev_tag'];
+      // real_match_id is kept in payload; ev.match_id is synthetic (match_id#kpw-WEAPON)
+      const realMatchId = payload['real_match_id'];
+      const matchLink = realMatchId
+        ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(realMatchId))}">→ матч</a>`
+        : '';
+      let prevStr = '';
+      if (prevValue !== null && prevValue !== undefined) {
+        if (prevName) {
+          prevStr = ` (прошлый: ${esc(String(prevValue))}, у <b>${esc(String(prevName))}${prevTag ? '#' + esc(String(prevTag)) : ''}</b>)`;
+        } else {
+          prevStr = ` (прошлый: ${esc(String(prevValue))})`;
+        }
+      }
+      return `🔫 <b>Рекорд из ${esc(String(weapon))}:</b> ${name} — ${esc(String(value))} фрагов${mapStr}${prevStr}${matchLink}`;
     }
     default:
       return null;
@@ -431,17 +453,26 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
 
       const payload = safeParseJson(ev.payload_json as string);
 
+      // record_kills_per_weapon uses a synthetic match_id (match_id#kpw-WEAPON) for dedup.
+      // The real match_id is stored in payload.real_match_id.
+      const realMatchId: string =
+        ev.event_type === 'record_kills_per_weapon'
+          ? String(payload['real_match_id'] ?? '')
+          : String(ev.match_id ?? '');
+
       // Fetch map from match_records
-      const [matchRow] = await db
-        .select({ map: matchRecords.map })
-        .from(matchRecords)
-        .where(
-          and(
-            eq(matchRecords.match_id, ev.match_id as string),
-            eq(matchRecords.riot_puuid, puuid),
-          ),
-        )
-        .limit(1);
+      const [matchRow] = realMatchId
+        ? await db
+            .select({ map: matchRecords.map })
+            .from(matchRecords)
+            .where(
+              and(
+                eq(matchRecords.match_id, realMatchId),
+                eq(matchRecords.riot_puuid, puuid),
+              ),
+            )
+            .limit(1)
+        : [undefined];
 
       const map: string | undefined = matchRow?.map ?? undefined;
 
@@ -457,6 +488,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       ) {
         payload['match_id'] = ev.match_id;
       }
+      // record_kills_per_weapon: real_match_id already present in payload; no injection needed
 
       const block = renderBrightBlock(ev.event_type as string, payload, user, map);
       if (block) {

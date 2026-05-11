@@ -21,7 +21,8 @@ export type EventType =
   | 'knife_kill'
   | 'match_comeback'
   | 'record_mvp_count_week'
-  | 'community_clash';
+  | 'community_clash'
+  | 'record_kills_per_weapon';
 
 export interface DetectedEvent {
   type: EventType;
