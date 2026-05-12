@@ -3,7 +3,7 @@
  * records, dedup against existing rows, and insert new ones.
  */
 
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import {
   getMatches,
   getAccountByPuuid,
@@ -220,13 +220,20 @@ export async function scanForPuuid(
     return { newRecords: [], skippedDuplicates: 0 };
   }
 
-  // 6. Check which match_ids already exist
+  // 6. Check which match_ids already exist for THIS puuid.
+  // The PK is (riot_puuid, match_id), so the same match has one row per
+  // community player. We must scope the existence check by puuid — otherwise
+  // a row inserted earlier for a friend in the same lobby would mask this
+  // user's missing record and the scanner would silently skip them.
   const matchIds = derived.map((r) => r.match_id);
   const existingRows = await db
     .select({ match_id: matchRecords.match_id })
     .from(matchRecords)
     .where(
-      inArray(matchRecords.match_id, matchIds),
+      and(
+        eq(matchRecords.riot_puuid, puuid),
+        inArray(matchRecords.match_id, matchIds),
+      ),
     );
 
   const existingIds = new Set(existingRows.map((r: { match_id: string }) => r.match_id));

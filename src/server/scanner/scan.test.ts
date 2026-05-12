@@ -222,6 +222,33 @@ describe('scanForPuuid', () => {
     expect(result.skippedDuplicates).toBe(1);
   });
 
+  it('inserts target row when same match_id already exists for a DIFFERENT puuid', async () => {
+    // Regression: scanner used to dedup by match_id only, masking the target's
+    // missing row whenever a friend in the same lobby was scanned first.
+    seedUser();
+    // Seed a second community player (friend) and pre-insert their row for the
+    // SAME match_id. FK on match_records.riot_puuid → users requires the user row.
+    sqlite.exec(`INSERT INTO users (telegram_id, riot_puuid, riot_name, riot_tag, joined_at)
+      VALUES (222, 'other-friend-puuid', 'FriendPlayer', 'EU2', ${Date.now()})`);
+    sqlite.exec(`INSERT INTO match_records
+      (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result, rounds_played, kill_events_compact)
+      VALUES ('other-friend-puuid', 'shared-match-555', 1700000000000, 'Ascent', 'Sage', 12, 14, 8, 'loss', 25, '[]')`);
+
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify(makeFakeMatchResponse('shared-match-555')), { status: 200 }),
+    );
+
+    const result = await scanForPuuid(db, TARGET_PUUID, { detection: false });
+
+    expect(result.newRecords).toHaveLength(1);
+    expect(result.newRecords[0]!.match_id).toBe('shared-match-555');
+    expect(result.newRecords[0]!.riot_puuid).toBe(TARGET_PUUID);
+    expect(result.skippedDuplicates).toBe(0);
+
+    // Both rows must coexist (composite PK).
+    const rows = sqlite.prepare('SELECT riot_puuid FROM match_records WHERE match_id = ? ORDER BY riot_puuid').all('shared-match-555');
+    expect(rows).toHaveLength(2);
+  });
+
   it('returns gracefully on HenrikRateLimitError (429)', async () => {
     seedUser();
     // Use Retry-After: 0 so _blockedUntilMs = now+0 — block expires immediately
