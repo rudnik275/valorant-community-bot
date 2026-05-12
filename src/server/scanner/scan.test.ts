@@ -438,14 +438,17 @@ describe('scanForPuuid', () => {
 
   // ── Unexpected errors ───────────────────────────────────────────────────────
 
-  it('re-throws unexpected non-Henrik errors', async () => {
+  it('re-throws unexpected non-Henrik errors (after retries exhaust)', async () => {
+    // Network/fetch errors are now retried up to maxRetries with backoff (500ms+1s+...),
+    // so each Henrik endpoint call can take ~2s before propagating. Three endpoints
+    // (MMR + account + matches) before scanForPuuid throws → bump timeout.
     seedUser();
     fetchMock.mockRejectedValue(new Error('Network catastrophe'));
 
     await expect(
       scanForPuuid(db, TARGET_PUUID, { detection: false }),
     ).rejects.toThrow('Network catastrophe');
-  });
+  }, 30000);
 
   // ── Preserve known-good on partial Henrik response ──────────────────────────
 

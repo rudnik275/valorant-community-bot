@@ -14,11 +14,13 @@ export const detectedEvents = sqliteTable(
     status: text('status').notNull().default('pending'),
     posted_at: integer('posted_at'),
     posted_message_id: integer('posted_message_id'),
+    failed_attempts: integer('failed_attempts').notNull().default(0),
+    last_error: text('last_error'),
   },
   (table) => [
     index('idx_de_status_detected_at').on(table.status, table.detected_at),
     index('idx_de_puuid_detected_at').on(table.riot_puuid, table.detected_at),
     uniqueIndex('idx_de_match_event').on(table.match_id, table.event_type, table.riot_puuid),
-    check('status_check', sql`${table.status} IN ('pending','posted','digest-only','silent','opted-out')`),
+    check('status_check', sql`${table.status} IN ('pending','posted','digest-only','silent','opted-out','failed')`),
   ],
 );

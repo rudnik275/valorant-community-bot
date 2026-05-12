@@ -62,11 +62,37 @@ export function startDetectionListener(deps: DetectionDeps): () => void {
             .orderBy(desc(matchRecords.started_at))
             .limit(30);
 
-      // Run all detectors and collect all events for this record
-      const allEventsSync = ALL_DETECTORS.flatMap((detector) => detector.detect(record, prev));
-      const allEventsAsync = (await Promise.all(
-        ALL_DETECTORS.filter((d) => d.detectAsync).map((d) => d.detectAsync!(record, prev, { db })),
-      )).flat();
+      // Run sync detectors — each is wrapped so one throw doesn't drop the rest.
+      const allEventsSync = ALL_DETECTORS.flatMap((detector) => {
+        try {
+          return detector.detect(record, prev);
+        } catch (err) {
+          logger.warn(
+            { module: 'detect', match_id: record.match_id, detector_type: detector.type, err: (err as Error).message },
+            'Sync detector threw — skipping this detector for this record',
+          );
+          return [];
+        }
+      });
+      // Run async detectors with allSettled so one rejection (e.g. opponent_peak
+      // Henrik failure) doesn't lose every other event for the same record.
+      const asyncDetectors = ALL_DETECTORS.filter((d) => d.detectAsync);
+      const asyncResults = await Promise.allSettled(
+        asyncDetectors.map((d) => d.detectAsync!(record, prev, { db })),
+      );
+      const allEventsAsync = asyncResults.flatMap((r, i) => {
+        if (r.status === 'fulfilled') return r.value;
+        logger.warn(
+          {
+            module: 'detect',
+            match_id: record.match_id,
+            detector_type: asyncDetectors[i]!.type,
+            err: (r.reason as Error)?.message,
+          },
+          'Async detector rejected — skipping this detector for this record',
+        );
+        return [];
+      });
       const allEvents = [...allEventsSync, ...allEventsAsync];
 
       // Augment ace/clutch events with opponents' peak ranks before insert
@@ -139,23 +165,31 @@ export function startDetectionListener(deps: DetectionDeps): () => void {
         record_longest_match_rounds: 'digest-only',
       };
 
-      // Insert all events
+      // Insert all events. Each iteration is wrapped so a single CHECK / FK /
+      // JSON.stringify failure doesn't drop subsequent events of the same record.
       for (const ev of allEvents) {
-        const result = await db
-          .insert(detectedEvents)
-          .values({
-            event_type: ev.type,
-            riot_puuid: ev.riot_puuid,
-            match_id: ev.match_id,
-            payload_json: JSON.stringify(ev.payload),
-            status: INITIAL_STATUS[ev.type] ?? 'pending',
-          })
-          .onConflictDoNothing();
+        try {
+          const result = await db
+            .insert(detectedEvents)
+            .values({
+              event_type: ev.type,
+              riot_puuid: ev.riot_puuid,
+              match_id: ev.match_id,
+              payload_json: JSON.stringify(ev.payload),
+              status: INITIAL_STATUS[ev.type] ?? 'pending',
+            })
+            .onConflictDoNothing();
 
-        if (result.changes === 0) {
-          logger.debug(
-            { module: 'detect', event_type: ev.type, match_id: ev.match_id, riot_puuid: ev.riot_puuid },
-            'Duplicate detected event skipped (UNIQUE conflict)',
+          if (result.changes === 0) {
+            logger.debug(
+              { module: 'detect', event_type: ev.type, match_id: ev.match_id, riot_puuid: ev.riot_puuid },
+              'Duplicate detected event skipped (UNIQUE conflict)',
+            );
+          }
+        } catch (err) {
+          logger.warn(
+            { module: 'detect', event_type: ev.type, match_id: ev.match_id, err: (err as Error).message },
+            'Failed to insert event — continuing with remaining events',
           );
         }
       }
