@@ -25,6 +25,8 @@ import { optOuts } from '../db/schema/opt_outs.ts';
 import { allTimeRecords } from '../db/schema/all_time_records.ts';
 import { computeAndEmitWeeklyMvpRecord } from './weekly-mvp-record.ts';
 import { NEAR_MISS_THRESHOLDS } from './near-miss-config.ts';
+import { renderTemplate, renderDigestGroup, type TemplateUser, type TemplateMatch } from '../publisher/templates.ts';
+import type { EventType } from '../publisher/types.ts';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
 
@@ -48,7 +50,6 @@ function esc(s: string): string {
  */
 const BRIGHT_EVENT_WEIGHTS: Record<string, number> = {
   ace_rare_weapon_week: 10,
-  ace: 8,
   record_kills_match: 7,
   record_damage_dealt_match: 7,
   record_damage_received_match: 7,
@@ -59,7 +60,6 @@ const BRIGHT_EVENT_WEIGHTS: Record<string, number> = {
   record_kills_per_weapon: 7,
   record_longest_match_minutes: 7,
   record_longest_match_rounds: 7,
-  giant_slayer: 6,
   winstreak_10plus: 4,
   peak_rank_up: 3,
 };
@@ -70,234 +70,6 @@ function isBrightEvent(eventType: string): boolean {
 
 function getBrightEventWeight(eventType: string): number {
   return BRIGHT_EVENT_WEIGHTS[eventType] ?? 0;
-}
-
-/**
- * Render a 2–4 line block for a bright event, suitable for the top section of the digest.
- * Returns null if event type is not a recognized bright event.
- */
-function renderBrightBlock(
-  eventType: string,
-  payload: Record<string, unknown>,
-  user: { riot_name: string; riot_tag: string },
-  map?: string,
-): string | null {
-  const name = `<b>${esc(user.riot_name)}#${esc(user.riot_tag)}</b>`;
-  const mapStr = map ? ` на ${esc(map)}` : '';
-
-  switch (eventType) {
-    case 'ace_rare_weapon_week': {
-      const weaponsPerRound = Array.isArray(payload['weapons_per_round']) ? payload['weapons_per_round'] as string[][] : [];
-      const KNIFE_TOKENS = new Set(['Knife', '2f59173c-4bed-b6c3-2191-dea9b58be9c7']);
-      const CLASSIC_TOKENS = new Set(['Classic', '29a0cfab-485b-f5d5-779a-b59f85e204a8']);
-      const rareNames = new Set<string>();
-      for (const round of weaponsPerRound) {
-        if (!Array.isArray(round)) continue;
-        for (const w of round) {
-          if (KNIFE_TOKENS.has(w)) rareNames.add('Knife');
-          else if (CLASSIC_TOKENS.has(w)) rareNames.add('Classic');
-        }
-      }
-      const weaponStr = Array.from(rareNames).join(', ') || 'редким';
-      return `💎 ${name} знает толк в извращениях. Эйс — <b>${esc(weaponStr)}</b>${mapStr}`;
-    }
-    case 'ace': {
-      const rounds = Array.isArray(payload['rounds']) ? payload['rounds'] : [];
-      const rStr = rounds.length > 1 ? ` (${rounds.length}×)` : '';
-      return `🎯 Эйс${rStr} — ${name}${mapStr}`;
-    }
-    case 'giant_slayer': {
-      const enemyAvg = payload['enemy_avg'] ? ` рангом ${esc(String(payload['enemy_avg']))}` : '';
-      const own = payload['own'] ? ` (ранг: ${esc(String(payload['own']))})` : '';
-      return `⚔️ Гигантоборец — ${name} взял команду${enemyAvg}${own}`;
-    }
-    case 'peak_rank_up': {
-      const from = payload['from_tier_name'] ? esc(String(payload['from_tier_name'])) : null;
-      const to = payload['to_tier_name'] ? esc(String(payload['to_tier_name'])) : null;
-      if (from && to) {
-        return `🎖 Повышение по службе — ${name} (${from} → ${to})`;
-      }
-      if (to) {
-        return `🎖 Повышение по службе — ${name} (→ ${to})`;
-      }
-      return `🎖 Повышение по службе — ${name}`;
-    }
-    case 'winstreak_10plus': {
-      const streak = payload['streak'] ?? 10;
-      return `🔥 Серия побед — ${esc(String(streak))} подряд у ${name}`;
-    }
-    case 'record_kills_match': {
-      const value = payload['value'];
-      const prevValue = payload['prev_value'];
-      const matchLink = payload['match_id']
-        ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(payload['match_id']))}">→ матч</a>`
-        : '';
-      let prevLine = '';
-      if (prevValue !== null && prevValue !== undefined) {
-        prevLine = `\nпрошлый рекорд: ${esc(String(prevValue))}`;
-      }
-      return `🔪 <b>Мирного рішення не буде</b>\n${name} — ${esc(String(value))} фрагов${mapStr}${prevLine}${matchLink}`;
-    }
-    case 'record_damage_dealt_match': {
-      const value = payload['value'];
-      const prevValue = payload['prev_value'];
-      const prevName = payload['prev_name'];
-      const prevTag = payload['prev_tag'];
-      const prevPuuid = payload['prev_puuid'];
-      const matchLink = payload['match_id']
-        ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(payload['match_id']))}">→ матч</a>`
-        : '';
-      let prevStr = '';
-      if (prevValue !== null && prevValue !== undefined) {
-        if (prevName) {
-          prevStr = ` (прошлый: ${esc(String(prevValue))}, у <b>${esc(String(prevName))}${prevTag ? '#' + esc(String(prevTag)) : ''}</b>)`;
-        } else if (prevPuuid) {
-          prevStr = ` (прошлый: ${esc(String(prevValue))})`;
-        } else {
-          prevStr = ` (прошлый: ${esc(String(prevValue))})`;
-        }
-      }
-      return `🥩 <b>Мясник недели:</b> ${name} — ${esc(String(value))} dmg${prevStr}${matchLink}`;
-    }
-    case 'record_damage_received_match': {
-      const value = payload['value'];
-      const prevValue = payload['prev_value'];
-      const prevName = payload['prev_name'];
-      const prevTag = payload['prev_tag'];
-      const matchLink = payload['match_id']
-        ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(payload['match_id']))}">→ матч</a>`
-        : '';
-      let prevStr = '';
-      if (prevValue !== null && prevValue !== undefined) {
-        if (prevName) {
-          prevStr = ` (прошлый: ${esc(String(prevValue))}, у <b>${esc(String(prevName))}${prevTag ? '#' + esc(String(prevTag)) : ''}</b>)`;
-        } else {
-          prevStr = ` (прошлый: ${esc(String(prevValue))})`;
-        }
-      }
-      return `😵 <b>Надругались над</b> ${name} — получил ${esc(String(value))} dmg за матч${prevStr}${matchLink}`;
-    }
-    case 'record_deaths_match': {
-      const value = payload['value'];
-      const prevValue = payload['prev_value'];
-      const matchLink = payload['match_id']
-        ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(payload['match_id']))}">→ матч</a>`
-        : '';
-      let prevLine = '';
-      if (prevValue !== null && prevValue !== undefined) {
-        prevLine = `\nпрошлый рекорд: ${esc(String(prevValue))}`;
-      }
-      return `🩸 <b>Жертва насилия</b>\n${name} — ${esc(String(value))} смертей${mapStr}${prevLine}${matchLink}`;
-    }
-    case 'record_headshots_match': {
-      const value = payload['value'];
-      const prevValue = payload['prev_value'];
-      const matchLink = payload['match_id']
-        ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(payload['match_id']))}">→ матч</a>`
-        : '';
-      let prevLine = '';
-      if (prevValue !== null && prevValue !== undefined) {
-        prevLine = `\nпрошлый рекорд: ${esc(String(prevValue))}`;
-      }
-      return `🤠 <b>Ковбой недели</b>\n${name} — ${esc(String(value))} хедшотов${mapStr}${prevLine}${matchLink}`;
-    }
-    case 'record_legshots_match': {
-      const value = payload['value'];
-      const prevValue = payload['prev_value'];
-      const matchLink = payload['match_id']
-        ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(payload['match_id']))}">→ матч</a>`
-        : '';
-      let prevLine = '';
-      if (prevValue !== null && prevValue !== undefined) {
-        prevLine = `\nпрошлый рекорд: ${esc(String(prevValue))}`;
-      }
-      return `♿️ <b>Угадай куда шмальну</b>\n${name} — ${esc(String(value))} легшотов${mapStr}${prevLine}${matchLink}`;
-    }
-    case 'record_mvp_count_week': {
-      const value = payload['value'];
-      const prevValue = payload['prev_value'];
-      const prevName = payload['prev_name'];
-      const prevTag = payload['prev_tag'];
-      let prevLine = '';
-      if (prevValue !== null && prevValue !== undefined && Number(prevValue) > 0) {
-        if (prevName) {
-          prevLine = `\nпрошлый рекорд: ${esc(String(prevValue))} у <b>${esc(String(prevName))}${prevTag ? '#' + esc(String(prevTag)) : ''}</b>`;
-        } else {
-          prevLine = `\nпрошлый рекорд: ${esc(String(prevValue))}`;
-        }
-      }
-      return `🏅 <b>${name} отказался от личной жизни</b> и взял ${esc(String(value))} MVP-матчей за неделю${prevLine}`;
-    }
-    case 'record_kills_per_weapon': {
-      const weapon = payload['weapon'] ?? '?';
-      const value = payload['value'];
-      const prevValue = payload['prev_value'];
-      const prevName = payload['prev_name'];
-      const prevTag = payload['prev_tag'];
-      // real_match_id is kept in payload; ev.match_id is synthetic (match_id#kpw-WEAPON)
-      const realMatchId = payload['real_match_id'];
-      const matchLink = realMatchId
-        ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(realMatchId))}">→ матч</a>`
-        : '';
-      let prevStr = '';
-      if (prevValue !== null && prevValue !== undefined) {
-        if (prevName) {
-          prevStr = ` (прошлый: ${esc(String(prevValue))}, у <b>${esc(String(prevName))}${prevTag ? '#' + esc(String(prevTag)) : ''}</b>)`;
-        } else {
-          prevStr = ` (прошлый: ${esc(String(prevValue))})`;
-        }
-      }
-      return `🔫 <b>Рекорд из ${esc(String(weapon))}:</b> ${name} — ${esc(String(value))} фрагов${mapStr}${prevStr}${matchLink}`;
-    }
-    case 'record_longest_match_minutes': {
-      const value = payload['value'];
-      const prevValue = payload['prev_value'];
-      const prevName = payload['prev_name'];
-      const prevTag = payload['prev_tag'];
-      const players = Array.isArray(payload['community_players'])
-        ? payload['community_players'] as Array<{ puuid: string; name: string; tag: string }>
-        : [];
-      const playerNames = players
-        .map((p) => p.name ? `<b>${esc(p.name)}</b>` : '')
-        .filter((s) => s)
-        .join(', ') || name;
-      const verb = players.length > 1 ? 'проинвестировали' : 'проинвестировал';
-      let prevStr = '';
-      if (prevValue !== null && prevValue !== undefined) {
-        if (prevName) {
-          prevStr = ` (прошлый: ${esc(String(prevValue))}, у <b>${esc(String(prevName))}${prevTag ? '#' + esc(String(prevTag)) : ''}</b>)`;
-        } else {
-          prevStr = ` (прошлый: ${esc(String(prevValue))})`;
-        }
-      }
-      return `⏱ ${playerNames} ${verb} своё время правильно — ${esc(String(value))} минут${mapStr}${prevStr}`;
-    }
-    case 'record_longest_match_rounds': {
-      const value = payload['value'];
-      const prevValue = payload['prev_value'];
-      const prevName = payload['prev_name'];
-      const prevTag = payload['prev_tag'];
-      const players = Array.isArray(payload['community_players'])
-        ? payload['community_players'] as Array<{ puuid: string; name: string; tag: string }>
-        : [];
-      const playerNames = players
-        .map((p) => p.name ? `<b>${esc(p.name)}</b>` : '')
-        .filter((s) => s)
-        .join(', ') || name;
-      const verb = players.length > 1 ? 'пережили' : 'пережил';
-      let prevStr = '';
-      if (prevValue !== null && prevValue !== undefined) {
-        if (prevName) {
-          prevStr = ` (прошлый: ${esc(String(prevValue))}, у <b>${esc(String(prevName))}${prevTag ? '#' + esc(String(prevTag)) : ''}</b>)`;
-        } else {
-          prevStr = ` (прошлый: ${esc(String(prevValue))})`;
-        }
-      }
-      return `😰 ${playerNames} ${verb} ${esc(String(value))} раундов — надеюсь это того стоило${mapStr}${prevStr}`;
-    }
-    default:
-      return null;
-  }
 }
 
 /**
@@ -374,7 +146,7 @@ async function renderNearMisses(
       .limit(1);
 
     const userTag = user ? `<b>${esc(user.riot_name)}#${esc(user.riot_tag)}</b>` : `<b>${esc(String(row.riot_puuid))}</b>`;
-    blocks.push(`${cfg.emoji} <b>Был близок к рекорду по ${cfg.caption}</b>: ${userTag} — ${weekMax} ${cfg.unit} (рекорд: ${currentRecord})`);
+    blocks.push(`${cfg.emoji} <b>${cfg.header}</b>\n<blockquote>${userTag} — ${weekMax} ${cfg.unit} (рекорд: ${currentRecord})</blockquote>`);
   }
 
   return blocks;
@@ -490,6 +262,15 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       return Number(a.detected_at) - Number(b.detected_at);
     });
 
+    // Phase 1: gather full entries (payload + user + match) for each event
+    type Entry = {
+      eventType: EventType;
+      payload: Record<string, unknown>;
+      user: TemplateUser;
+      match?: TemplateMatch;
+    };
+    const entries: Entry[] = [];
+
     for (const ev of sorted) {
       const puuid = ev.riot_puuid as string;
       const user = await getUserByPuuid(puuid);
@@ -524,27 +305,62 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
 
       const map: string | undefined = matchRow?.map ?? undefined;
 
-      // For record event types, attach match_id to payload for link
-      if (
-        (ev.event_type === 'record_kills_match' ||
-          ev.event_type === 'record_damage_dealt_match' ||
-          ev.event_type === 'record_damage_received_match' ||
-          ev.event_type === 'record_deaths_match' ||
-          ev.event_type === 'record_headshots_match' ||
-          ev.event_type === 'record_legshots_match' ||
-          ev.event_type === 'record_longest_match_minutes' ||
-          ev.event_type === 'record_longest_match_rounds') &&
-        ev.match_id
-      ) {
-        payload['match_id'] = ev.match_id;
-      }
-      // record_kills_per_weapon: real_match_id already present in payload; no injection needed
+      const tplUser: TemplateUser = {
+        riot_name: user.riot_name,
+        riot_tag: user.riot_tag,
+        telegram_id: user.telegram_id,
+        riot_puuid: puuid,
+      };
 
-      const block = renderBrightBlock(ev.event_type as string, payload, user, map);
-      if (block) {
-        brightBlocks.push(block);
-        sectionsIncluded.push(ev.event_type as string);
+      const tplMatch: TemplateMatch = {};
+      if (map) tplMatch.map = map;
+      if (ev.match_id) tplMatch.match_id = String(ev.match_id);
+
+      const entry: Entry = {
+        eventType: ev.event_type as EventType,
+        payload,
+        user: tplUser,
+      };
+      if (map || ev.match_id) entry.match = tplMatch;
+      entries.push(entry);
+    }
+
+    // Phase 2: group entries by event_type, preserving sort order of first occurrence.
+    // Special case: record_kills_per_weapon is NOT grouped — each weapon gets its own block.
+    type Group = { eventType: EventType; entries: Entry[] };
+    const groups: Group[] = [];
+    const groupByType = new Map<string, Entry[]>();
+
+    for (const e of entries) {
+      if (e.eventType === 'record_kills_per_weapon') {
+        // Each weapon = its own single-entry group
+        groups.push({ eventType: e.eventType, entries: [e] });
+        continue;
       }
+      let bucket = groupByType.get(e.eventType);
+      if (!bucket) {
+        bucket = [];
+        groupByType.set(e.eventType, bucket);
+        groups.push({ eventType: e.eventType, entries: bucket });
+      }
+      bucket.push(e);
+    }
+
+    // Phase 3: render each group
+    const GROUP_CAPABLE_TYPES = new Set<string>(['winstreak_10plus', 'peak_rank_up', 'ace_rare_weapon_week']);
+    for (const g of groups) {
+      let block: string;
+      if (g.entries.length >= 2 && GROUP_CAPABLE_TYPES.has(g.eventType)) {
+        block = renderDigestGroup(g.eventType, g.entries);
+      } else {
+        // Single-event format via renderTemplate. If a group-capable type has length === 1,
+        // we still use the single-event template (which has the singular header).
+        block = g.entries
+          .map((e) => renderTemplate(e.eventType, e.payload, e.user, e.match))
+          .join('\n\n');
+      }
+      brightBlocks.push(block);
+      sectionsIncluded.push(g.eventType);
     }
   }
 

@@ -339,3 +339,73 @@ export function renderTemplate(
   }
   return fn(payload, user, match);
 }
+
+/**
+ * Render a digest group block for group-capable digest event types
+ * (winstreak_10plus, peak_rank_up, ace_rare_weapon_week) when ≥2 entries of the
+ * same event_type fall into one week.
+ *
+ * Other event types fall back to joined per-event renderTemplate calls — but the
+ * digest builder normally won't call this with non-group-capable types when N>1
+ * because those are ≤1/week by design.
+ */
+export interface DigestEntry {
+  payload: Record<string, unknown>;
+  user: TemplateUser;
+  match?: TemplateMatch;
+}
+
+export function renderDigestGroup(eventType: EventType, entries: DigestEntry[]): string {
+  if (entries.length === 0) return '';
+
+  if (eventType === 'winstreak_10plus') {
+    const lines = entries
+      .map((e) => ({
+        streak: Number(e.payload['streak'] ?? 0),
+        line: `${playerTag(e.user)} — ${esc(String(e.payload['streak'] ?? 10))} побед подряд`,
+      }))
+      .sort((a, b) => b.streak - a.streak)
+      .map((x) => x.line);
+    return `🏆 <b>Винстрик недели:</b>\n${descBlock(lines.join('\n'))}`;
+  }
+
+  if (eventType === 'peak_rank_up') {
+    const lines = entries.map((e) => {
+      const to = e.payload['to_tier_name'] ?? '';
+      const rankEmoji = rankToEmojiHtml(to as string);
+      let rankPart = '';
+      if (to) {
+        rankPart = rankEmoji ? ` ${rankEmoji} ${esc(String(to))}` : ` ${esc(String(to))}`;
+      }
+      return `${playerTag(e.user)} — поднялся(лась) до${rankPart}`;
+    });
+    const header = entries.length === 1 ? 'Повышение по службе' : 'Повышения по службе';
+    return `🎖 <b>${header}</b>\n${descBlock(lines.join('\n'))}`;
+  }
+
+  if (eventType === 'ace_rare_weapon_week') {
+    const KNIFE_TOKENS = new Set(['Knife', '2f59173c-4bed-b6c3-2191-dea9b58be9c7']);
+    const CLASSIC_TOKENS = new Set(['Classic', '29a0cfab-485b-f5d5-779a-b59f85e204a8']);
+    const lines = entries.map((e) => {
+      const weaponsPerRound = Array.isArray(e.payload['weapons_per_round']) ? e.payload['weapons_per_round'] as string[][] : [];
+      const rareNames = new Set<string>();
+      for (const round of weaponsPerRound) {
+        if (!Array.isArray(round)) continue;
+        for (const w of round) {
+          if (KNIFE_TOKENS.has(w)) rareNames.add('Knife');
+          else if (CLASSIC_TOKENS.has(w)) rareNames.add('Classic');
+        }
+      }
+      const weaponStr = Array.from(rareNames).join(', ') || 'редким';
+      const linkInline = e.match?.match_id
+        ? ` · 🎮 <a href="https://tracker.gg/valorant/match/${esc(e.match.match_id)}">Матч</a>`
+        : '';
+      return `${playerTag(e.user)} — эйс с ${esc(weaponStr)}${mapSuffix(e.match?.map)}${linkInline}`;
+    });
+    const header = entries.length === 1 ? 'Знает толк в извращениях' : 'Знают толк в извращениях';
+    return `💎 <b>${header}</b>\n${descBlock(lines.join('\n'))}`;
+  }
+
+  // Fallback: not group-capable but called anyway — render each event individually.
+  return entries.map((e) => renderTemplate(eventType, e.payload, e.user, e.match)).join('\n\n');
+}
