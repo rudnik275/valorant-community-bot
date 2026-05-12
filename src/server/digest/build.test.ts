@@ -192,14 +192,14 @@ describe('buildDigest', () => {
       seedMatch(sqlite, { puuid: 'p2', matchId: 'm2', startedAt: IN_WINDOW, agent: 'Sage', map: 'Bind' });
 
       // Bright event: ace for p1
-      seedEvent(sqlite, { puuid: 'p1', eventType: 'ace', payload: { rounds: [1] }, detectedAt: IN_WINDOW });
+      seedEvent(sqlite, { puuid: 'p1', eventType: 'ace_rare_weapon_week', payload: { weapons_per_round: [['Knife', 'Knife', 'Knife', 'Knife', 'Knife']] }, detectedAt: IN_WINDOW });
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       expect(result.text).not.toBeNull();
       const text = result.text!;
 
       // Bright event rendered
-      expect(text).toContain('Эйс');
+      expect(text.toLowerCase()).toContain('знает толк в извращениях');
       expect(text).toContain('Alpha');
 
       // Divider present
@@ -334,9 +334,10 @@ describe('buildDigest', () => {
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       expect(result.sectionsIncluded).toContain('peak_rank_up');
-      expect(result.text).toContain('Gold 1');
+      // New format drops `from_tier_name` from output — only `to_tier_name` shown
       expect(result.text).toContain('Platinum 1');
       expect(result.text).toContain('Climber');
+      expect(result.text).toContain('Повышение по службе');
     });
   });
 
@@ -484,7 +485,7 @@ describe('buildDigest', () => {
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       expect(result.sectionsIncluded).toContain('record_damage_received_match');
-      expect(result.text).toContain('Надругались над');
+      expect(result.text).toContain('Груша для битья');
       expect(result.text).toContain('Victim');
       expect(result.text).toContain('5910');
     });
@@ -499,29 +500,47 @@ describe('buildDigest', () => {
   });
 
   describe('bright events ordering — weight-based', () => {
-    it('renders both ace_rare_weapon_week and ace (all bright events, not just top-1)', async () => {
-      seedUser(sqlite, 1, 'p1', { riotName: 'PlayerAce', riotTag: 'ACE' });
-      seedUser(sqlite, 2, 'p2', { riotName: 'PlayerRare', riotTag: 'RAR' });
+    it('renders multiple bright events (all included, not just top-1)', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'PlayerRare', riotTag: 'RAR' });
+      seedUser(sqlite, 2, 'p2', { riotName: 'PlayerWin', riotTag: 'WIN' });
 
       seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW });
-      seedMatch(sqlite, { puuid: 'p2', matchId: 'm2', startedAt: IN_WINDOW });
 
-      seedEvent(sqlite, { puuid: 'p1', matchId: 'm1', eventType: 'ace', detectedAt: IN_WINDOW });
+      seedEvent(sqlite, {
+        puuid: 'p1',
+        matchId: 'm1',
+        eventType: 'ace_rare_weapon_week',
+        payload: { weapons_per_round: [['Knife', 'Knife', 'Knife', 'Knife', 'Knife']] },
+        detectedAt: IN_WINDOW,
+      });
       seedEvent(sqlite, {
         puuid: 'p2',
-        matchId: 'm2',
-        eventType: 'ace_rare_weapon_week',
-        payload: { weapons_per_round: [['Classic', 'Classic', 'Vandal', 'Vandal', 'Phantom']] },
+        matchId: 'w1',
+        eventType: 'winstreak_10plus',
+        payload: { streak: 12 },
         detectedAt: IN_WINDOW + 5000,
       });
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
 
-      // Both players appear (unlike old "Epic Moment" which only picked one)
-      expect(result.text).toContain('PlayerAce');
+      // Both players appear
       expect(result.text).toContain('PlayerRare');
-      expect(result.sectionsIncluded).toContain('ace');
+      expect(result.text).toContain('PlayerWin');
       expect(result.sectionsIncluded).toContain('ace_rare_weapon_week');
+      expect(result.sectionsIncluded).toContain('winstreak_10plus');
+    });
+
+    it('does NOT include ace or giant_slayer in digest (realtime-only)', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'AcePlayer', riotTag: 'ACE' });
+      seedUser(sqlite, 2, 'p2', { riotName: 'GiantSlayer', riotTag: 'GST' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW });
+      seedMatch(sqlite, { puuid: 'p2', matchId: 'm2', startedAt: IN_WINDOW });
+      seedEvent(sqlite, { puuid: 'p1', matchId: 'm1', eventType: 'ace', detectedAt: IN_WINDOW });
+      seedEvent(sqlite, { puuid: 'p2', matchId: 'm2', eventType: 'giant_slayer', detectedAt: IN_WINDOW + 1000 });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).not.toContain('ace');
+      expect(result.sectionsIncluded).not.toContain('giant_slayer');
     });
   });
 
@@ -533,11 +552,17 @@ describe('buildDigest', () => {
 
       seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW });
       seedMatch(sqlite, { puuid: 'p2', matchId: 'm2', startedAt: IN_WINDOW });
-      seedEvent(sqlite, { puuid: 'p1', matchId: 'm1', eventType: 'ace', detectedAt: IN_WINDOW });
+      seedEvent(sqlite, {
+        puuid: 'p1',
+        matchId: 'm1',
+        eventType: 'ace_rare_weapon_week',
+        payload: { weapons_per_round: [['Knife', 'Knife', 'Knife', 'Knife', 'Knife']] },
+        detectedAt: IN_WINDOW,
+      });
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       expect(result.text).not.toContain('SilentPlayer');
-      expect(result.sectionsIncluded).not.toContain('ace');
+      expect(result.sectionsIncluded).not.toContain('ace_rare_weapon_week');
     });
 
     it('opted-out player still gets peak_rank_up in bright block (positive progress)', async () => {
@@ -687,7 +712,7 @@ describe('buildDigest', () => {
       expect(result.sectionsIncluded).toContain('record_longest_match_rounds');
       expect(result.text).toContain('пережил');
       expect(result.text).toContain('40');
-      expect(result.text).toContain('надеюсь это того стоило');
+      expect(result.text!.toLowerCase()).toContain('надеюсь это того стоило');
     });
 
     it('does NOT render record_longest_match_rounds when no events in window', async () => {
@@ -731,8 +756,7 @@ describe('buildDigest', () => {
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       expect(result.sectionsIncluded).toContain('nearMiss');
-      expect(result.text).toContain('Был близок к рекорду');
-      expect(result.text).toContain('киллам в матче');
+      expect(result.text).toContain('Был(ла) близко к рекорду по киллам');
       expect(result.text).toContain('NearMisser');
       expect(result.text).toContain('29');
       expect(result.text).toContain('30');
@@ -748,7 +772,7 @@ describe('buildDigest', () => {
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       expect(result.sectionsIncluded).not.toContain('nearMiss');
-      expect(result.text).not.toContain('Был близок к рекорду');
+      expect(result.text).not.toContain('близко к рекорду');
     });
 
     it('does NOT render near-miss when that record was beaten this week (record event exists)', async () => {
@@ -770,7 +794,7 @@ describe('buildDigest', () => {
       // Record event was rendered (bright block), near-miss should NOT appear
       expect(result.sectionsIncluded).toContain('record_kills_match');
       expect(result.sectionsIncluded).not.toContain('nearMiss');
-      expect(result.text).not.toContain('Был близок к рекорду');
+      expect(result.text).not.toContain('близко к рекорду');
     });
 
     it('renders multiple near-miss blocks for different record types', async () => {
@@ -784,9 +808,9 @@ describe('buildDigest', () => {
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       expect(result.sectionsIncluded).toContain('nearMiss');
-      // Both near-miss lines should appear
-      expect(result.text).toContain('киллам в матче');
-      expect(result.text).toContain('смертям в матче');
+      // Both near-miss blocks should appear
+      expect(result.text).toContain('рекорду по киллам');
+      expect(result.text).toContain('жертвой насилия');
     });
 
     it('does NOT render near-miss when no all-time record row exists for that type', async () => {
@@ -796,7 +820,7 @@ describe('buildDigest', () => {
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       expect(result.sectionsIncluded).not.toContain('nearMiss');
-      expect(result.text).not.toContain('Был близок к рекорду');
+      expect(result.text).not.toContain('близко к рекорду');
     });
 
     it('near-miss for damage_dealt renders with correct emoji and unit', async () => {
@@ -809,7 +833,7 @@ describe('buildDigest', () => {
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       expect(result.sectionsIncluded).toContain('nearMiss');
-      expect(result.text).toContain('урону');
+      expect(result.text).toContain('мясником недели');
       expect(result.text).toContain('dmg');
       expect(result.text).toContain('AlmostDmg');
     });
