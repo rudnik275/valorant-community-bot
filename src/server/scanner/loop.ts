@@ -1,8 +1,10 @@
 /**
  * loop.ts — Croner-based periodic scan loop.
  *
- * Runs every 30 minutes (at :00 and :30). On startup, waits 60 seconds before
- * the first tick to allow the server to warm up.
+ * Runs every 15 minutes (at :00, :15, :30, :45). On startup, waits 60 seconds
+ * before the first tick to allow the server to warm up. Combined with size=10
+ * in scan.ts, this keeps the per-user recovery window comfortably wider than
+ * any realistic ranked session pace.
  *
  * Each tick:
  *   1. SELECT all users with riot_puuid IS NOT NULL.
@@ -41,7 +43,7 @@ export interface StartScanLoopOpts {
 export function startScanLoop(opts: StartScanLoopOpts): () => void {
   const { db } = opts;
   const scan = opts.scanForPuuid ?? ((puuid, scanOpts) => defaultScanForPuuid(db, puuid, scanOpts));
-  const cronExpr = opts.intervalCron ?? '*/30 * * * *';
+  const cronExpr = opts.intervalCron ?? '*/15 * * * *';
   const healthcheckUrl = opts.healthcheckUrl ?? process.env['HEALTHCHECK_SCANNER_URL'];
 
   async function runTick(): Promise<void> {

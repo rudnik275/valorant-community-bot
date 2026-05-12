@@ -280,6 +280,23 @@ describe('getMatches', () => {
     await expect(getMatches('test-puuid', 'eu')).rejects.toThrow(HenrikUpstreamError);
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
+
+  it('drops a single malformed match and returns the survivors instead of failing the whole batch', async () => {
+    // Regression: previously the whole array was validated as one zod schema —
+    // one bad match anywhere in the response broke ingestion for the user
+    // every 15 min until the bad match rolled off the size window.
+    const validMatch = (matchFixture as { data: unknown[] }).data[0];
+    // match_id must be string per MatchMetadataV4Schema; a number violates the schema.
+    const malformedMatch = { metadata: { match_id: 42 } };
+    const mixedResponse = { status: 200, data: [validMatch, malformedMatch] };
+
+    fetchMock.mockResolvedValue(makeResponse(200, mixedResponse));
+
+    const result = await getMatches('test-puuid', 'eu');
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.metadata.match_id).toBe('test-match-id-1');
+  });
 });
 
 // ─── getMmr ──────────────────────────────────────────────────────────────────
