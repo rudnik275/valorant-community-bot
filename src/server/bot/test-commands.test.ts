@@ -1,51 +1,18 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { isOwner, parseDaysArg, makeTestDigestHandler, makeTestRuntimeEventsHandler } from './test-commands.ts';
-
-const originalOwnerId = process.env['TELEGRAM_OWNER_ID'];
-
-beforeEach(() => {
-  process.env['TELEGRAM_OWNER_ID'] = '12345';
-});
-
-afterEach(() => {
-  if (originalOwnerId === undefined) {
-    delete process.env['TELEGRAM_OWNER_ID'];
-  } else {
-    process.env['TELEGRAM_OWNER_ID'] = originalOwnerId;
-  }
-});
+import { describe, it, expect, vi } from 'vitest';
+import { isOwner, OWNER_TELEGRAM_ID, parseDaysArg, makeTestDigestHandler, makeTestRuntimeEventsHandler } from './test-commands.ts';
 
 describe('isOwner', () => {
-  it('returns true when telegram_id matches TELEGRAM_OWNER_ID', () => {
-    expect(isOwner(12345)).toBe(true);
+  it('returns true for the hardcoded OWNER_TELEGRAM_ID', () => {
+    expect(isOwner(OWNER_TELEGRAM_ID)).toBe(true);
   });
 
-  it('returns false when telegram_id does not match', () => {
+  it('returns false for any other telegram_id', () => {
     expect(isOwner(99999)).toBe(false);
+    expect(isOwner(OWNER_TELEGRAM_ID + 1)).toBe(false);
   });
 
   it('returns false when telegram_id is undefined', () => {
     expect(isOwner(undefined)).toBe(false);
-  });
-
-  it('returns false when TELEGRAM_OWNER_ID env is not set', () => {
-    delete process.env['TELEGRAM_OWNER_ID'];
-    expect(isOwner(12345)).toBe(false);
-  });
-
-  it('returns false when TELEGRAM_OWNER_ID env is empty string', () => {
-    process.env['TELEGRAM_OWNER_ID'] = '';
-    expect(isOwner(12345)).toBe(false);
-  });
-
-  it('returns false when TELEGRAM_OWNER_ID env is non-numeric', () => {
-    process.env['TELEGRAM_OWNER_ID'] = 'not-a-number';
-    expect(isOwner(12345)).toBe(false);
-  });
-
-  it('returns false when TELEGRAM_OWNER_ID is "0"', () => {
-    process.env['TELEGRAM_OWNER_ID'] = '0';
-    expect(isOwner(0)).toBe(false);
   });
 });
 

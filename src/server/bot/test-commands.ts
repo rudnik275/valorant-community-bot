@@ -8,8 +8,8 @@
  *                               DM. Pure read from detected_events — no
  *                               detector re-runs, no DB writes.
  *
- * Both commands are gated by `TELEGRAM_OWNER_ID`. Non-owners are silently
- * ignored (the bot does not reply at all).
+ * Both commands are gated by the hardcoded `OWNER_TELEGRAM_ID` below.
+ * Non-owners are silently ignored (the bot does not reply at all).
  *
  * Why bot.api.sendMessage directly (bypassing safe-telegram.ts):
  *   The safe-telegram wrappers exist to prevent leaks into unauthorised group
@@ -43,17 +43,12 @@ const MIN_DAYS = 1;
 const MAX_DAYS = 30;
 const RUNTIME_EVENT_SEND_DELAY_MS = 350;
 
-/**
- * Returns true iff `telegramId` matches the `TELEGRAM_OWNER_ID` env var.
- * Reads env on every call (cheap; allows mid-process env updates in tests).
- */
+/** Hardcoded owner — admin commands work only for this telegram_id. */
+export const OWNER_TELEGRAM_ID = 419486914;
+
+/** Returns true iff `telegramId` is the bot owner. */
 export function isOwner(telegramId: number | undefined): boolean {
-  if (typeof telegramId !== 'number') return false;
-  const raw = process.env['TELEGRAM_OWNER_ID'];
-  if (!raw) return false;
-  const ownerId = Number(raw);
-  if (!Number.isFinite(ownerId) || ownerId === 0) return false;
-  return ownerId === telegramId;
+  return typeof telegramId === 'number' && telegramId === OWNER_TELEGRAM_ID;
 }
 
 /**
