@@ -78,6 +78,7 @@ describe('buildCongratsText', () => {
       { started_at: 1700000000000, map: 'Haven', kills: 20, deaths: 10, assists: 5, result: 'win', enemy_avg_rank: 'Diamond 2' },
       { started_at: 1700000003600000, map: 'Ascent', kills: 15, deaths: 16, assists: 3, result: 'loss', enemy_avg_rank: null },
     ])!;
+    expect(text).toContain('сегодня в форме');
     expect(text).toContain('<b>Tester</b>');
     expect(text).toContain('Haven');
     expect(text).toContain('Diamond 2');
@@ -189,7 +190,7 @@ describe('makeCongratsHandler', () => {
     expect(body).toContain('ValerB');
   });
 
-  it('responds with no-matches message when player has no yesterday matches', async () => {
+  it('responds with no-matches message when player has no matches today', async () => {
     seedUser(testDb.sqlite, { telegramId: 1, puuid: 'p-a', name: 'Lonely', tag: '0000' });
     // No match seeded → empty result
 
@@ -203,12 +204,12 @@ describe('makeCongratsHandler', () => {
     expect(body).toContain('не играл(а)');
   });
 
-  it('sends preview with inline keyboard when player has yesterday matches', async () => {
+  it('sends preview with inline keyboard when player has matches today', async () => {
     seedUser(testDb.sqlite, { telegramId: 1, puuid: 'p-a', name: 'Champ', tag: '7777' });
-    // Seed a match at yesterday-12:00 Kyiv
-    const yest12 = kyivMidnightMs(1) + 12 * 3600 * 1000;
+    // Seed a match at TODAY 04:00 Kyiv (already past — Kyiv midnight has passed)
+    const today04 = kyivMidnightMs(0) + 4 * 3600 * 1000;
     seedMatch(testDb.sqlite, {
-      puuid: 'p-a', matchId: 'm-yest', startedAt: yest12, kills: 25, deaths: 10, assists: 5,
+      puuid: 'p-a', matchId: 'm-today', startedAt: today04, kills: 25, deaths: 10, assists: 5,
       result: 'win', enemyAvgRank: 'Platinum 2',
     });
 
@@ -233,18 +234,18 @@ describe('makeCongratsHandler', () => {
     expect(buttons.some((b: { callback_data: string }) => b.callback_data.startsWith('congrats:cancel:'))).toBe(true);
   });
 
-  it('does not include today\'s matches in the preview', async () => {
+  it('does not include yesterday\'s matches in the preview', async () => {
     seedUser(testDb.sqlite, { telegramId: 1, puuid: 'p-a', name: 'Champ', tag: '7777' });
-    // Yesterday at 14:00
+    // Yesterday at 14:00 — excluded
     const yest14 = kyivMidnightMs(1) + 14 * 3600 * 1000;
     seedMatch(testDb.sqlite, {
-      puuid: 'p-a', matchId: 'm-yest', startedAt: yest14, kills: 5, deaths: 5, assists: 5,
+      puuid: 'p-a', matchId: 'm-yest', startedAt: yest14, kills: 99, deaths: 0, assists: 0,
       result: 'win',
     });
-    // Today at 02:00 Kyiv (after yesterday's window)
+    // Today at 02:00 Kyiv — included
     const today02 = kyivMidnightMs(0) + 2 * 3600 * 1000;
     seedMatch(testDb.sqlite, {
-      puuid: 'p-a', matchId: 'm-today', startedAt: today02, kills: 99, deaths: 0, assists: 0,
+      puuid: 'p-a', matchId: 'm-today', startedAt: today02, kills: 5, deaths: 5, assists: 5,
       result: 'win',
     });
 
@@ -256,8 +257,8 @@ describe('makeCongratsHandler', () => {
     await handler(ctx as any, async () => {});
 
     const [, body] = bot.api.sendMessage.mock.calls[0]!;
-    expect(body).toContain('5/5/5'); // yesterday match present
-    expect(body).not.toContain('99/0/0'); // today match excluded
+    expect(body).toContain('5/5/5'); // today match present
+    expect(body).not.toContain('99/0/0'); // yesterday match excluded
   });
 });
 
@@ -278,9 +279,9 @@ describe('makeCongratsCallbackHandler', () => {
   async function seedPreview(): Promise<string> {
     // Run the command handler to produce a real preview in the store.
     seedUser(testDb.sqlite, { telegramId: 1, puuid: 'p-a', name: 'Champ', tag: '7777' });
-    const yest12 = kyivMidnightMs(1) + 12 * 3600 * 1000;
+    const today04 = kyivMidnightMs(0) + 4 * 3600 * 1000;
     seedMatch(testDb.sqlite, {
-      puuid: 'p-a', matchId: 'm-yest', startedAt: yest12, kills: 1, deaths: 1, assists: 1,
+      puuid: 'p-a', matchId: 'm-today', startedAt: today04, kills: 1, deaths: 1, assists: 1,
       result: 'win',
     });
     const cmdHandler = makeCongratsHandler({

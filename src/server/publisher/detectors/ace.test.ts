@@ -18,7 +18,12 @@ const BASE_RECORD: MatchRecord = {
   enemy_avg_rank: 'Diamond 1',
   fall_damage_kills: 0,
   kill_events_compact: '[]',
-  rounds_compact: null,
+  rounds_compact: JSON.stringify([
+    { r: 1, w: 'Blue', c: 'CeremonyAce' },
+    { r: 2, w: 'Blue', c: 'CeremonyAce' },
+    { r: 3, w: 'Blue', c: 'CeremonyAce' },
+    { r: 5, w: 'Blue', c: 'CeremonyAce' },
+  ]),
   score: null,
   headshots: null,
   bodyshots: null,
@@ -36,6 +41,17 @@ function makeKill(round: number, weapon = 'Vandal', attacker = 'puuid-1', victim
   return { round, attacker_team: 'Blue', victim_team: 'Red', weapon, attacker_puuid: attacker, victim_puuid: victim };
 }
 
+/** Five unique enemies (one full team) in one round — a real ace shape. */
+function makeAceRound(round: number, weapon = 'Vandal') {
+  return [
+    makeKill(round, weapon, 'puuid-1', 'enemy-1'),
+    makeKill(round, weapon, 'puuid-1', 'enemy-2'),
+    makeKill(round, weapon, 'puuid-1', 'enemy-3'),
+    makeKill(round, weapon, 'puuid-1', 'enemy-4'),
+    makeKill(round, weapon, 'puuid-1', 'enemy-5'),
+  ];
+}
+
 describe('aceDetector', () => {
   it('returns empty when no aces', () => {
     const record: MatchRecord = {
@@ -47,12 +63,10 @@ describe('aceDetector', () => {
     expect(aceDetector.detect(record, [])).toHaveLength(0);
   });
 
-  it('detects a single ace (5 kills in one round)', () => {
+  it('detects a single ace (5 unique-victim kills in one round)', () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
-      kill_events_compact: JSON.stringify([
-        makeKill(3), makeKill(3), makeKill(3), makeKill(3), makeKill(3),
-      ]),
+      kill_events_compact: JSON.stringify(makeAceRound(3)),
     };
     const events = aceDetector.detect(record, []);
     expect(events).toHaveLength(1);
@@ -61,26 +75,59 @@ describe('aceDetector', () => {
     expect(events[0]!.payload.total_aces).toBe(1);
   });
 
-  it('handles 6 kills in one round without crashing (edge case)', () => {
+  it('handles 6 kill events with 5 unique victims (Phoenix Run-It-Back dupe) — still an ace', () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
-        makeKill(2), makeKill(2), makeKill(2), makeKill(2), makeKill(2), makeKill(2),
+        ...makeAceRound(2),
+        // Phoenix-shadow died first, then real Phoenix — same victim_puuid twice.
+        makeKill(2, 'Vandal', 'puuid-1', 'enemy-1'),
       ]),
     };
     const events = aceDetector.detect(record, []);
     expect(events).toHaveLength(1);
-    expect((events[0]!.payload.weapons_per_round as string[][])[0]).toHaveLength(6);
+    // Unique-victim count: still 5, NOT 6.
+    expect((events[0]!.payload.weapons_per_round as string[][])[0]).toHaveLength(5);
+  });
+
+  it('does NOT detect an ace when only 4 unique victims even if 5 kill events (Phoenix dupe)', () => {
+    // Regression for #211-bot's false-ace post: 4 real kills + 1 Phoenix-shadow re-kill
+    // was being counted as 5 → ace. Must NOT fire.
+    const record: MatchRecord = {
+      ...BASE_RECORD,
+      kill_events_compact: JSON.stringify([
+        makeKill(1, 'Vandal', 'puuid-1', 'enemy-1'),
+        makeKill(1, 'Vandal', 'puuid-1', 'enemy-2'),
+        makeKill(1, 'Vandal', 'puuid-1', 'enemy-3'),
+        makeKill(1, 'Vandal', 'puuid-1', 'enemy-4'),
+        // 5th event is a re-kill of enemy-1 (Phoenix Run-It-Back) — should not bump count.
+        makeKill(1, 'Vandal', 'puuid-1', 'enemy-1'),
+      ]),
+    };
+    expect(aceDetector.detect(record, [])).toHaveLength(0);
+  });
+
+  it('excludes self-kills (spike suicide) — attacker == victim does not count toward ace', () => {
+    const record: MatchRecord = {
+      ...BASE_RECORD,
+      kill_events_compact: JSON.stringify([
+        makeKill(1, 'Vandal', 'puuid-1', 'enemy-1'),
+        makeKill(1, 'Vandal', 'puuid-1', 'enemy-2'),
+        makeKill(1, 'Vandal', 'puuid-1', 'enemy-3'),
+        makeKill(1, 'Vandal', 'puuid-1', 'enemy-4'),
+        // Spike detonation logged by Henrik as Yarmaru killing Yarmaru.
+        makeKill(1, 'Fall', 'puuid-1', 'puuid-1'),
+      ]),
+    };
+    expect(aceDetector.detect(record, [])).toHaveLength(0);
   });
 
   it('emits one event with both rounds when two aces in same match', () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
-        // ace in round 1
-        makeKill(1), makeKill(1), makeKill(1), makeKill(1), makeKill(1),
-        // ace in round 5
-        makeKill(5), makeKill(5), makeKill(5), makeKill(5), makeKill(5),
+        ...makeAceRound(1),
+        ...makeAceRound(5),
       ]),
     };
     const events = aceDetector.detect(record, []);
@@ -94,7 +141,7 @@ describe('aceDetector', () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
-        makeKill(1), makeKill(1), makeKill(1), makeKill(1), // 4 by player
+        ...makeAceRound(1).slice(0, 4), // 4 by player
         makeKill(1, 'Phantom', 'enemy-1', 'puuid-1'), // kill by enemy
       ]),
     };
@@ -120,11 +167,11 @@ describe('findAces', () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
-        makeKill(2, 'Knife'),
-        makeKill(2, 'Knife'),
-        makeKill(2, 'Vandal'),
-        makeKill(2, 'Vandal'),
-        makeKill(2, 'Phantom'),
+        makeKill(2, 'Knife', 'puuid-1', 'enemy-1'),
+        makeKill(2, 'Knife', 'puuid-1', 'enemy-2'),
+        makeKill(2, 'Vandal', 'puuid-1', 'enemy-3'),
+        makeKill(2, 'Vandal', 'puuid-1', 'enemy-4'),
+        makeKill(2, 'Phantom', 'puuid-1', 'enemy-5'),
       ]),
     };
     const aces = findAces(record);

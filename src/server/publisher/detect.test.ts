@@ -45,7 +45,11 @@ function makeRecord(overrides: Partial<MatchRecord> = {}): MatchRecord {
     enemy_avg_rank: 'Diamond 1',
     fall_damage_kills: 0,
     kill_events_compact: '[]',
-    rounds_compact: null,
+    rounds_compact: JSON.stringify([
+      { r: 1, w: 'Blue', c: 'CeremonyAce' },
+      { r: 2, w: 'Blue', c: 'CeremonyAce' },
+      { r: 3, w: 'Blue', c: 'CeremonyAce' },
+    ]),
     score: null,
     headshots: null,
     bodyshots: null,
