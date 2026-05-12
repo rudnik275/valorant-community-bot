@@ -176,8 +176,8 @@ describe('e2e: publisher loop', () => {
     });
     const id2 = seedPendingEvent(sqlite, {
       puuid: 'e2e-puuid-pub-2',
-      eventType: 'rank_promo',
-      payload: { from: 'Silver 1', to: 'Silver 2' },
+      eventType: 'giant_slayer',
+      payload: { own: 'Silver 2', enemy_avg: 'Gold 1' },
       detectedAt: now - 1000,
     });
 
@@ -233,14 +233,14 @@ describe('e2e: publisher loop', () => {
 
     const now = Date.now();
     const eventTypes = [
-      ['ace',               { rounds: [3] }],
-      ['ace_rare_weapon',   { weapons: ['Classic'] }],
-      ['rank_promo',        { from: 'Bronze 1', to: 'Bronze 2' }],
-      ['winstreak_9',       { streak: 9 }],
-      ['giant_slayer',      { enemy_avg: 'Gold 1', own: 'Silver 3' }],
+      ['ace',                { rounds: [3] }],
+      ['giant_slayer',       { enemy_avg: 'Gold 1', own: 'Silver 3' }],
+      ['teamkill',           { round_numbers: [2, 8], count: 2 }],
+      ['fall_damage_death',  { count: 1 }],
+      ['knife_kill',         { count: 1 }],
+      ['match_comeback',     { deficit_score_player: 3, deficit_score_opponent: 11, final_score_player: 13, final_score_opponent: 11 }],
+      ['community_clash',    { teams: [], winner_team_id: null }],
       ['return_after_pause', { days_paused: 14 }],
-      ['teamkill',          { round_numbers: [2, 8], count: 2 }],
-      ['fall_damage_death', { count: 1 }],
     ] as const;
 
     for (let i = 0; i < eventTypes.length; i++) {

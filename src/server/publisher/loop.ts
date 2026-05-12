@@ -16,7 +16,7 @@ import { optOuts } from '../db/schema/opt_outs.ts';
 import { matchRecords } from '../db/schema/match_records.ts';
 import { decide } from './decide.ts';
 import { renderTemplate } from './templates.ts';
-import type { EventType } from './types.ts';
+import { isRealtimeEvent, type EventType } from './types.ts';
 import logger from '../lib/log.ts';
 import { isPublishingEnabled } from '../lib/silent-period.ts';
 
@@ -93,6 +93,20 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
       const eventId = pendingEvent.id as number;
       const eventType = pendingEvent.event_type as EventType;
       const puuid = pendingEvent.riot_puuid as string;
+
+      // Step 2b: Defense-in-depth — digest events must never reach the realtime publisher.
+      // If one is found, it's a detector bug. Mark silent and skip.
+      if (!isRealtimeEvent(eventType)) {
+        logger.warn(
+          { module: 'publisher', event_id: eventId, event_type: eventType },
+          'Digest event landed in realtime queue — skipping',
+        );
+        await db
+          .update(detectedEvents)
+          .set({ status: 'silent' })
+          .where(eq(detectedEvents.id, eventId));
+        return;
+      }
 
       // Step 3: Fetch user info
       const [userRow] = await db
