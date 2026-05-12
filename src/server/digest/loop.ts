@@ -147,47 +147,45 @@ export async function runDigestNow(deps: DigestLoopDeps): Promise<void> {
       return;
     }
 
-    // Insert started_at row
-    const insertResult = await db
-      .insert(digestRuns)
-      .values({ week_iso: weekIso, started_at: nowMs })
-      .returning({ id: digestRuns.id });
-
-    const runId = insertResult[0]?.id as number;
-
-    if (!runId) {
-      logger.error({ module: 'digest', week_iso: weekIso }, 'Failed to insert digest_runs row');
-      return;
-    }
-
-    // Build digest content
+    // Build digest content BEFORE writing digest_runs — a build/send failure
+    // must not poison the week. The "already posted" dedup check above sees
+    // a row only after a fully successful send.
     const { text, sectionsIncluded } = await buildDigest({ db, weekStart, weekEnd });
 
     if (text === null) {
       logger.info({ module: 'digest', week_iso: weekIso, skipped: 'no_content' }, 'Digest has no content — not posting');
+      // Mark the week as "no content" so we don't recompute every tick.
       await db
-        .update(digestRuns)
-        .set({ posted_text: '[no_content]' })
-        .where(eq(digestRuns.id, runId));
+        .insert(digestRuns)
+        .values({ week_iso: weekIso, started_at: nowMs, posted_text: '[no_content]' })
+        .onConflictDoNothing();
       return;
     }
 
-    // Post to primary chat
+    // Post to primary chat. If this throws, the outer catch logs and the next
+    // cron tick (re-)attempts — no digest_runs row exists yet, so the dedup
+    // check at line 145 will not mistake it for "already posted".
     const chatId = getPrimaryChatId();
     const { message_id: messageId } = await sendMessage(chatId, text, {
       parse_mode: 'HTML',
       disable_web_page_preview: true,
     });
 
+    // Send succeeded — now durably record the run. onConflictDoNothing covers
+    // the (extremely unlikely) race where two ticks raced past the dedup check
+    // and both managed to send: the second insert is a no-op, the duplicate
+    // Telegram post is the lesser harm vs. a permanently-lost weekly digest.
     const postedAt = Date.now();
     await db
-      .update(digestRuns)
-      .set({
+      .insert(digestRuns)
+      .values({
+        week_iso: weekIso,
+        started_at: nowMs,
         posted_at: postedAt,
         posted_message_id: messageId,
         posted_text: text,
       })
-      .where(eq(digestRuns.id, runId));
+      .onConflictDoNothing();
 
     logger.info(
       { module: 'digest', week_iso: weekIso, chat_id: chatId, message_id: messageId, sections: sectionsIncluded },

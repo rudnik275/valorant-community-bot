@@ -90,6 +90,36 @@ describe('runDigestNow', () => {
     });
   });
 
+  describe('send-failure recovery', () => {
+    it('does NOT insert digest_runs when sendMessage throws — next attempt can still publish', async () => {
+      sendMessage.mockRejectedValueOnce(new Error('Telegram outage'));
+
+      await runDigestNow({
+        db,
+        sendMessage,
+        getPrimaryChatId: () => -1001234567890,
+        getNowKyiv: () => DEFAULT_KYIV,
+      });
+
+      // No digest_runs row should exist for this week — the week is NOT poisoned.
+      const row = getDigestRunRow(sqlite, FIXED_WEEK_ISO);
+      expect(row).toBeUndefined();
+
+      // A subsequent attempt (same week) now succeeds — confirms recovery.
+      sendMessage.mockResolvedValueOnce({ message_id: 99 });
+      await runDigestNow({
+        db,
+        sendMessage,
+        getPrimaryChatId: () => -1001234567890,
+        getNowKyiv: () => DEFAULT_KYIV,
+      });
+
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+      const row2 = getDigestRunRow(sqlite, FIXED_WEEK_ISO);
+      expect(row2?.posted_message_id).toBe(99);
+    });
+  });
+
   describe('idempotency — same week twice', () => {
     it('second runDigestNow in same week is skipped without calling sendMessage', async () => {
       await runDigestNow({

@@ -178,6 +178,13 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Per-request hard timeout. Without it, a Henrik connection that accepts then
+ * never closes (TCP zombie after a network blip) hangs forever, blocking the
+ * single-worker henrik-queue and freezing all ingestion until container restart.
+ */
+const FETCH_TIMEOUT_MS = 15_000;
+
 async function fetchWithRetry<T>(
   endpoint: string,
   parseResponse: (json: unknown) => T,
@@ -194,10 +201,29 @@ async function fetchWithRetry<T>(
     const start = Date.now();
     let response: Response;
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-      response = await globalThis.fetch(url, { headers });
+      response = await globalThis.fetch(url, { headers, signal: controller.signal });
     } catch (err) {
-      throw new HenrikError(`Network error: ${(err as Error).message}`);
+      const message = (err as Error).message ?? String(err);
+      const isAbort = (err as Error).name === 'AbortError' || message.includes('aborted');
+      // Treat network errors and timeouts as transient — retry up to maxRetries
+      // with the same backoff as 5xx so one DNS hiccup / ECONNRESET / hung
+      // socket doesn't lose the whole tick.
+      if (attempt < maxRetries) {
+        attempt++;
+        const delay = jitter(500 * attempt);
+        logger.warn(
+          { module: 'henrik', endpoint, attempt, delay_ms: delay, timeout: isAbort, err: message },
+          'Henrik network/timeout error — retrying',
+        );
+        await sleep(delay);
+        continue;
+      }
+      throw new HenrikError(`${isAbort ? 'Timeout' : 'Network error'}: ${message}`);
+    } finally {
+      clearTimeout(timeoutId);
     }
 
     const duration_ms = Date.now() - start;

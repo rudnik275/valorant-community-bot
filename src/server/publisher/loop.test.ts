@@ -313,11 +313,15 @@ describe('startPublisherLoop', () => {
       expect(getEventStatus(sqlite, id1)).toBe('posted');
     });
 
-    it('leaves event as pending on non-429 error (no retry)', async () => {
+    it('leaves event as pending + bumps failed_attempts on durable Telegram 4xx', async () => {
       seedUser(sqlite, 1, 'puuid-1');
       const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'ace' });
 
-      sendMessage.mockRejectedValueOnce(new Error('Network error'));
+      // Durable 400 (e.g. "chat not found"): no error_code retry, no transient kind.
+      const durable400 = Object.assign(new Error('Bad Request: chat not found'), {
+        error_code: 400,
+      });
+      sendMessage.mockRejectedValueOnce(durable400);
 
       const { stop } = makeLoop(db, sendMessage, {
         kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
@@ -325,8 +329,66 @@ describe('startPublisherLoop', () => {
 
       await runOneTick(stop);
 
+      // Durable error → no retry call.
       expect(sendMessage).toHaveBeenCalledTimes(1);
       expect(getEventStatus(sqlite, id1)).toBe('pending');
+
+      // failed_attempts bumped to 1, last_error captured.
+      const row = sqlite.prepare(
+        'SELECT failed_attempts, last_error FROM detected_events WHERE id = ?',
+      ).get(id1) as { failed_attempts: number; last_error: string };
+      expect(row.failed_attempts).toBe(1);
+      expect(row.last_error).toContain('chat not found');
+    });
+
+    it('parks event as failed after MAX_FAILED_ATTEMPTS=3 so queue stops blocking', async () => {
+      seedUser(sqlite, 1, 'puuid-1');
+      // Two pending events; first is poison, second should still get a chance later.
+      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'ace' });
+
+      // Pretend this poison event has already failed twice — next failure should park it.
+      sqlite.prepare('UPDATE detected_events SET failed_attempts = 2 WHERE id = ?').run(id1);
+
+      const durable400 = Object.assign(new Error('Bad Request: message is too long'), {
+        error_code: 400,
+      });
+      sendMessage.mockRejectedValueOnce(durable400);
+
+      const { stop } = makeLoop(db, sendMessage, {
+        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
+      });
+
+      await runOneTick(stop);
+
+      expect(getEventStatus(sqlite, id1)).toBe('failed');
+      const row = sqlite.prepare(
+        'SELECT failed_attempts, last_error FROM detected_events WHERE id = ?',
+      ).get(id1) as { failed_attempts: number; last_error: string };
+      expect(row.failed_attempts).toBe(3);
+      expect(row.last_error).toContain('too long');
+    });
+
+    it('retries on transient Telegram 5xx error before giving up', async () => {
+      seedUser(sqlite, 1, 'puuid-1');
+      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'ace' });
+
+      const transient500 = Object.assign(new Error('Internal Server Error'), { error_code: 500 });
+      // First attempt fails 5xx → retry path; second attempt succeeds.
+      sendMessage
+        .mockRejectedValueOnce(transient500)
+        .mockResolvedValueOnce({ message_id: 999 });
+
+      const { stop } = makeLoop(db, sendMessage, {
+        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
+      });
+
+      // Drive the 2s retry sleep on transient errors.
+      await vi.advanceTimersByTimeAsync(2100);
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      stop();
+
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+      expect(getEventStatus(sqlite, id1)).toBe('posted');
     });
 
     it('leaves event as pending if both 429 retry attempts fail', async () => {

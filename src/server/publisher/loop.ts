@@ -205,7 +205,11 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
         matchInfo,
       );
 
-      // Send message with 429 retry
+      // Send message with retry on 429 + Telegram 5xx + transient network errors.
+      // A purely-durable failure (4xx other than 429: "chat not found", "message
+      // too long", "chat archived") cannot succeed by retrying — to avoid
+      // head-of-line blocking the whole queue, we increment failed_attempts and
+      // park the event in status='failed' after MAX_FAILED_ATTEMPTS.
       let messageId: number | undefined;
       let lastErr: unknown;
 
@@ -221,33 +225,61 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
         } catch (err: unknown) {
           lastErr = err;
 
-          // Check for 429 rate limit
-          const is429 = err instanceof Error &&
-            (err.message.includes('429') || ('error_code' in (err as object) && (err as { error_code?: number }).error_code === 429));
+          const errCode = (err && typeof err === 'object' && 'error_code' in err)
+            ? (err as { error_code?: number }).error_code
+            : undefined;
+          const errMsg = err instanceof Error ? err.message : String(err);
 
-          if (is429 && attempt === 0) {
-            // Extract retry_after from Telegram error if available
-            const retryAfter = ('parameters' in (err as object)
-              ? ((err as { parameters?: { retry_after?: number } }).parameters?.retry_after ?? 5)
-              : 5);
+          const is429 = errCode === 429 || (errMsg ?? '').includes('429');
+          const is5xx = typeof errCode === 'number' && errCode >= 500 && errCode < 600;
+          // gramJS / grammY wrap fetch errors with no error_code; treat as transient.
+          const isNetwork = errCode === undefined && !is429 && /network|timeout|fetch|ECONN|EAI_AGAIN|ETIMEDOUT/i.test(errMsg);
+          const isTransient = is429 || is5xx || isNetwork;
+
+          if (isTransient && attempt === 0) {
+            const retryAfter = is429
+              ? (('parameters' in (err as object))
+                ? ((err as { parameters?: { retry_after?: number } }).parameters?.retry_after ?? 5)
+                : 5)
+              : 2;
             logger.warn(
-              { module: 'publisher', event_id: eventId, retry_after: retryAfter },
-              'Telegram 429 — retrying after delay',
+              { module: 'publisher', event_id: eventId, retry_after: retryAfter, kind: is429 ? '429' : is5xx ? '5xx' : 'network' },
+              'Transient Telegram error — retrying',
             );
             await sleep(retryAfter * 1000);
             continue;
           }
 
-          // Non-429 error on any attempt: log and leave as pending
+          // Durable error on any attempt, OR transient error after retry — stop.
           break;
         }
       }
 
       if (lastErr !== undefined) {
-        logger.error(
-          { module: 'publisher', event_id: eventId, err: lastErr },
-          'Failed to send message — leaving event as pending for next tick',
-        );
+        // Bump failed_attempts. After MAX_FAILED_ATTEMPTS, park as 'failed' so
+        // the queue moves past poison events instead of blocking forever.
+        const MAX_FAILED_ATTEMPTS = 3;
+        const newAttempts = (pendingEvent.failed_attempts as number ?? 0) + 1;
+        const errMsg = lastErr instanceof Error ? lastErr.message : String(lastErr);
+        if (newAttempts >= MAX_FAILED_ATTEMPTS) {
+          logger.error(
+            { module: 'publisher', event_id: eventId, attempts: newAttempts, err: errMsg },
+            'Event marked as failed after max attempts — unblocking queue',
+          );
+          await db
+            .update(detectedEvents)
+            .set({ status: 'failed', failed_attempts: newAttempts, last_error: errMsg.slice(0, 500) })
+            .where(eq(detectedEvents.id, eventId));
+        } else {
+          logger.warn(
+            { module: 'publisher', event_id: eventId, attempts: newAttempts, err: errMsg },
+            'Send failed — leaving as pending, will retry next tick',
+          );
+          await db
+            .update(detectedEvents)
+            .set({ failed_attempts: newAttempts, last_error: errMsg.slice(0, 500) })
+            .where(eq(detectedEvents.id, eventId));
+        }
         return;
       }
 
