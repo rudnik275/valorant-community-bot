@@ -9,6 +9,7 @@ import { scopeGuard } from './bot/scope-guard.ts';
 import { makeLastMessageHandler } from './bot/listener.ts';
 import { makeChatMemberListener } from './bot/chat-member-listener.ts';
 import { makeTestDigestHandler, makeTestRuntimeEventsHandler } from './bot/test-commands.ts';
+import { makeCongratsHandler, makeCongratsCallbackHandler } from './bot/congrats-command.ts';
 import { isAllowedChat } from './lib/scope.ts';
 import { makeAuthMiddleware } from './api/auth.ts';
 import { makeMembersHandler } from './api/members.ts';
@@ -46,12 +47,17 @@ if (botToken) {
   // Admin-only preview commands. Gated internally by isOwner() (TELEGRAM_OWNER_ID).
   bot.command('test_digest', makeTestDigestHandler({ db, bot }));
   bot.command('test_runtime_events', makeTestRuntimeEventsHandler({ db, bot }));
+  // Admin: /congrats <nickname> → preview-then-confirm post of yesterday's
+  // matches for the matched player to the primary chat.
+  const getPrimaryChatId = () => Number(process.env['TELEGRAM_PRIMARY_CHAT_ID'] ?? '0');
+  bot.command('congrats', makeCongratsHandler({ db, bot, getPrimaryChatId }));
+  bot.callbackQuery(/^congrats:/, makeCongratsCallbackHandler({ db, bot, getPrimaryChatId }));
   const lastMessageHandler = makeLastMessageHandler({ db, isAllowedChat });
   bot.on('message', lastMessageHandler);
   bot.on('chat_member', makeChatMemberListener({ db, isAllowedChat }));
   bot.start({
     drop_pending_updates: true,
-    allowed_updates: ['message', 'my_chat_member', 'chat_member'],
+    allowed_updates: ['message', 'my_chat_member', 'chat_member', 'callback_query'],
   }).catch((err) => {
     logger.error({ module: 'bot', err }, 'grammY bot failed to start');
   });
