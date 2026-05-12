@@ -47,9 +47,20 @@ function playerTag(user: TemplateUser): string {
   return `<b>${esc(user.riot_name + '#' + user.riot_tag)}</b>`;
 }
 
-/** Match-link line — separated from the body by a blank line for visual breathing room. */
+/** Match-link line for realtime templates — separated from the body by a blank line. */
 function matchLine(match_id: string): string {
-  return `\n\n🎮 <a href="https://tracker.gg/valorant/match/${esc(match_id)}">Ссылка на матч</a>`;
+  return `\n\n<a href="https://tracker.gg/valorant/match/${esc(match_id)}">Ссылка на матч</a>`;
+}
+
+/** Inline match-link suffix for digest templates — joined with " | " separator. */
+function matchLinkInline(match_id: string | undefined): string {
+  if (!match_id) return '';
+  return ` | <a href="https://tracker.gg/valorant/match/${esc(match_id)}">Ссылка на матч</a>`;
+}
+
+/** Wraps a context-description line in italic + underline for digest templates. */
+function ctxLine(text: string): string {
+  return `<i><u>${text}</u></i>`;
 }
 
 function mapSuffix(map: string | undefined): string {
@@ -132,9 +143,8 @@ const templates: Record<EventType, TemplateFn> = {
       }
     }
     const weaponStr = Array.from(rareNames).join(', ') || 'редким';
-    const desc = `${playerTag(user)} — эйс с ${esc(weaponStr)}${mapSuffix(match?.map)}`;
-    const link = match?.match_id ? matchLine(match.match_id) : '';
-    return `💎 <b>Знает толк в извращениях</b>\n\n${desc}${link}`;
+    const valueLine = `${playerTag(user)} — эйс с ${esc(weaponStr)}${mapSuffix(match?.map)}${matchLinkInline(match?.match_id)}`;
+    return `💎 <b>Знает толк в извращениях</b>\n\n${valueLine}`;
   },
 
   peak_rank_up: (payload, user, _match) => {
@@ -193,54 +203,48 @@ const templates: Record<EventType, TemplateFn> = {
     const value = payload['value'];
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = recordContextLine('record_damage_dealt_match');
-    const desc = `${playerTag(user)} — ${esc(String(value))} dmg${prev}`;
-    const link = match?.match_id ? matchLine(match.match_id) : '';
-    return `🥩 <b>Мясник</b>\n\n${ctx}\n\n${desc}${link}`;
+    const valueLine = `${playerTag(user)} — ${esc(String(value))} dmg${matchLinkInline(match?.match_id)}`;
+    return `🥩 <b>Мясник</b>\n${ctxLine(ctx!)}\n\n${valueLine}${prev}`;
   },
 
   record_damage_received_match: (payload, user, match) => {
     const value = payload['value'];
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = recordContextLine('record_damage_received_match');
-    const desc = `${playerTag(user)} — получил(а) ${esc(String(value))} dmg${prev}`;
-    const link = match?.match_id ? matchLine(match.match_id) : '';
-    return `🤕 <b>Груша для битья</b>\n\n${ctx}\n\n${desc}${link}`;
+    const valueLine = `${playerTag(user)} — получил(а) ${esc(String(value))} dmg${matchLinkInline(match?.match_id)}`;
+    return `🤕 <b>Груша для битья</b>\n${ctxLine(ctx!)}\n\n${valueLine}${prev}`;
   },
 
   record_kills_match: (payload, user, match) => {
     const value = payload['value'];
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = recordContextLine('record_kills_match');
-    const desc = `${playerTag(user)} — ${esc(String(value))} фрагов${prev}`;
-    const link = match?.match_id ? matchLine(String(match.match_id)) : '';
-    return `💀 <b>Мирного рішення не буде</b>\n\n${ctx}\n\n${desc}${link}`;
+    const valueLine = `${playerTag(user)} — ${esc(String(value))} фрагов${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
+    return `💀 <b>Мирного рішення не буде</b>\n${ctxLine(ctx!)}\n\n${valueLine}${prev}`;
   },
 
   record_deaths_match: (payload, user, match) => {
     const value = payload['value'];
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = recordContextLine('record_deaths_match');
-    const desc = `${playerTag(user)} — ${esc(String(value))} смертей${prev}`;
-    const link = match?.match_id ? matchLine(String(match.match_id)) : '';
-    return `⚰️ <b>Жертва насилия</b>\n\n${ctx}\n\n${desc}${link}`;
+    const valueLine = `${playerTag(user)} — ${esc(String(value))} смертей${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
+    return `⚰️ <b>Жертва насилия</b>\n${ctxLine(ctx!)}\n\n${valueLine}${prev}`;
   },
 
   record_headshots_match: (payload, user, match) => {
     const value = payload['value'];
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = recordContextLine('record_headshots_match');
-    const desc = `${playerTag(user)} — ${esc(String(value))} хедшотов${prev}`;
-    const link = match?.match_id ? matchLine(String(match.match_id)) : '';
-    return `🤠 <b>Директор дикого запада</b>\n\n${ctx}\n\n${desc}${link}`;
+    const valueLine = `${playerTag(user)} — ${esc(String(value))} хедшотов${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
+    return `🤠 <b>Директор дикого запада</b>\n${ctxLine(ctx!)}\n\n${valueLine}${prev}`;
   },
 
   record_legshots_match: (payload, user, match) => {
     const value = payload['value'];
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = recordContextLine('record_legshots_match');
-    const desc = `${playerTag(user)} — ${esc(String(value))} легшотов${prev}`;
-    const link = match?.match_id ? matchLine(String(match.match_id)) : '';
-    return `♿️ <b>Угадай куда шмальну</b>\n\n${ctx}\n\n${desc}${link}`;
+    const valueLine = `${playerTag(user)} — ${esc(String(value))} легшотов${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
+    return `♿️ <b>Угадай куда шмальну</b>\n${ctxLine(ctx!)}\n\n${valueLine}${prev}`;
   },
 
   knife_kill: (payload, user, match) => {
@@ -258,8 +262,8 @@ const templates: Record<EventType, TemplateFn> = {
     const prevForLine = (prevValue !== null && prevValue !== undefined && Number(prevValue) > 0) ? prevValue : undefined;
     const prev = prevRecordLine(prevForLine, payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid, 'MVP');
     const ctx = recordContextLine('record_mvp_count_week');
-    const desc = `${playerTag(user)} — ${esc(String(value))} MVP-матчей за неделю${prev}`;
-    return `🏅 <b>Отказался(лась) от личной жизни</b>\n\n${ctx}\n\n${desc}`;
+    const valueLine = `${playerTag(user)} — ${esc(String(value))} MVP-матчей`;
+    return `🏅 <b>Отказался(лась) от личной жизни</b>\n${ctxLine(ctx!)}\n\n${valueLine}${prev}`;
   },
 
   match_comeback: (payload, user, match) => {
@@ -278,9 +282,8 @@ const templates: Record<EventType, TemplateFn> = {
     const realMatchId = payload['real_match_id'];
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = 'самое большое количество убийств за игру из одного оружия';
-    const desc = `${playerTag(user)} — ${esc(String(value))} фрагов${prev}`;
-    const link = realMatchId ? matchLine(String(realMatchId)) : '';
-    return `🔫 <b>Эксперт по ${esc(String(weapon))}</b>\n\n${ctx}\n\n${desc}${link}`;
+    const valueLine = `${playerTag(user)} — ${esc(String(value))} фрагов${matchLinkInline(realMatchId ? String(realMatchId) : undefined)}`;
+    return `🔫 <b>Эксперт по ${esc(String(weapon))}</b>\n${ctxLine(ctx)}\n\n${valueLine}${prev}`;
   },
 
   record_longest_match_minutes: (payload, user, match) => {
@@ -295,9 +298,8 @@ const templates: Record<EventType, TemplateFn> = {
     const verb = players.length > 1 ? 'проинвестировали' : 'проинвестировал(а)';
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid, 'минут');
     const ctx = 'рекорд по длительности матча';
-    const desc = `${esc(String(value))} минут${mapSuffix(match?.map)}${prev}`;
-    const link = match?.match_id ? matchLine(match.match_id) : '';
-    return `⏳ <b>${playerNames} — ${verb} свое время правильно</b>\n\n${ctx}\n\n${desc}${link}`;
+    const valueLine = `${esc(String(value))} минут${mapSuffix(match?.map)}${matchLinkInline(match?.match_id)}`;
+    return `⏳ <b>${playerNames} — ${verb} свое время правильно</b>\n${ctxLine(ctx)}\n\n${valueLine}${prev}`;
   },
 
   record_longest_match_rounds: (payload, user, match) => {
@@ -312,9 +314,8 @@ const templates: Record<EventType, TemplateFn> = {
     const verb = players.length > 1 ? 'пережили' : 'пережил(а)';
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid, 'раундов');
     const ctx = 'рекорд по количеству раундов в матче';
-    const desc = `${playerNames} — ${verb} ${esc(String(value))} раундов${mapSuffix(match?.map)}${prev}`;
-    const link = match?.match_id ? matchLine(match.match_id) : '';
-    return `😰 <b>Надеюсь это того стоило</b>\n\n${ctx}\n\n${desc}${link}`;
+    const valueLine = `${playerNames} — ${verb} ${esc(String(value))} раундов${mapSuffix(match?.map)}${matchLinkInline(match?.match_id)}`;
+    return `😰 <b>Надеюсь это того стоило</b>\n${ctxLine(ctx)}\n\n${valueLine}${prev}`;
   },
 
   community_clash: (payload, _user, match) => {
@@ -424,10 +425,7 @@ export function renderDigestGroup(eventType: EventType, entries: DigestEntry[]):
         }
       }
       const weaponStr = Array.from(rareNames).join(', ') || 'редким';
-      const linkInline = e.match?.match_id
-        ? ` · 🎮 <a href="https://tracker.gg/valorant/match/${esc(e.match.match_id)}">Матч</a>`
-        : '';
-      return `${playerTag(e.user)} — эйс с ${esc(weaponStr)}${mapSuffix(e.match?.map)}${linkInline}`;
+      return `${playerTag(e.user)} — эйс с ${esc(weaponStr)}${mapSuffix(e.match?.map)}${matchLinkInline(e.match?.match_id)}`;
     });
     const header = entries.length === 1 ? 'Знает толк в извращениях' : 'Знают толк в извращениях';
     return `💎 <b>${header}</b>\n\n${lines.join('\n')}`;
