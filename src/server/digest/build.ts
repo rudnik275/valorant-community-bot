@@ -282,6 +282,17 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
 
       const payload = safeParseJson(ev.payload_json as string);
 
+      // Skip kills_per_weapon events whose payload weapon is unusable
+      // (empty string, or a raw UUID Henrik shipped instead of a name).
+      // The detector now filters these going forward, but historical
+      // detected_events rows still carry them and would render as
+      // "Эксперт по " or "Эксперт по 39099fb5-…" in the digest.
+      if (ev.event_type === 'record_kills_per_weapon') {
+        const w = String(payload['weapon'] ?? '');
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(w);
+        if (!w || isUuid) continue;
+      }
+
       // record_kills_per_weapon uses a synthetic match_id (match_id#kpw-WEAPON) for dedup.
       // The real match_id is stored in payload.real_match_id.
       const realMatchId: string =

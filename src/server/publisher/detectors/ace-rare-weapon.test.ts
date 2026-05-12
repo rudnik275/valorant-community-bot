@@ -18,7 +18,10 @@ const BASE_RECORD: MatchRecord = {
   enemy_avg_rank: 'Diamond 1',
   fall_damage_kills: 0,
   kill_events_compact: '[]',
-  rounds_compact: null,
+  rounds_compact: JSON.stringify([
+    { r: 1, w: 'Blue', c: 'CeremonyAce' },
+    { r: 2, w: 'Blue', c: 'CeremonyAce' },
+  ]),
   score: null,
   headshots: null,
   bodyshots: null,
@@ -32,8 +35,8 @@ const BASE_RECORD: MatchRecord = {
   inserted_at: 1700000000000,
 };
 
-function makeKill(round: number, weapon = 'Vandal', attacker = 'puuid-1') {
-  return { round, attacker_team: 'Blue', victim_team: 'Red', weapon, attacker_puuid: attacker, victim_puuid: 'enemy-1' };
+function makeKill(round: number, weapon = 'Vandal', attacker = 'puuid-1', victim = 'enemy-1') {
+  return { round, attacker_team: 'Blue', victim_team: 'Red', weapon, attacker_puuid: attacker, victim_puuid: victim };
 }
 
 describe('aceRareWeaponDetector', () => {
@@ -45,8 +48,8 @@ describe('aceRareWeaponDetector', () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
-        makeKill(1, 'Vandal'), makeKill(1, 'Vandal'), makeKill(1, 'Phantom'),
-        makeKill(1, 'Operator'), makeKill(1, 'Sheriff'),
+        makeKill(1, 'Vandal', 'puuid-1', 'e1'), makeKill(1, 'Vandal', 'puuid-1', 'e2'), makeKill(1, 'Phantom', 'puuid-1', 'e3'),
+        makeKill(1, 'Operator', 'puuid-1', 'e4'), makeKill(1, 'Sheriff', 'puuid-1', 'e5'),
       ]),
     };
     expect(aceRareWeaponDetector.detect(record, [])).toHaveLength(0);
@@ -56,8 +59,8 @@ describe('aceRareWeaponDetector', () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
-        makeKill(1, 'Knife'), makeKill(1, 'Vandal'), makeKill(1, 'Phantom'),
-        makeKill(1, 'Operator'), makeKill(1, 'Sheriff'),
+        makeKill(1, 'Knife', 'puuid-1', 'e1'), makeKill(1, 'Vandal', 'puuid-1', 'e2'), makeKill(1, 'Phantom', 'puuid-1', 'e3'),
+        makeKill(1, 'Operator', 'puuid-1', 'e4'), makeKill(1, 'Sheriff', 'puuid-1', 'e5'),
       ]),
     };
     expect(aceRareWeaponDetector.detect(record, [])).toHaveLength(0);
@@ -67,8 +70,8 @@ describe('aceRareWeaponDetector', () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
-        makeKill(1, 'Knife'), makeKill(1, 'Knife'), makeKill(1, 'Phantom'),
-        makeKill(1, 'Vandal'), makeKill(1, 'Vandal'),
+        makeKill(1, 'Knife', 'puuid-1', 'e1'), makeKill(1, 'Knife', 'puuid-1', 'e2'), makeKill(1, 'Phantom', 'puuid-1', 'e3'),
+        makeKill(1, 'Vandal', 'puuid-1', 'e4'), makeKill(1, 'Vandal', 'puuid-1', 'e5'),
       ]),
     };
     const events = aceRareWeaponDetector.detect(record, []);
@@ -81,8 +84,8 @@ describe('aceRareWeaponDetector', () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
-        makeKill(2, 'Classic'), makeKill(2, 'Classic'), makeKill(2, 'Classic'),
-        makeKill(2, 'Vandal'), makeKill(2, 'Vandal'),
+        makeKill(2, 'Classic', 'puuid-1', 'e1'), makeKill(2, 'Classic', 'puuid-1', 'e2'), makeKill(2, 'Classic', 'puuid-1', 'e3'),
+        makeKill(2, 'Vandal', 'puuid-1', 'e4'), makeKill(2, 'Vandal', 'puuid-1', 'e5'),
       ]),
     };
     const events = aceRareWeaponDetector.detect(record, []);

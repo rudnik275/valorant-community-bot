@@ -192,11 +192,17 @@ export function deriveMatchRecord(match: HenrikMatchV4, puuid: string): MatchRec
     victim_puuid: k.victim?.puuid ?? '',
   }));
 
-  // rounds_compact: compact round winner list consumed by match-comeback detector.
-  // Shape: [{r: round_id, w: winning_team_id}]
+  // rounds_compact: compact round-level list consumed by match-comeback + ace detectors.
+  // Shape: [{r: round_id, w: winning_team_id, c?: ceremony_string}]
+  // `c` carries Henrik's `rounds[].ceremony` verbatim (e.g. "CeremonyAce") —
+  // the ace detector treats `"CeremonyAce"` as ground truth.
   const roundsCompact = match.rounds
     .filter((r) => r.winning_team)
-    .map((r) => ({ r: r.id ?? 0, w: r.winning_team! }));
+    .map((r) => {
+      const entry: { r: number; w: string; c?: string } = { r: r.id ?? 0, w: r.winning_team! };
+      if (r.ceremony) entry.c = r.ceremony;
+      return entry;
+    });
 
   return {
     riot_puuid: puuid,

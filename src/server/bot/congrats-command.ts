@@ -172,11 +172,11 @@ export function buildCongratsText(player: PlayerRow, matches: MatchRow[]): strin
   }
   const kdStr = tD === 0 ? `${tK} (без смертей)` : (tK / tD).toFixed(2);
   return [
-    `🎉 <b>${escHtml(player.riot_name)}</b> вчера был(а) в форме!`,
+    `🎉 <b>${escHtml(player.riot_name)}</b> сегодня в форме!`,
     '',
     ...lines,
     '',
-    `📊 За день · K/D <b>${kdStr}</b> · ${wins} ${ruWins(wins)} 🏆`,
+    `📊 За сегодняшний день · K/D <b>${kdStr}</b> · ${wins} ${ruWins(wins)} 🏆`,
     '',
     '👏👏👏 Овации! 👏👏👏',
   ].join('\n');
@@ -223,15 +223,18 @@ export function makeCongratsHandler(deps: CongratsDeps): MiddlewareFn<Context> {
       }
 
       const player = candidates[0]!;
-      const dayStart = kyivMidnightMs(1); // yesterday 00:00 Kyiv
-      const dayEnd = kyivMidnightMs(0); // today 00:00 Kyiv
+      // Window: today 00:00 Kyiv → now. The most common use case is an
+      // evening recap after a session — yesterday's calendar day is less
+      // useful and surprised the owner when first deployed.
+      const dayStart = kyivMidnightMs(0);
+      const dayEnd = Date.now();
       const matches = await fetchMatches(deps.db, player.riot_puuid, dayStart, dayEnd);
       const congrats = buildCongratsText(player, matches);
 
       if (!congrats) {
         await deps.bot.api.sendMessage(
           fromId!,
-          `<b>${escHtml(player.riot_name)}</b> вчера не играл(а) competitive — нечего отправлять.`,
+          `<b>${escHtml(player.riot_name)}</b> сегодня не играл(а) competitive — нечего отправлять.`,
           HTML_OPTS,
         );
         return;
