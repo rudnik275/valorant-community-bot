@@ -441,6 +441,25 @@ describe('startPublisherLoop', () => {
       );
     });
 
+    it('includes a tracker.gg match link in the rendered message', async () => {
+      // Regression: publisher previously passed only { map } to the template,
+      // not match_id — so realtime events posted to the group had no link
+      // even though /test_runtime_events (which passes both) did.
+      seedUser(sqlite, 1, 'puuid-1', { riotName: 'Linker', riotTag: '0001' });
+      const matchId = 'abc-match-id-with-link-001';
+      seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'knife_kill', matchId });
+
+      const { stop } = makeLoop(db, sendMessage, {
+        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
+      });
+
+      await runOneTick(stop);
+
+      const [, body] = sendMessage.mock.calls[0]!;
+      expect(body).toContain(`tracker.gg/valorant/match/${matchId}`);
+      expect(body).toContain('Ссылка на матч');
+    });
+
     it('sends to the primary chat ID', async () => {
       seedUser(sqlite, 1, 'puuid-1');
       seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'ace' });

@@ -169,8 +169,22 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
         return;
       }
 
-      // Fetch match for map info
-      const matchId = pendingEvent.match_id as string;
+      // Fetch match for map info. record_kills_per_weapon stores a synthetic
+      // event match_id (`<real_match_id>#kpw-<weapon>`) but keeps the real id
+      // in payload.real_match_id — use that for the tracker-link.
+      const rawMatchId = pendingEvent.match_id as string;
+      // Payload is parsed below; pre-parse it here just to extract real_match_id.
+      let realMatchIdEarly: string | undefined;
+      try {
+        const tmp = JSON.parse(pendingEvent.payload_json as string) as Record<string, unknown>;
+        if (eventType === 'record_kills_per_weapon' && typeof tmp['real_match_id'] === 'string') {
+          realMatchIdEarly = tmp['real_match_id'] as string;
+        }
+      } catch {
+        // ignore — handled in the main parse below
+      }
+      const matchId = realMatchIdEarly ?? rawMatchId;
+
       const [matchRow] = await db
         .select({ map: matchRecords.map })
         .from(matchRecords)
@@ -182,8 +196,15 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
         )
         .limit(1);
 
-      const matchInfo: { map?: string } | undefined = matchRow
-        ? (matchRow.map ? { map: matchRow.map as string } : {})
+      // Pass BOTH match_id and (when known) map to the template so links
+      // render in the chat output. Previously only map was passed, which
+      // is why /test_runtime_events showed a link but realtime publishing
+      // to the group did not.
+      const matchInfo: { map?: string; match_id?: string } | undefined = (matchId || matchRow?.map)
+        ? {
+            ...(matchRow?.map ? { map: matchRow.map as string } : {}),
+            ...(matchId ? { match_id: matchId } : {}),
+          }
         : undefined;
 
       // Parse payload
