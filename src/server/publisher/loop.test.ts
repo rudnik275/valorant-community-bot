@@ -373,7 +373,6 @@ describe('startPublisherLoop', () => {
       const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'ace' });
 
       const transient500 = Object.assign(new Error('Internal Server Error'), { error_code: 500 });
-      // First attempt fails 5xx → retry path; second attempt succeeds.
       sendMessage
         .mockRejectedValueOnce(transient500)
         .mockResolvedValueOnce({ message_id: 999 });
@@ -382,10 +381,17 @@ describe('startPublisherLoop', () => {
         kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
       });
 
-      // Drive the 2s retry sleep on transient errors.
+      // Step 1: Advance 1s — fires exactly one cron tick.
+      // Tick: sendMessage 1st call (rejects 5xx) → starts the retry sleep(2000).
+      await vi.advanceTimersByTimeAsync(1001);
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      // Cancel the cron so subsequent advance doesn't fire additional ticks
+      // (which would consume more mock entries and break the call-count check).
+      // The in-flight tick is unaffected — its setTimeout sleep keeps running.
+      stop();
+      // Step 2: Drive the 2s retry sleep to completion → 2nd sendMessage succeeds.
       await vi.advanceTimersByTimeAsync(2100);
       for (let i = 0; i < 10; i++) await Promise.resolve();
-      stop();
 
       expect(sendMessage).toHaveBeenCalledTimes(2);
       expect(getEventStatus(sqlite, id1)).toBe('posted');
