@@ -59,6 +59,31 @@ function mapSuffix(map: string | undefined): string {
   return map ? ` на карте ${esc(map)}` : '';
 }
 
+/**
+ * Render the "prev record" line for digest record_* templates.
+ * Returns either '' (first record) or '\n…' line to append inside <blockquote>.
+ */
+function prevRecordLine(
+  prevValue: unknown,
+  prevName: unknown,
+  prevTag: unknown,
+  prevPuuid: unknown,
+  ownPuuid: string | undefined,
+  unit?: string,
+): string {
+  if (prevValue === null || prevValue === undefined) return '';
+  const unitStr = unit ? ` ${unit}` : '';
+  const samePlayer = prevPuuid === ownPuuid;
+  if (samePlayer) {
+    return `\nпрошлый рекорд: ${esc(String(prevValue))}${unitStr} (тоже его)`;
+  }
+  if (prevName) {
+    const tag = prevTag ? '#' + esc(String(prevTag)) : '';
+    return `\nпрошлый рекорд: ${esc(String(prevValue))}${unitStr} у <b>${esc(String(prevName))}${tag}</b>`;
+  }
+  return `\nпрошлый рекорд: ${esc(String(prevValue))}${unitStr}`;
+}
+
 const templates: Record<EventType, TemplateFn> = {
   ace: (_payload, user, match) => {
     const weaponsPerRound = Array.isArray(_payload['weapons_per_round'])
@@ -90,26 +115,26 @@ const templates: Record<EventType, TemplateFn> = {
       }
     }
     const weaponStr = Array.from(rareNames).join(', ') || 'редким';
-    const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
-    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
-    return `💎 ${playerTag(user)} знает толк в извращениях. Эйс — <b>${esc(weaponStr)}</b>${mapStr}${matchLink}`;
+    const desc = `${playerTag(user)} — эйс с ${esc(weaponStr)}${mapSuffix(match?.map)}`;
+    const link = match?.match_id ? matchLine(match.match_id) : '';
+    return `💎 <b>Знает толк в извращениях</b>\n${descBlock(desc)}${link}`;
   },
 
   peak_rank_up: (payload, user, _match) => {
     const to = payload['to_tier_name'] ?? '';
     const rankEmoji = rankToEmojiHtml(to as string);
-    if (rankEmoji) {
-      return `🎖 <b>Повышение по службе</b>\n${playerTag(user)} — ${rankEmoji} ${esc(String(to))}`;
-    }
+    let rankPart = '';
     if (to) {
-      return `🎖 <b>Повышение по службе</b>\n${playerTag(user)} — ${esc(String(to))}`;
+      rankPart = rankEmoji ? ` ${rankEmoji} ${esc(String(to))}` : ` ${esc(String(to))}`;
     }
-    return `🎖 <b>Повышение по службе</b>\n${playerTag(user)}`;
+    const desc = `${playerTag(user)} — поднялся(лась) до${rankPart}`;
+    return `🎖 <b>Повышение по службе</b>\n${descBlock(desc)}`;
   },
 
   winstreak_10plus: (payload, user, _match) => {
     const streak = payload['streak'] ?? 10;
-    return `🔥 <b>Винстрик</b>\n${playerTag(user)} — ${esc(String(streak))} побед подряд`;
+    const desc = `${playerTag(user)} — ${esc(String(streak))} побед подряд`;
+    return `🏆 <b>Винстрик недели:</b>\n${descBlock(desc)}`;
   },
 
   giant_slayer: (payload, user, match) => {
@@ -149,153 +174,50 @@ const templates: Record<EventType, TemplateFn> = {
 
   record_damage_dealt_match: (payload, user, match) => {
     const value = payload['value'];
-    const prevValue = payload['prev_value'];
-    const prevPuuid = payload['prev_puuid'];
-    const prevName = payload['prev_name'];
-    const prevTag = payload['prev_tag'];
-    const samePlayer = prevPuuid === user.riot_puuid;
-    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
-    const line1 = `🥩 <b>Новый рекорд по урону в матче</b> — <i>мясник недели</i>`;
-    const line2 = `${playerTag(user)} — ${esc(String(value))} dmg`;
-    let line3: string;
-    if (prevValue !== null && prevValue !== undefined) {
-      if (samePlayer) {
-        line3 = `прошлый рекорд: ${esc(String(prevValue))} (тоже его)${matchLink}`;
-      } else if (prevName) {
-        line3 = `прошлый рекорд: ${esc(String(prevValue))} у <b>${esc(String(prevName))}${prevTag ? '#' + esc(String(prevTag)) : ''}</b>${matchLink}`;
-      } else {
-        line3 = `прошлый рекорд: ${esc(String(prevValue))}${matchLink}`;
-      }
-    } else {
-      line3 = `<b>первый рекорд комьюнити!</b>${matchLink}`;
-    }
-    return `${line1}\n${line2}\n${line3}`;
+    const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
+    const desc = `${playerTag(user)} — ${esc(String(value))} dmg${prev}`;
+    const link = match?.match_id ? matchLine(match.match_id) : '';
+    return `🥩 <b>Мясник недели</b>\n${descBlock(desc)}${link}`;
   },
 
   record_damage_received_match: (payload, user, match) => {
     const value = payload['value'];
-    const prevValue = payload['prev_value'];
-    const prevPuuid = payload['prev_puuid'];
-    const prevName = payload['prev_name'];
-    const prevTag = payload['prev_tag'];
-    const samePlayer = prevPuuid === user.riot_puuid;
-    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
-    const line1 = `😵 <b>Новый рекорд по полученному урону</b> — <i>надругались над ${esc(user.riot_name)}</i>`;
-    const line2 = `${playerTag(user)} — ${esc(String(value))} dmg`;
-    let line3: string;
-    if (prevValue !== null && prevValue !== undefined) {
-      if (samePlayer) {
-        // Unique "бедолага" joke for self-record on damage_received
-        line3 = `прошлый рекорд: ${esc(String(prevValue))} · предыдущий рекорд тоже его, бедолага${matchLink}`;
-      } else if (prevName) {
-        line3 = `прошлый рекорд: ${esc(String(prevValue))} у <b>${esc(String(prevName))}${prevTag ? '#' + esc(String(prevTag)) : ''}</b>${matchLink}`;
-      } else {
-        line3 = `прошлый рекорд: ${esc(String(prevValue))}${matchLink}`;
-      }
-    } else {
-      line3 = `<b>первый рекорд комьюнити!</b>${matchLink}`;
-    }
-    return `${line1}\n${line2}\n${line3}`;
+    const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
+    const desc = `${playerTag(user)} — получил(а) ${esc(String(value))} dmg${prev}`;
+    const link = match?.match_id ? matchLine(match.match_id) : '';
+    return `🤕 <b>Груша для битья</b>\n${descBlock(desc)}${link}`;
   },
 
   record_kills_match: (payload, user, match) => {
     const value = payload['value'];
-    const prevValue = payload['prev_value'];
-    const prevPuuid = payload['prev_puuid'];
-    const prevName = payload['prev_name'] as string | undefined;
-    const prevTag = payload['prev_tag'] as string | undefined;
-    const samePlayer = prevPuuid === user.riot_puuid;
-    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(match.match_id))}">→ матч</a>` : '';
-    const line1 = `💀 <b>Новый рекорд по киллам в матче</b> — <i>мирного рішення не буде</i>`;
-    const line2 = `${playerTag(user)} — ${esc(String(value))} фрагов`;
-    let line3: string;
-    if (prevValue !== null && prevValue !== undefined) {
-      if (samePlayer) {
-        line3 = `прошлый рекорд: ${esc(String(prevValue))} (тоже его)${matchLink}`;
-      } else if (prevName) {
-        line3 = `прошлый рекорд: ${esc(String(prevValue))} у <b>${esc(prevName + (prevTag ? '#' + prevTag : ''))}</b>${matchLink}`;
-      } else {
-        line3 = `прошлый рекорд: ${esc(String(prevValue))}${matchLink}`;
-      }
-    } else {
-      line3 = `<b>первый рекорд комьюнити!</b>${matchLink}`;
-    }
-    return `${line1}\n${line2}\n${line3}`;
+    const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
+    const desc = `${playerTag(user)} — ${esc(String(value))} фрагов${prev}`;
+    const link = match?.match_id ? matchLine(String(match.match_id)) : '';
+    return `💀 <b>Мирного рішення не буде</b>\n${descBlock(desc)}${link}`;
   },
 
   record_deaths_match: (payload, user, match) => {
     const value = payload['value'];
-    const prevValue = payload['prev_value'];
-    const prevPuuid = payload['prev_puuid'];
-    const prevName = payload['prev_name'] as string | undefined;
-    const prevTag = payload['prev_tag'] as string | undefined;
-    const samePlayer = prevPuuid === user.riot_puuid;
-    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(match.match_id))}">→ матч</a>` : '';
-    const line1 = `🩸 <b>Новый рекорд по смертям в матче</b> — <i>жертва насилия</i>`;
-    const line2 = `${playerTag(user)} — ${esc(String(value))} смертей`;
-    let line3: string;
-    if (prevValue !== null && prevValue !== undefined) {
-      if (samePlayer) {
-        line3 = `прошлый рекорд: ${esc(String(prevValue))} (тоже его)${matchLink}`;
-      } else if (prevName) {
-        line3 = `прошлый рекорд: ${esc(String(prevValue))} у <b>${esc(prevName + (prevTag ? '#' + prevTag : ''))}</b>${matchLink}`;
-      } else {
-        line3 = `прошлый рекорд: ${esc(String(prevValue))}${matchLink}`;
-      }
-    } else {
-      line3 = `<b>первый рекорд комьюнити!</b>${matchLink}`;
-    }
-    return `${line1}\n${line2}\n${line3}`;
+    const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
+    const desc = `${playerTag(user)} — ${esc(String(value))} смертей${prev}`;
+    const link = match?.match_id ? matchLine(String(match.match_id)) : '';
+    return `⚰️ <b>Жертва насилия</b>\n${descBlock(desc)}${link}`;
   },
 
   record_headshots_match: (payload, user, match) => {
     const value = payload['value'];
-    const prevValue = payload['prev_value'];
-    const prevPuuid = payload['prev_puuid'];
-    const prevName = payload['prev_name'] as string | undefined;
-    const prevTag = payload['prev_tag'] as string | undefined;
-    const samePlayer = prevPuuid === user.riot_puuid;
-    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(match.match_id))}">→ матч</a>` : '';
-    const line1 = `🤠 <b>Новый рекорд по хедшотам в матче</b> — <i>ковбой недели</i>`;
-    const line2 = `${playerTag(user)} — ${esc(String(value))} хедшотов`;
-    let line3: string;
-    if (prevValue !== null && prevValue !== undefined) {
-      if (samePlayer) {
-        line3 = `прошлый рекорд: ${esc(String(prevValue))} (тоже его)${matchLink}`;
-      } else if (prevName) {
-        line3 = `прошлый рекорд: ${esc(String(prevValue))} у <b>${esc(prevName + (prevTag ? '#' + prevTag : ''))}</b>${matchLink}`;
-      } else {
-        line3 = `прошлый рекорд: ${esc(String(prevValue))}${matchLink}`;
-      }
-    } else {
-      line3 = `<b>первый рекорд комьюнити!</b>${matchLink}`;
-    }
-    return `${line1}\n${line2}\n${line3}`;
+    const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
+    const desc = `${playerTag(user)} — ${esc(String(value))} хедшотов${prev}`;
+    const link = match?.match_id ? matchLine(String(match.match_id)) : '';
+    return `🤠 <b>Ковбой недели</b>\n${descBlock(desc)}${link}`;
   },
 
   record_legshots_match: (payload, user, match) => {
     const value = payload['value'];
-    const prevValue = payload['prev_value'];
-    const prevPuuid = payload['prev_puuid'];
-    const prevName = payload['prev_name'] as string | undefined;
-    const prevTag = payload['prev_tag'] as string | undefined;
-    const samePlayer = prevPuuid === user.riot_puuid;
-    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(match.match_id))}">→ матч</a>` : '';
-    const line1 = `♿️ <b>Новый рекорд по легшотам в матче</b> — <i>угадай куда шмальну</i>`;
-    const line2 = `${playerTag(user)} — ${esc(String(value))} легшотов`;
-    let line3: string;
-    if (prevValue !== null && prevValue !== undefined) {
-      if (samePlayer) {
-        line3 = `прошлый рекорд: ${esc(String(prevValue))} (тоже его)${matchLink}`;
-      } else if (prevName) {
-        line3 = `прошлый рекорд: ${esc(String(prevValue))} у <b>${esc(prevName + (prevTag ? '#' + prevTag : ''))}</b>${matchLink}`;
-      } else {
-        line3 = `прошлый рекорд: ${esc(String(prevValue))}${matchLink}`;
-      }
-    } else {
-      line3 = `<b>первый рекорд комьюнити!</b>${matchLink}`;
-    }
-    return `${line1}\n${line2}\n${line3}`;
+    const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
+    const desc = `${playerTag(user)} — ${esc(String(value))} легшотов${prev}`;
+    const link = match?.match_id ? matchLine(String(match.match_id)) : '';
+    return `♿️ <b>Угадай куда шмальну</b>\n${descBlock(desc)}${link}`;
   },
 
   knife_kill: (payload, user, match) => {
@@ -309,25 +231,11 @@ const templates: Record<EventType, TemplateFn> = {
   record_mvp_count_week: (payload, user, _match) => {
     const value = payload['value'];
     const prevValue = payload['prev_value'];
-    const prevName = payload['prev_name'];
-    const prevTag = payload['prev_tag'];
-    const prevPuuid = payload['prev_puuid'];
-    const samePlayer = prevPuuid === user.riot_puuid;
-    const line1 = `🏅 <b>Новый рекорд MVP-матчей за неделю</b> — <i>отказался от личной жизни</i>`;
-    const line2 = `${playerTag(user)} — взял ${esc(String(value))} MVP-матчей за неделю`;
-    let line3: string;
-    if (prevValue !== null && prevValue !== undefined && Number(prevValue) > 0) {
-      if (samePlayer) {
-        line3 = `прошлый рекорд: ${esc(String(prevValue))} (тоже его)`;
-      } else if (prevName) {
-        line3 = `прошлый рекорд: ${esc(String(prevValue))} у <b>${esc(String(prevName))}${prevTag ? '#' + esc(String(prevTag)) : ''}</b>`;
-      } else {
-        line3 = `прошлый рекорд: ${esc(String(prevValue))}`;
-      }
-    } else {
-      line3 = `<b>первый рекорд комьюнити!</b>`;
-    }
-    return `${line1}\n${line2}\n${line3}`;
+    // Treat 0 prev_value as "no prev record" (legacy behaviour)
+    const prevForLine = (prevValue !== null && prevValue !== undefined && Number(prevValue) > 0) ? prevValue : undefined;
+    const prev = prevRecordLine(prevForLine, payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid, 'MVP');
+    const desc = `${playerTag(user)} — ${esc(String(value))} MVP-матчей за неделю${prev}`;
+    return `🏅 <b>Отказался(лась) от личной жизни</b>\n${descBlock(desc)}`;
   },
 
   match_comeback: (payload, user, match) => {
@@ -343,37 +251,15 @@ const templates: Record<EventType, TemplateFn> = {
   record_kills_per_weapon: (payload, user, _match) => {
     const weapon = payload['weapon'] ?? '?';
     const value = payload['value'];
-    const prevValue = payload['prev_value'];
-    const prevName = payload['prev_name'];
-    const prevTag = payload['prev_tag'];
-    const prevPuuid = payload['prev_puuid'];
     const realMatchId = payload['real_match_id'];
-    const samePlayer = prevPuuid === user.riot_puuid;
-    const matchLink = realMatchId ? ` · <a href="https://tracker.gg/valorant/match/${esc(String(realMatchId))}">→ матч</a>` : '';
-    const line1 = `🔫 <b>Новый рекорд по убийствам за матч из оружия — ${esc(String(weapon))}</b>`;
-    const line2 = `${playerTag(user)} — ${esc(String(value))} фрагов`;
-    let line3: string;
-    if (prevValue !== null && prevValue !== undefined) {
-      if (samePlayer) {
-        line3 = `прошлый рекорд: ${esc(String(prevValue))} (тоже его)${matchLink}`;
-      } else if (prevName) {
-        line3 = `прошлый рекорд: ${esc(String(prevValue))} у <b>${esc(String(prevName))}${prevTag ? '#' + esc(String(prevTag)) : ''}</b>${matchLink}`;
-      } else {
-        line3 = `прошлый рекорд: ${esc(String(prevValue))}${matchLink}`;
-      }
-    } else {
-      line3 = `<b>первый рекорд комьюнити!</b>${matchLink}`;
-    }
-    return `${line1}\n${line2}\n${line3}`;
+    const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
+    const desc = `самое большое количество убийств за игру из одного оружия\n${playerTag(user)} — ${esc(String(value))} фрагов${prev}`;
+    const link = realMatchId ? matchLine(String(realMatchId)) : '';
+    return `🔫 <b>Эксперт по ${esc(String(weapon))}</b>\n${descBlock(desc)}${link}`;
   },
 
   record_longest_match_minutes: (payload, user, match) => {
     const value = payload['value'];
-    const prevValue = payload['prev_value'];
-    const prevName = payload['prev_name'];
-    const prevTag = payload['prev_tag'];
-    const prevPuuid = payload['prev_puuid'];
-    const samePlayer = prevPuuid === user.riot_puuid;
     const players = Array.isArray(payload['community_players'])
       ? payload['community_players'] as Array<{ puuid: string; name: string; tag: string }>
       : [];
@@ -381,29 +267,15 @@ const templates: Record<EventType, TemplateFn> = {
       .map((p) => p.name ? `<b>${esc(p.name)}</b>` : '')
       .filter((s) => s)
       .join(', ') || playerTag(user);
-    const verb = players.length > 1 ? 'проинвестировали' : 'проинвестировал';
-    let prevStr = '';
-    if (prevValue !== null && prevValue !== undefined) {
-      if (samePlayer) {
-        prevStr = ` (прошлый: ${esc(String(prevValue))}, тоже его)`;
-      } else if (prevName) {
-        prevStr = ` (прошлый: ${esc(String(prevValue))}, у <b>${esc(String(prevName))}${prevTag ? '#' + esc(String(prevTag)) : ''}</b>)`;
-      } else {
-        prevStr = ` (прошлый: ${esc(String(prevValue))})`;
-      }
-    }
-    const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
-    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
-    return `⏱ ${playerNames} ${verb} своё время правильно — ${esc(String(value))} минут${mapStr}${prevStr}${matchLink}`;
+    const verb = players.length > 1 ? 'проинвестировали' : 'проинвестировал(а)';
+    const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid, 'минут');
+    const desc = `самый длинный матч\n${esc(String(value))} минут${mapSuffix(match?.map)}${prev}`;
+    const link = match?.match_id ? matchLine(match.match_id) : '';
+    return `⏳ <b>${playerNames} — ${verb} свое время правильно</b>\n${descBlock(desc)}${link}`;
   },
 
   record_longest_match_rounds: (payload, user, match) => {
     const value = payload['value'];
-    const prevValue = payload['prev_value'];
-    const prevName = payload['prev_name'];
-    const prevTag = payload['prev_tag'];
-    const prevPuuid = payload['prev_puuid'];
-    const samePlayer = prevPuuid === user.riot_puuid;
     const players = Array.isArray(payload['community_players'])
       ? payload['community_players'] as Array<{ puuid: string; name: string; tag: string }>
       : [];
@@ -411,20 +283,11 @@ const templates: Record<EventType, TemplateFn> = {
       .map((p) => p.name ? `<b>${esc(p.name)}</b>` : '')
       .filter((s) => s)
       .join(', ') || playerTag(user);
-    const verb = players.length > 1 ? 'пережили' : 'пережил';
-    let prevStr = '';
-    if (prevValue !== null && prevValue !== undefined) {
-      if (samePlayer) {
-        prevStr = ` (прошлый: ${esc(String(prevValue))}, тоже его)`;
-      } else if (prevName) {
-        prevStr = ` (прошлый: ${esc(String(prevValue))}, у <b>${esc(String(prevName))}${prevTag ? '#' + esc(String(prevTag)) : ''}</b>)`;
-      } else {
-        prevStr = ` (прошлый: ${esc(String(prevValue))})`;
-      }
-    }
-    const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
-    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
-    return `😰 ${playerNames} ${verb} ${esc(String(value))} раундов — надеюсь это того стоило${mapStr}${prevStr}${matchLink}`;
+    const verb = players.length > 1 ? 'пережили' : 'пережил(а)';
+    const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid, 'раундов');
+    const desc = `${playerNames} — ${verb} ${esc(String(value))} раундов${mapSuffix(match?.map)}${prev}`;
+    const link = match?.match_id ? matchLine(match.match_id) : '';
+    return `😰 <b>Надеюсь это того стоило</b>\n${descBlock(desc)}${link}`;
   },
 
   community_clash: (payload, _user, match) => {
