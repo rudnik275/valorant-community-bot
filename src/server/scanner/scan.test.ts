@@ -276,6 +276,20 @@ describe('scanForPuuid', () => {
     expect(result.skippedDuplicates).toBe(0);
   });
 
+  it('returns gracefully on HenrikInactiveAccountError (404 with errors.code=24)', async () => {
+    seedUser();
+    fetchMock.mockImplementation(async () => new Response(
+        JSON.stringify({ errors: [{ code: 24, message: 'inactive account' }] }),
+        { status: 404 },
+      ),
+    );
+
+    const result = await scanForPuuid(db, TARGET_PUUID, { detection: false });
+
+    expect(result.newRecords).toHaveLength(0);
+    expect(result.skippedDuplicates).toBe(0);
+  });
+
   it('returns gracefully on HenrikUpstreamError (5xx)', async () => {
     seedUser();
     // getMmrByPuuid + getAccountByPuuid + getMatches each retry 2x on 5xx → up to 9 total calls
@@ -326,6 +340,25 @@ describe('scanForPuuid', () => {
     expect(matchesUrl).toBeDefined();
     expect(matchesUrl!).toContain('/console/');
     expect(matchesUrl!).toContain(TARGET_PUUID);
+    // size=10 + 15-min cron prevents data loss when users play more than 5
+    // ranked matches per tick.
+    expect(matchesUrl!).toContain('size=10');
+  });
+
+  it('clears riot_lookup_failed_since after a successful match fetch', async () => {
+    seedUser();
+    // Mark the user as currently flagged (e.g. from a past 404)
+    sqlite.exec(`UPDATE users SET riot_lookup_failed_since = 1700000000000 WHERE riot_puuid = '${TARGET_PUUID}'`);
+
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify(makeFakeMatchResponse('clear-flag-match')), { status: 200 }),
+    );
+
+    await scanForPuuid(db, TARGET_PUUID, { detection: false });
+
+    const row = sqlite.prepare('SELECT riot_lookup_failed_since FROM users WHERE riot_puuid = ?').get(TARGET_PUUID) as {
+      riot_lookup_failed_since: number | null;
+    };
+    expect(row.riot_lookup_failed_since).toBeNull();
   });
 
   // ── detection mode ──────────────────────────────────────────────────────────

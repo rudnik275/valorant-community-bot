@@ -1,0 +1,27 @@
+name: Replay Detectors
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Set to "1" to actually insert detected_events. Empty = dry-run.'
+        required: false
+        default: ''
+      since:
+        description: 'Optional epoch-ms cutoff: only replay records with started_at >= this. Empty = all.'
+        required: false
+        default: ''
+
+jobs:
+  replay:
+    name: Replay all detectors over historical match_records
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run replay inside running container
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            docker exec -e APPLY=${{ inputs.apply }} -e SINCE=${{ inputs.since }} valorant-bot-app bun run scripts/launch/replay-detectors.ts

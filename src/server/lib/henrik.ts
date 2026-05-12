@@ -357,9 +357,15 @@ export type HenrikMatchV4 = z.infer<typeof HenrikMatchV4Schema>;
 export type HenrikPlayerV4 = z.infer<typeof PlayerV4Schema>;
 export type HenrikKillV4 = z.infer<typeof KillV4Schema>;
 
+// Per-element parse: validate each match individually so a single anomalous
+// match (e.g. Henrik returning a nullable field as the wrong type) does not
+// fail the whole batch. The bad match is logged and dropped; survivors are
+// persisted normally. This prevents a flaky Henrik response from causing
+// total ingestion blackout for a user every 15 min until the bad match rolls
+// off the size window.
 const MatchesV4ResponseSchema = z.object({
   status: z.number(),
-  data: z.array(HenrikMatchV4Schema),
+  data: z.array(z.unknown()),
 });
 
 // ─── Zod schemas for v3 MMR endpoint ─────────────────────────────────────────
@@ -491,7 +497,22 @@ export async function getMatches(
       if (!parsed.success) {
         throw new HenrikError(`Unexpected Henrik matches response shape: ${parsed.error.message}`);
       }
-      return parsed.data.data;
+      const matches: HenrikMatchV4[] = [];
+      for (let i = 0; i < parsed.data.data.length; i++) {
+        const raw = parsed.data.data[i];
+        const match = HenrikMatchV4Schema.safeParse(raw);
+        if (match.success) {
+          matches.push(match.data);
+        } else {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const matchId = ((raw as any)?.metadata?.match_id as string | undefined) ?? null;
+          logger.warn(
+            { module: 'henrik', endpoint, index: i, match_id: matchId, err: match.error.message },
+            'Dropping malformed match from Henrik response — other matches will still ingest',
+          );
+        }
+      }
+      return matches;
     }),
   });
 }

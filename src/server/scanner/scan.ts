@@ -11,6 +11,7 @@ import {
   HenrikRateLimitError,
   HenrikNotFoundError,
   HenrikUpstreamError,
+  HenrikInactiveAccountError,
   type Priority,
 } from '../lib/henrik.ts';
 import { deriveMatchRecord, deriveMatchRoster, type MatchRecordInsert } from './derive.ts';
@@ -46,13 +47,16 @@ export interface ScanOpts {
 /**
  * Scan a single user's recent competitive matches and persist new ones.
  *
- * - Fetches last 5 console_competitive matches from Henrik v4.
- * - Filters client-side: only metadata.queue.id === CONSOLE_COMPETITIVE_QUEUE.
- * - Skips any that already exist in match_records (dedup by match_id + riot_puuid).
+ * - Fetches last 10 console matches from Henrik v4 (filtered client-side to
+ *   console_competitive). size=10 + 15-min cron gives a generous recovery
+ *   window — a user would need to sustain 10 ranked matches in 15 minutes
+ *   to outpace it, which is physically impossible (rounds last 30+ min).
+ * - Skips any that already exist in match_records (dedup by (riot_puuid, match_id)).
  * - Inserts new records via UPSERT (onConflictDoNothing).
  * - If detection=true, emits 'newRecord' on scannerEvents for each new record.
- * - Handles HenrikRateLimitError, HenrikNotFoundError, HenrikUpstreamError
- *   gracefully (log + return empty result). Re-throws unexpected errors.
+ * - Handles HenrikRateLimitError, HenrikNotFoundError, HenrikUpstreamError,
+ *   HenrikInactiveAccountError gracefully (log + return empty result).
+ *   Re-throws unexpected errors.
  */
 export async function scanForPuuid(
   db: AnyDb,
@@ -95,7 +99,8 @@ export async function scanForPuuid(
       if (
         err instanceof HenrikRateLimitError ||
         err instanceof HenrikNotFoundError ||
-        err instanceof HenrikUpstreamError
+        err instanceof HenrikUpstreamError ||
+        err instanceof HenrikInactiveAccountError
       ) {
         logger.warn({ module: 'scanner', puuid, err }, 'Could not backfill riot_region — skipping scan');
         return { newRecords: [], skippedDuplicates: 0 };
@@ -156,7 +161,8 @@ export async function scanForPuuid(
     if (
       err instanceof HenrikRateLimitError ||
       err instanceof HenrikNotFoundError ||
-      err instanceof HenrikUpstreamError
+      err instanceof HenrikUpstreamError ||
+      err instanceof HenrikInactiveAccountError
     ) {
       logger.warn({ module: 'scanner', puuid, err: (err as Error).message }, 'MMR fetch failed — continuing with match scan');
     } else {
@@ -178,7 +184,8 @@ export async function scanForPuuid(
     if (
       err instanceof HenrikRateLimitError ||
       err instanceof HenrikNotFoundError ||
-      err instanceof HenrikUpstreamError
+      err instanceof HenrikUpstreamError ||
+      err instanceof HenrikInactiveAccountError
     ) {
       logger.warn({ module: 'scanner', puuid, err: (err as Error).message }, 'Account info refresh failed — continuing');
     } else {
@@ -186,21 +193,33 @@ export async function scanForPuuid(
     }
   }
 
-  // 3. Fetch matches from Henrik v4 (console platform)
+  // 3. Fetch matches from Henrik v4 (console platform).
+  // size=10 + 15-min cron gives ~4x the recovery window vs. the old size=5 + 30-min.
+  // Real ranked matches are 30–45 min each, so 10 matches in 15 min is unreachable
+  // in practice — older matches no longer roll off Henrik's window between ticks.
   let rawMatches;
   try {
-    rawMatches = await getMatches(puuid, region, { platform: 'console', size: 5, priority });
+    rawMatches = await getMatches(puuid, region, { platform: 'console', size: 10, priority });
   } catch (err) {
     if (
       err instanceof HenrikRateLimitError ||
       err instanceof HenrikNotFoundError ||
-      err instanceof HenrikUpstreamError
+      err instanceof HenrikUpstreamError ||
+      err instanceof HenrikInactiveAccountError
     ) {
       logger.warn({ module: 'scanner', puuid, err }, 'Henrik error during getMatches — skipping');
       return { newRecords: [], skippedDuplicates: 0 };
     }
     throw err;
   }
+
+  // 3b. Successful Henrik round-trip — clear any stale "lookup failed" flag.
+  // The daily riot-id-tracker also clears this, but on a long Henrik outage
+  // a user can stay flagged for a day even though their match scan succeeds.
+  await db
+    .update(users)
+    .set({ riot_lookup_failed_since: null })
+    .where(eq(users.riot_puuid, puuid));
 
   // 4. Filter: only console_competitive queue
   const competitiveMatches = rawMatches.filter(
