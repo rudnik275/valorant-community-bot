@@ -24,25 +24,20 @@ const EXCLUDED = new Set([
   '2f59173c-4bed-b6c3-2191-dea9b58be9c7', // Knife
 ]);
 
-// Map canonical UUIDs to display names (best-effort; raw weapon string is used as fallback).
-const WEAPON_NAME: Record<string, string> = {
-  '4ade7faa-4cf1-8376-95ef-39884480959b': 'Operator',
-  '910be174-449b-a89f-1c5d-ffa1a8c3d6c2': 'Marshal',
-  '29a0cfab-485b-f5d5-779a-b59f85e204a8': 'Classic',
-  '42da8ccc-40d5-affc-beec-15522c2d502d': 'Shorty',
-  '44d4e95c-4157-0037-81b2-17841bf2e8e9': 'Frenzy',
-  'a03b24d3-4319-996d-0f8c-94bbfba1dfc7': 'Ghost',
-  '1baa85b4-4c70-1284-64bb-8481d58f4d8d': 'Sheriff',
-  'f7e1b454-50c7-a545-a891-f5c154926dda': 'Stinger',
-  '462080d1-4035-2937-7c09-27aa2a5c27a7': 'Spectre',
-  'ec845bf4-4f79-ddda-a3da-0db3d5fb9896': 'Bucky',
-  '63e6c2b6-4a8e-869c-3d4c-e38355226584': 'Ares',
-  '55d8a0f4-4274-ca67-fe2c-06ab45efdf58': 'Odin',
-  '2f59173c-4bed-b6c3-2191-dea9b58be9c7': 'Knife',
-};
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function canonicalWeapon(raw: string): string {
-  return WEAPON_NAME[raw] ?? raw; // pass through name if it's already a name
+/**
+ * Return true if the raw weapon string is usable as a human-readable label.
+ * Henrik returns `weapon.name` for known weapons but sometimes only ships the
+ * UUID; we don't keep a UUID→name map (the previous one had several wrong
+ * entries — see fixture: a03b24d3… is Operator, not Ghost). Anything that
+ * looks like a UUID or is empty is dropped — it would render as
+ * "Эксперт по 39099fb5-…" in the digest, which is just noise.
+ */
+function isUsableWeaponName(raw: string): boolean {
+  if (!raw) return false;
+  if (UUID_PATTERN.test(raw)) return false;
+  return true;
 }
 
 export const recordKillsPerWeaponDetector: Detector = {
@@ -60,13 +55,15 @@ export const recordKillsPerWeaponDetector: Detector = {
     }
     if (kills.length === 0) return [];
 
-    // Group kills by weapon, attacker = this community player
+    // Group kills by weapon, attacker = this community player.
+    // Skip empty weapon strings and raw UUIDs — those can't be rendered
+    // meaningfully in the digest.
     const byWeapon = new Map<string, number>();
     for (const k of kills) {
       if (k.attacker_puuid !== puuid) continue;
       if (EXCLUDED.has(k.weapon)) continue;
-      const w = canonicalWeapon(k.weapon);
-      byWeapon.set(w, (byWeapon.get(w) ?? 0) + 1);
+      if (!isUsableWeaponName(k.weapon)) continue;
+      byWeapon.set(k.weapon, (byWeapon.get(k.weapon) ?? 0) + 1);
     }
     if (byWeapon.size === 0) return [];
 
