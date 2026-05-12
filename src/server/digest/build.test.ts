@@ -375,7 +375,7 @@ describe('buildDigest', () => {
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       expect(result.sectionsIncluded).toContain('record_headshots_match');
-      expect(result.text).toContain('Ковбой недели');
+      expect(result.text).toContain('Директор дикого запада');
       expect(result.text).toContain('Cowboy');
       expect(result.text).toContain('24');
     });
@@ -457,7 +457,7 @@ describe('buildDigest', () => {
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       expect(result.sectionsIncluded).toContain('record_damage_dealt_match');
-      expect(result.text).toContain('Мясник недели');
+      expect(result.text).toContain('Мясник');
       expect(result.text).toContain('Butcher');
       expect(result.text).toContain('6840');
     });

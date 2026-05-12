@@ -258,9 +258,9 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output.toLowerCase()).toContain('знает толк в извращениях');
   });
 
-  it('record_damage_dealt_match: shows Мясник недели heading and value', () => {
+  it('record_damage_dealt_match: shows Мясник heading and value', () => {
     const output = renderTemplate('record_damage_dealt_match', { value: 6840, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '' }, safeUser);
-    expect(output).toContain('Мясник недели');
+    expect(output).toContain('Мясник');
     expect(output).toContain('6840 dmg');
     expect(output).toContain('<b>Player#TAG</b>');
   });
