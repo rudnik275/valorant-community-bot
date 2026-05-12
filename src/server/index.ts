@@ -10,6 +10,7 @@ import { makeLastMessageHandler } from './bot/listener.ts';
 import { makeChatMemberListener } from './bot/chat-member-listener.ts';
 import { makeTestDigestHandler, makeTestRuntimeEventsHandler } from './bot/test-commands.ts';
 import { makeCongratsHandler, makeCongratsCallbackHandler } from './bot/congrats-command.ts';
+import { setupAdminCommandsForOwner } from './bot/setup-admin-commands.ts';
 import { isAllowedChat } from './lib/scope.ts';
 import { makeAuthMiddleware } from './api/auth.ts';
 import { makeMembersHandler } from './api/members.ts';
@@ -61,6 +62,9 @@ if (botToken) {
   }).catch((err) => {
     logger.error({ module: 'bot', err }, 'grammY bot failed to start');
   });
+  // Owner-only "/" quick-pick menu in the owner's DM (admin commands).
+  // Fire-and-forget — failures are logged but don't block startup.
+  void setupAdminCommandsForOwner(bot);
   logger.info({ module: 'bot' }, 'Telegram bot started (long-polling)');
 } else {
   logger.warn({ module: 'bot' }, 'TELEGRAM_BOT_TOKEN not set — bot disabled (dev mode)');
