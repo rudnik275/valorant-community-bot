@@ -325,25 +325,66 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       entries.push(entry);
     }
 
-    // Phase 2: group entries by event_type, preserving sort order of first occurrence.
-    // Special case: record_kills_per_weapon is NOT grouped — each weapon gets its own block.
+    // Phase 2: collect entries into groups, preserving sort order of first occurrence.
+    //   - record_kills_per_weapon: one group per weapon (key = `kpw:<weapon>`)
+    //   - everything else: one group per event_type
     type Group = { eventType: EventType; entries: Entry[] };
     const groups: Group[] = [];
-    const groupByType = new Map<string, Entry[]>();
+    const groupByKey = new Map<string, Group>();
 
     for (const e of entries) {
-      if (e.eventType === 'record_kills_per_weapon') {
-        // Each weapon = its own single-entry group
-        groups.push({ eventType: e.eventType, entries: [e] });
-        continue;
+      const key = e.eventType === 'record_kills_per_weapon'
+        ? `kpw:${String(e.payload['weapon'] ?? '?')}`
+        : `et:${e.eventType}`;
+      let group = groupByKey.get(key);
+      if (!group) {
+        group = { eventType: e.eventType, entries: [] };
+        groupByKey.set(key, group);
+        groups.push(group);
       }
-      let bucket = groupByType.get(e.eventType);
-      if (!bucket) {
-        bucket = [];
-        groupByType.set(e.eventType, bucket);
-        groups.push({ eventType: e.eventType, entries: bucket });
+      group.entries.push(e);
+    }
+
+    // Phase 2.5: dedup record_*_match groups. Multiple events for the same
+    // record type can land in one week if the all-time record was beaten
+    // several times in sequence (e.g. 16 → 18 → 24 → 27 kills). We show only
+    // the final (max value) entry, but rewrite its prev_* payload fields to
+    // reference the record state from BEFORE the week — i.e. the prev_* of
+    // the earliest entry in the chain (entries are sorted by detected_at asc).
+    const SINGLE_RECORD_TYPES = new Set<string>([
+      'record_kills_match',
+      'record_deaths_match',
+      'record_headshots_match',
+      'record_legshots_match',
+      'record_damage_dealt_match',
+      'record_damage_received_match',
+      'record_longest_match_minutes',
+      'record_longest_match_rounds',
+      'record_mvp_count_week',
+      'record_kills_per_weapon',
+    ]);
+
+    for (const g of groups) {
+      if (!SINGLE_RECORD_TYPES.has(g.eventType) || g.entries.length < 2) continue;
+      let maxIdx = 0;
+      let maxValue = Number(g.entries[0]!.payload['value'] ?? 0);
+      for (let i = 1; i < g.entries.length; i++) {
+        const v = Number(g.entries[i]!.payload['value'] ?? 0);
+        if (v > maxValue) {
+          maxValue = v;
+          maxIdx = i;
+        }
       }
-      bucket.push(e);
+      const winner = g.entries[maxIdx]!;
+      const earliest = g.entries[0]!;
+      const mergedPayload: Record<string, unknown> = {
+        ...winner.payload,
+        prev_value: earliest.payload['prev_value'] ?? null,
+        prev_puuid: earliest.payload['prev_puuid'] ?? null,
+        prev_name: earliest.payload['prev_name'] ?? null,
+        prev_tag: earliest.payload['prev_tag'] ?? null,
+      };
+      g.entries = [{ ...winner, payload: mergedPayload }];
     }
 
     // Phase 3: render each group
