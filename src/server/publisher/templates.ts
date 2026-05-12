@@ -47,6 +47,18 @@ function playerTag(user: TemplateUser): string {
   return `<b>${esc(user.riot_name + '#' + user.riot_tag)}</b>`;
 }
 
+function descBlock(text: string): string {
+  return `<blockquote>${text}</blockquote>`;
+}
+
+function matchLine(match_id: string): string {
+  return `\n🎮 <a href="https://tracker.gg/valorant/match/${esc(match_id)}">Ссылка на матч</a>`;
+}
+
+function mapSuffix(map: string | undefined): string {
+  return map ? ` на карте ${esc(map)}` : '';
+}
+
 const templates: Record<EventType, TemplateFn> = {
   ace: (_payload, user, match) => {
     const weaponsPerRound = Array.isArray(_payload['weapons_per_round'])
@@ -59,9 +71,9 @@ const templates: Record<EventType, TemplateFn> = {
       }
     }
     const killsStr = maxKills > 5 ? ` — ${maxKills} убийств` : '';
-    const mapStr = match?.map ? ` на карте ${esc(match.map)}` : '';
-    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
-    return `🎯 <b>AAAAAAACE!</b> ${playerTag(user)}${killsStr}${mapStr}${matchLink}`;
+    const desc = `${playerTag(user)}${killsStr}${mapSuffix(match?.map)}`;
+    const link = match?.match_id ? matchLine(match.match_id) : '';
+    return `🎯 <b>AAAAAAACE!</b>\n${descBlock(desc)}${link}`;
   },
 
   ace_rare_weapon_week: (payload, user, match) => {
@@ -103,31 +115,36 @@ const templates: Record<EventType, TemplateFn> = {
   giant_slayer: (payload, user, match) => {
     const own = payload['own'] ?? '';
     const enemy = payload['enemy_avg'] ?? '';
-    const matchLink = match?.match_id ? `\n<a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
-    return `🦣 <b>Машина для убийства</b>\n${playerTag(user)} (${esc(String(own))}) — победа в матче с превосходящим врагом\nСредний ранг противника — ${esc(String(enemy))}${matchLink}`;
+    const ownStr = own ? ` (${esc(String(own))})` : '';
+    const enemyStr = enemy ? ` (средний ранг ${esc(String(enemy))})` : '';
+    const desc = `${playerTag(user)}${ownStr} — выиграл(а) против превосходящего врага${enemyStr}`;
+    const link = match?.match_id ? matchLine(match.match_id) : '';
+    return `💪 <b>Поводил(ла) по губам</b>\n${descBlock(desc)}${link}`;
   },
 
   return_after_pause: (payload, user, _match) => {
     const days = payload['days_paused'] ?? '?';
-    return `👋 <b>С возвращением</b>, ${playerTag(user)}!\nПосле ${esc(String(days))} дней паузы снова в строю`;
+    const desc = `${playerTag(user)} — после ${esc(String(days))} дней паузы снова в строю`;
+    return `👋 <b>С возвращением</b>\n${descBlock(desc)}`;
   },
 
   teamkill: (payload, user, match) => {
     const roundNumbers = Array.isArray(payload['round_numbers']) ? payload['round_numbers'] : [];
-    const count = roundNumbers.length > 0 ? ` (${roundNumbers.length}× за матч)` : '';
+    const count = roundNumbers.length > 1 ? ` (${roundNumbers.length}× за матч)` : '';
     const victimNames = Array.isArray(payload['victim_names_for_template']) ? payload['victim_names_for_template'] as string[] : [];
     const uniqueVictims = Array.from(new Set(victimNames.filter((n) => n && n.length > 0)));
     const victimStr = uniqueVictims.length > 0 ? ` (${uniqueVictims.map((n) => `<b>${esc(n)}</b>`).join(', ')})` : '';
-    const mapStr = match?.map ? `\n${esc(match.map)}` : '';
-    const matchLink = match?.match_id ? `${mapStr ? ' · ' : '\n'}<a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
-    return `🐀 <b>Ля ты и крыса</b>\n${playerTag(user)} убил своего${victimStr}${count}${mapStr}${matchLink}`;
+    const desc = `${playerTag(user)} убил(а) своего${victimStr}${count}${mapSuffix(match?.map)}`;
+    const link = match?.match_id ? matchLine(match.match_id) : '';
+    return `🐀 <b>Ля ты и крыса</b>\n${descBlock(desc)}${link}`;
   },
 
   fall_damage_death: (payload, user, match) => {
-    const count = payload['count'] ? ` (${esc(String(payload['count']))}×)` : '';
-    const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
-    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
-    return `🪂 <b>Звезда паркура против гравитации</b>\n1:0 в пользу гравитации\n${playerTag(user)} умер от падения${count}${mapStr}${matchLink}`;
+    const n = Number(payload['count'] ?? 1);
+    const countStr = n > 1 ? ` (${n}×)` : '';
+    const desc = `${playerTag(user)} — умер(ла) от падения${countStr}${mapSuffix(match?.map)}`;
+    const link = match?.match_id ? matchLine(match.match_id) : '';
+    return `🪂 <b>1:0 в пользу гравитации</b>\n${descBlock(desc)}${link}`;
   },
 
   record_damage_dealt_match: (payload, user, match) => {
@@ -284,9 +301,9 @@ const templates: Record<EventType, TemplateFn> = {
   knife_kill: (payload, user, match) => {
     const count = Number(payload['count'] ?? 1);
     const countStr = count > 1 ? `${count} врагов` : 'врага';
-    const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
-    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
-    return `🔪 <b>Заколол баранчика</b>\n${playerTag(user)} зарезал ${countStr} с ножа${mapStr}${matchLink}`;
+    const desc = `${playerTag(user)} — зарезал(а) ${countStr} с ножа${mapSuffix(match?.map)}`;
+    const link = match?.match_id ? matchLine(match.match_id) : '';
+    return `🔪 <b>Заколол баранчика</b>\n${descBlock(desc)}${link}`;
   },
 
   record_mvp_count_week: (payload, user, _match) => {
@@ -318,9 +335,9 @@ const templates: Record<EventType, TemplateFn> = {
     const dop = payload['deficit_score_opponent'] ?? '?';
     const fp = payload['final_score_player'] ?? '?';
     const fop = payload['final_score_opponent'] ?? '?';
-    const mapStr = match?.map ? ` на ${esc(match.map)}` : '';
-    const matchLink = match?.match_id ? ` · <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
-    return `👏 <b>Мы вами гордимся</b>, ${playerTag(user)}\n🥂 проигрывали со счётом ${dp}:${dop}\nно закончили победой ${fp}:${fop}${mapStr}${matchLink}`;
+    const desc = `${playerTag(user)} — отыгрались с ${dp}:${dop} до ${fp}:${fop}${mapSuffix(match?.map)}`;
+    const link = match?.match_id ? matchLine(match.match_id) : '';
+    return `👏 <b>Мы вами гордимся</b>\n${descBlock(desc)}${link}`;
   },
 
   record_kills_per_weapon: (payload, user, _match) => {
@@ -415,32 +432,31 @@ const templates: Record<EventType, TemplateFn> = {
       ? payload['teams'] as Array<{ team_id: string; players: Array<{ puuid: string; name: string | null; tag: string | null }> }>
       : [];
     const winnerTeamId = payload['winner_team_id'] as string | null | undefined;
-    const mapStr = match?.map ? ` ${esc(match.map)}` : '';
-    const matchLink = match?.match_id ? `<a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">→ матч</a>` : '';
 
     const renderTeam = (idx: number, players: Array<{ puuid: string; name: string | null; tag: string | null }>) => {
       const namesList = players
         .map((p) => p.name ? `<b>${esc(p.name)}</b>` : `<b>${esc(p.puuid)}</b>`)
         .join(', ');
-      return `Команда ${idx + 1} — ${namesList}`;
+      return `Команда ${idx + 1}: ${namesList}`;
     };
 
-    const lines: string[] = [`⚔️ <b>Френдлифаер</b>`];
+    const lines: string[] = [];
     teams.forEach((t, i) => lines.push(renderTeam(i, t.players)));
 
     if (winnerTeamId) {
       const winnerIdx = teams.findIndex((t) => t.team_id === winnerTeamId);
       if (winnerIdx >= 0) {
-        lines.push(`🥇 Победитель — <b>Команда ${winnerIdx + 1}</b>`);
+        lines.push(`🥇 Команда ${winnerIdx + 1}${mapSuffix(match?.map)}`);
+      } else {
+        lines.push(`🏳️ Ничья${mapSuffix(match?.map)}`);
       }
     } else {
-      lines.push(`🏳️ Ничья`);
+      lines.push(`🏳️ Ничья${mapSuffix(match?.map)}`);
     }
 
-    if (mapStr || matchLink) {
-      lines.push(`${mapStr.trim()}${mapStr && matchLink ? ' · ' : ''}${matchLink}`);
-    }
-    return lines.join('\n');
+    const desc = lines.join('\n');
+    const link = match?.match_id ? matchLine(match.match_id) : '';
+    return `⚔️ <b>Френдлифаер</b>\n${descBlock(desc)}${link}`;
   },
 };
 
