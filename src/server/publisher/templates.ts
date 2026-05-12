@@ -252,7 +252,7 @@ const templates: Record<EventType, TemplateFn> = {
     const countStr = count > 1 ? `${count} врагов` : 'врага';
     const desc = `${playerTag(user)} — зарезал(а) ${countStr} с ножа${mapSuffix(match?.map)}`;
     const link = match?.match_id ? matchLine(match.match_id) : '';
-    return `🔪 <b>Заколол баранчика</b>\n\n${desc}${link}`;
+    return `🔪 <b>Заколол кабанчика</b>\n\n${desc}${link}`;
   },
 
   record_mvp_count_week: (payload, user, _match) => {
