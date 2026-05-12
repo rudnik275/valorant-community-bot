@@ -8,6 +8,7 @@ import healthz from './api/healthz.ts';
 import { scopeGuard } from './bot/scope-guard.ts';
 import { makeLastMessageHandler } from './bot/listener.ts';
 import { makeChatMemberListener } from './bot/chat-member-listener.ts';
+import { makeTestDigestHandler, makeTestRuntimeEventsHandler } from './bot/test-commands.ts';
 import { isAllowedChat } from './lib/scope.ts';
 import { makeAuthMiddleware } from './api/auth.ts';
 import { makeMembersHandler } from './api/members.ts';
@@ -42,6 +43,9 @@ let bot: Bot | undefined;
 if (botToken) {
   bot = new Bot(botToken);
   bot.use(scopeGuard);
+  // Admin-only preview commands. Gated internally by isOwner() (TELEGRAM_OWNER_ID).
+  bot.command('test_digest', makeTestDigestHandler({ db, bot }));
+  bot.command('test_runtime_events', makeTestRuntimeEventsHandler({ db, bot }));
   const lastMessageHandler = makeLastMessageHandler({ db, isAllowedChat });
   bot.on('message', lastMessageHandler);
   bot.on('chat_member', makeChatMemberListener({ db, isAllowedChat }));
