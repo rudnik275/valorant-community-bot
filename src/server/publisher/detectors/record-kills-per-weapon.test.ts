@@ -213,6 +213,26 @@ describe('recordKillsPerWeaponDetector', () => {
     expect(events).toHaveLength(0);
   });
 
+  it('drops kills with empty weapon string (no usable name)', async () => {
+    const record = makeRecord({
+      killEvents: [makeKillEvent({ weapon: '' }), makeKillEvent({ weapon: '' })],
+    });
+    const events = await recordKillsPerWeaponDetector.detectAsync!(record, [], { db });
+    expect(events).toHaveLength(0);
+  });
+
+  it('drops kills whose weapon is an unknown raw UUID (would render as gibberish)', async () => {
+    // Some random UUID that is not in our excluded set and not a recognised name.
+    const record = makeRecord({
+      killEvents: [
+        makeKillEvent({ weapon: '39099fb5-4293-def4-1e09-2e9080ce7456' }),
+        makeKillEvent({ weapon: '39099fb5-4293-def4-1e09-2e9080ce7456' }),
+      ],
+    });
+    const events = await recordKillsPerWeaponDetector.detectAsync!(record, [], { db });
+    expect(events).toHaveLength(0);
+  });
+
   it('only counts kills where attacker_puuid matches the community player', async () => {
     const puuid = 'puuid-test';
     const seedPuuid = 'puuid-seed';
