@@ -188,10 +188,10 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('15');
   });
 
-  it('giant_slayer: shows enemy avg rank and машина для убийства text', () => {
+  it('giant_slayer: shows enemy avg rank and Поводил по губам text', () => {
     const output = renderTemplate('giant_slayer', { own: 'Silver 2', enemy_avg: 'Platinum 1', delta: 2 }, safeUser);
     expect(output).toContain('Platinum 1');
-    expect(output.toLowerCase()).toContain('машина для убийства');
+    expect(output.toLowerCase()).toContain('поводил(ла) по губам');
   });
 
   it('giant_slayer: shows own rank', () => {
@@ -235,10 +235,10 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('tracker.gg/valorant/match/mID1');
   });
 
-  it('fall_damage_death: includes map and звезда паркура text', () => {
+  it('fall_damage_death: includes map and 1:0 в пользу гравитации text', () => {
     const output = renderTemplate('fall_damage_death', { count: 2 }, safeUser, { map: 'Icebox' });
     expect(output).toContain('Icebox');
-    expect(output.toLowerCase()).toContain('звезда паркура');
+    expect(output.toLowerCase()).toContain('1:0 в пользу гравитации');
   });
 
   it('fall_damage_death: shows count when present', () => {
