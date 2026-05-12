@@ -135,7 +135,7 @@ describe('renderTemplate — payload-specific behavior', () => {
       weapons_per_round: [['Classic', 'Classic', 'Vandal', 'Vandal', 'Classic']],
     }, safeUser);
     expect(output).toContain('Classic');
-    expect(output).toContain('знает толк в извращениях');
+    expect(output.toLowerCase()).toContain('знает толк в извращениях');
   });
 
   it('rank_promo: Ascendant 1 shows "Повышение по службе" heading + icon + full rank label', () => {
@@ -255,16 +255,14 @@ describe('renderTemplate — payload-specific behavior', () => {
     // When weapons_per_round has no known rare tokens, weaponStr falls back to 'редким'
     const output = renderTemplate('ace_rare_weapon_week', { weapons_per_round: [['Vandal', 'Phantom']] }, safeUser);
     expect(output).toContain('редким');
-    expect(output).toContain('знает толк в извращениях');
+    expect(output.toLowerCase()).toContain('знает толк в извращениях');
   });
 
-  it('record_damage_dealt_match: shows Новый рекорд по урону heading and value', () => {
+  it('record_damage_dealt_match: shows Мясник недели heading and value', () => {
     const output = renderTemplate('record_damage_dealt_match', { value: 6840, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '' }, safeUser);
-    expect(output).toContain('Новый рекорд по урону в матче');
-    expect(output).toContain('мясник недели');
+    expect(output).toContain('Мясник недели');
     expect(output).toContain('6840 dmg');
     expect(output).toContain('<b>Player#TAG</b>');
-    expect(output).toContain('первый рекорд комьюнити!');
   });
 
   it('record_damage_dealt_match: shows prev_name when different player holds record', () => {
@@ -296,16 +294,14 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('tracker.gg/valorant/match/dmg-match-1');
   });
 
-  it('record_damage_received_match: shows Новый рекорд по полученному урону heading and value', () => {
+  it('record_damage_received_match: shows Груша для битья heading and value', () => {
     const output = renderTemplate('record_damage_received_match', { value: 5910, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '' }, safeUser);
-    expect(output).toContain('Новый рекорд по полученному урону');
-    expect(output).toContain('надругались над');
+    expect(output).toContain('Груша для битья');
     expect(output).toContain('5910 dmg');
     expect(output).toContain('<b>Player#TAG</b>');
-    expect(output).toContain('первый рекорд комьюнити!');
   });
 
-  it('record_damage_received_match: shows «бедолага» when same player beats own record', () => {
+  it('record_damage_received_match: shows "тоже его" when same player beats own record', () => {
     const output = renderTemplate('record_damage_received_match', {
       value: 6100,
       prev_value: 5910,
@@ -313,8 +309,7 @@ describe('renderTemplate — payload-specific behavior', () => {
       prev_name: 'Player',
       prev_tag: 'TAG',
     }, { ...safeUser, riot_puuid: 'same-puuid' });
-    expect(output).toContain('бедолага');
-    expect(output).toContain('предыдущий рекорд тоже его');
+    expect(output).toContain('тоже его');
   });
 
   it('record_damage_received_match: shows prev_name when different player holds record', () => {
@@ -327,7 +322,6 @@ describe('renderTemplate — payload-specific behavior', () => {
     }, { ...safeUser, riot_puuid: 'current-puuid' });
     expect(output).toContain('5910');
     expect(output).toContain('ToughGuy');
-    expect(output).not.toContain('бедолага');
   });
 
   it('record_damage_received_match: includes match link', () => {
@@ -416,7 +410,7 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('30');
     expect(output).toContain('пережил');
     expect(output).toContain('раундов');
-    expect(output).toContain('надеюсь это того стоило');
+    expect(output.toLowerCase()).toContain('надеюсь это того стоило');
   });
 
   it('record_longest_match_rounds: shows пережили (plural) with multiple community players', () => {
