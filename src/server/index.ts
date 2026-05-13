@@ -27,6 +27,7 @@ import { startRiotIdTrackerLoop } from './scanner/riot-id-tracker.ts';
 import { startDetectionListener } from './publisher/detect.ts';
 import { startPublisherLoop } from './publisher/loop.ts';
 import { startDigestLoop } from './digest/loop.ts';
+import { startDailyDigestLoop } from './digest-daily/loop.ts';
 import { startRestrictGraceLoop } from './cron/restrict-grace.ts';
 import { startRetryPendingOnboardLoop } from './cron/retry-pending-onboard.ts';
 import { safeSendMessage, safeSetCustomTitle } from './lib/safe-telegram.ts';
@@ -163,6 +164,11 @@ if (process.env['SCANNER_DISABLED'] !== 'true') {
         getPrimaryChatId: () => primaryChatId,
       });
       startDigestLoop({
+        db,
+        sendMessage: (chatId, text, opts) => safeSendMessage(bot!.api, chatId, text, opts as never),
+        getPrimaryChatId: () => primaryChatId,
+      });
+      startDailyDigestLoop({
         db,
         sendMessage: (chatId, text, opts) => safeSendMessage(bot!.api, chatId, text, opts as never),
         getPrimaryChatId: () => primaryChatId,
