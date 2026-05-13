@@ -1,6 +1,5 @@
 import type { Detector } from '../types.ts';
 import { aceDetector } from './ace.ts';
-import { aceRareWeaponDetector } from './ace-rare-weapon.ts';
 import { winstreakDetector } from './winstreak.ts';
 import { giantSlayerDetector } from './giant-slayer.ts';
 import { returnAfterPauseDetector } from './return-after-pause.ts';
@@ -20,7 +19,6 @@ import { recordLongestMatchMinutesDetector } from './record-longest-match-minute
 
 export const ALL_DETECTORS: Detector[] = [
   aceDetector,
-  aceRareWeaponDetector,
   winstreakDetector,
   giantSlayerDetector,
   returnAfterPauseDetector,

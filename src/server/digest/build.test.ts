@@ -191,15 +191,15 @@ describe('buildDigest', () => {
       }
       seedMatch(sqlite, { puuid: 'p2', matchId: 'm2', startedAt: IN_WINDOW, agent: 'Sage', map: 'Bind' });
 
-      // Bright event: ace for p1
-      seedEvent(sqlite, { puuid: 'p1', eventType: 'ace_rare_weapon_week', payload: { weapons_per_round: [['Knife', 'Knife', 'Knife', 'Knife', 'Knife']] }, detectedAt: IN_WINDOW });
+      // Bright event: winstreak for p1
+      seedEvent(sqlite, { puuid: 'p1', eventType: 'winstreak_10plus', payload: { streak: 10 }, detectedAt: IN_WINDOW });
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       expect(result.text).not.toBeNull();
       const text = result.text!;
 
       // Bright event rendered
-      expect(text.toLowerCase()).toContain('знает толк в извращениях');
+      expect(text.toLowerCase()).toContain('винстрик');
       expect(text).toContain('Alpha');
 
       // Divider removed per user — no longer rendered between bright block and weekly recap.
@@ -213,7 +213,7 @@ describe('buildDigest', () => {
       expect(text).not.toContain('Самый яркий момент');
 
       // Bright block appears BEFORE weekly recap.
-      const brightPos = text.toLowerCase().indexOf('знает толк');
+      const brightPos = text.toLowerCase().indexOf('винстрик');
       const pulsePos = text.indexOf('матчей');
       expect(brightPos).toBeLessThan(pulsePos);
     });
@@ -501,7 +501,7 @@ describe('buildDigest', () => {
 
   describe('bright events ordering — weight-based', () => {
     it('renders multiple bright events (all included, not just top-1)', async () => {
-      seedUser(sqlite, 1, 'p1', { riotName: 'PlayerRare', riotTag: 'RAR' });
+      seedUser(sqlite, 1, 'p1', { riotName: 'PlayerKills', riotTag: 'KLL' });
       seedUser(sqlite, 2, 'p2', { riotName: 'PlayerWin', riotTag: 'WIN' });
 
       seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW });
@@ -509,8 +509,8 @@ describe('buildDigest', () => {
       seedEvent(sqlite, {
         puuid: 'p1',
         matchId: 'm1',
-        eventType: 'ace_rare_weapon_week',
-        payload: { weapons_per_round: [['Knife', 'Knife', 'Knife', 'Knife', 'Knife']] },
+        eventType: 'record_kills_match',
+        payload: { value: 35, prev_value: null, prev_puuid: null },
         detectedAt: IN_WINDOW,
       });
       seedEvent(sqlite, {
@@ -524,9 +524,9 @@ describe('buildDigest', () => {
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
 
       // Both players appear
-      expect(result.text).toContain('PlayerRare');
+      expect(result.text).toContain('PlayerKills');
       expect(result.text).toContain('PlayerWin');
-      expect(result.sectionsIncluded).toContain('ace_rare_weapon_week');
+      expect(result.sectionsIncluded).toContain('record_kills_match');
       expect(result.sectionsIncluded).toContain('winstreak_10plus');
     });
 
@@ -545,7 +545,7 @@ describe('buildDigest', () => {
   });
 
   describe('opt-out handling', () => {
-    it('opted-out player skipped for ace (non-rank) bright event', async () => {
+    it('opted-out player skipped for winstreak (non-rank) bright event', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'SilentPlayer', riotTag: '000' });
       seedUser(sqlite, 2, 'p2', { riotName: 'ActivePlayer', riotTag: '111' });
       seedOptOut(sqlite, 1, 1); // p1 opted out
@@ -555,14 +555,14 @@ describe('buildDigest', () => {
       seedEvent(sqlite, {
         puuid: 'p1',
         matchId: 'm1',
-        eventType: 'ace_rare_weapon_week',
-        payload: { weapons_per_round: [['Knife', 'Knife', 'Knife', 'Knife', 'Knife']] },
+        eventType: 'winstreak_10plus',
+        payload: { streak: 10 },
         detectedAt: IN_WINDOW,
       });
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       expect(result.text).not.toContain('SilentPlayer');
-      expect(result.sectionsIncluded).not.toContain('ace_rare_weapon_week');
+      expect(result.sectionsIncluded).not.toContain('winstreak_10plus');
     });
 
     it('opted-out player still gets peak_rank_up in bright block (positive progress)', async () => {

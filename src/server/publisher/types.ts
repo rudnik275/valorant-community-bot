@@ -5,7 +5,6 @@ export type MatchRecord = InferSelectModel<typeof matchRecords>;
 
 export type EventType =
   | 'ace'
-  | 'ace_rare_weapon_week'
   | 'peak_rank_up'
   | 'winstreak_10plus'
   | 'giant_slayer'
@@ -61,7 +60,6 @@ export const EVENT_CATEGORY: Record<EventType, EventCategory> = {
   return_after_pause: 'realtime',
 
   ace: 'digest',
-  ace_rare_weapon_week: 'digest',
   winstreak_10plus: 'digest',
   peak_rank_up: 'digest',
   record_kills_match: 'digest',
