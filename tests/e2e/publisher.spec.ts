@@ -126,7 +126,7 @@ describe('e2e: publisher loop', () => {
     vi.unstubAllEnvs();
   });
 
-  it('pending event transitions to posted and sendMessage is called with HTML template text', async () => {
+  it('pending ace event does NOT produce a realtime message (ace is now digest-category)', async () => {
     seedUser(sqlite, 1001, 'e2e-puuid-pub-1', { riotName: 'HeroPlayer', riotTag: 'HP1' });
     const eventId = seedPendingEvent(sqlite, {
       puuid: 'e2e-puuid-pub-1',
@@ -144,25 +144,11 @@ describe('e2e: publisher loop', () => {
 
     await runOneTick(stop);
 
-    // Event should now be 'posted'
-    expect(getEventStatus(sqlite, eventId)).toBe('posted');
+    // Digest events that slip into the realtime queue are skipped (marked silent).
+    expect(getEventStatus(sqlite, eventId)).toBe('silent');
 
-    // sendMessage must have been called once
-    expect(sendMessage).toHaveBeenCalledOnce();
-
-    // Verify it was called with the correct chat ID
-    expect(sendMessage).toHaveBeenCalledWith(
-      -1009998887776,
-      expect.any(String),
-      expect.objectContaining({ parse_mode: 'HTML', disable_web_page_preview: true }),
-    );
-
-    // Verify the rendered text contains the player name and event marker
-    const calledText = sendMessage.mock.calls[0][1] as string;
-    expect(calledText).toContain('HeroPlayer');
-    expect(calledText).toContain('HP1');
-    // ace template uses emoji 🎯 and "AAAAAAACE!"
-    expect(calledText).toContain('AAAAAAACE!');
+    // sendMessage must NOT have been called — no realtime notification for ace.
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it('second pending event for the same user is also posted (no antispam quota)', async () => {
@@ -171,7 +157,8 @@ describe('e2e: publisher loop', () => {
     const now = Date.now();
     const id1 = seedPendingEvent(sqlite, {
       puuid: 'e2e-puuid-pub-2',
-      eventType: 'ace',
+      eventType: 'knife_kill',
+      payload: { count: 1 },
       detectedAt: now - 2000,
     });
     const id2 = seedPendingEvent(sqlite, {
@@ -211,7 +198,7 @@ describe('e2e: publisher loop', () => {
   it('opted-out user event becomes opted-out without calling sendMessage', async () => {
     seedUser(sqlite, 1003, 'e2e-puuid-pub-3');
     seedOptOut(sqlite, 1003, 1); // opted out
-    const eventId = seedPendingEvent(sqlite, { puuid: 'e2e-puuid-pub-3', eventType: 'ace' });
+    const eventId = seedPendingEvent(sqlite, { puuid: 'e2e-puuid-pub-3', eventType: 'teamkill', payload: { round_numbers: [1] } });
 
     const stop = startPublisherLoop({
       db,
@@ -227,13 +214,12 @@ describe('e2e: publisher loop', () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  it('all 8 active event types render without throwing (template coverage)', async () => {
+  it('all 7 realtime event types render without throwing (template coverage)', async () => {
     // One user for all event types
     seedUser(sqlite, 1004, 'e2e-puuid-pub-4', { riotName: 'MultiEvent', riotTag: 'ME1' });
 
     const now = Date.now();
     const eventTypes = [
-      ['ace',                { rounds: [3] }],
       ['giant_slayer',       { enemy_avg: 'Gold 1', own: 'Silver 3' }],
       ['teamkill',           { round_numbers: [2, 8], count: 2 }],
       ['fall_damage_death',  { count: 1 }],

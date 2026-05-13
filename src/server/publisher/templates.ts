@@ -106,23 +106,7 @@ function prevRecordLine(
   return '';
 }
 
-const templates: Record<EventType, TemplateFn> = {
-  ace: (_payload, user, match) => {
-    const weaponsPerRound = Array.isArray(_payload['weapons_per_round'])
-      ? _payload['weapons_per_round'] as unknown[][]
-      : [];
-    let maxKills = 5;
-    for (const round of weaponsPerRound) {
-      if (Array.isArray(round) && round.length > maxKills) {
-        maxKills = round.length;
-      }
-    }
-    const killsStr = maxKills > 5 ? ` — ${maxKills} убийств` : '';
-    const desc = `${playerTag(user)}${killsStr}${mapSuffix(match?.map)}`;
-    const link = match?.match_id ? matchLine(match.match_id) : '';
-    return `🎯 <u>AAAAAAACE!</u>\n\n${desc}${link}`;
-  },
-
+const templates: Partial<Record<EventType, TemplateFn>> = {
   ace_rare_weapon_week: (payload, user, match) => {
     const weaponsPerRound = Array.isArray(payload['weapons_per_round']) ? payload['weapons_per_round'] as string[][] : [];
     const KNIFE_TOKENS = new Set(['Knife', '2f59173c-4bed-b6c3-2191-dea9b58be9c7']);

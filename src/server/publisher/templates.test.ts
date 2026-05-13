@@ -103,31 +103,6 @@ describe('renderTemplate — HTML injection prevention', () => {
 });
 
 describe('renderTemplate — payload-specific behavior', () => {
-  it('ace: shows kill count when round had 6+ kills', () => {
-    const output = renderTemplate('ace', { weapons_per_round: [['Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal']] }, safeUser);
-    expect(output).toContain('6 убийств');
-  });
-
-  it('ace: no kill count when round had exactly 5 kills', () => {
-    const output = renderTemplate('ace', { weapons_per_round: [['Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal']] }, safeUser);
-    expect(output).not.toContain('убийств');
-  });
-
-  it('ace: includes map from match param', () => {
-    const output = renderTemplate('ace', {}, safeUser, { map: 'Ascent' });
-    expect(output).toContain('на карте Ascent');
-  });
-
-  it('ace: contains AAAAAAACE heading', () => {
-    const output = renderTemplate('ace', {}, safeUser);
-    expect(output).toContain('AAAAAAACE');
-  });
-
-  it('ace: includes match link when match_id present', () => {
-    const output = renderTemplate('ace', {}, safeUser, { match_id: 'abc123' });
-    expect(output).toContain('tracker.gg/valorant/match/abc123');
-  });
-
   it('ace_rare_weapon_week: shows Classic weapon from weapons_per_round', () => {
     const output = renderTemplate('ace_rare_weapon_week', {
       weapons_per_round: [['Classic', 'Classic', 'Vandal', 'Vandal', 'Classic']],

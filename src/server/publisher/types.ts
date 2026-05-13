@@ -52,7 +52,6 @@ export type EventCategory = 'realtime' | 'digest';
  * Digest events appear ONLY in the Friday weekly digest and NEVER fire as realtime notifications.
  */
 export const EVENT_CATEGORY: Record<EventType, EventCategory> = {
-  ace: 'realtime',
   giant_slayer: 'realtime',
   teamkill: 'realtime',
   fall_damage_death: 'realtime',
@@ -61,6 +60,7 @@ export const EVENT_CATEGORY: Record<EventType, EventCategory> = {
   community_clash: 'realtime',
   return_after_pause: 'realtime',
 
+  ace: 'digest',
   ace_rare_weapon_week: 'digest',
   winstreak_10plus: 'digest',
   peak_rank_up: 'digest',
