@@ -89,7 +89,8 @@ function recordContextLine(eventType: EventType): string | null {
 
 /**
  * Render the "prev record" line for digest record_* templates.
- * Returns either '' (first record) or '\n…' line to append inside <blockquote>.
+ * Currently a no-op — user disabled prev-record info everywhere. Kept so
+ * call sites don't need surgery; flip implementation here to re-enable.
  */
 function prevRecordLine(
   _prevValue: unknown,

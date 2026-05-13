@@ -202,8 +202,8 @@ describe('buildDigest', () => {
       expect(text.toLowerCase()).toContain('знает толк в извращениях');
       expect(text).toContain('Alpha');
 
-      // Divider present
-      expect(text).toContain('━━━━━━━━━━━━━━');
+      // Divider removed per user — no longer rendered between bright block and weekly recap.
+      expect(text).not.toContain('━━━━━━━━━━━━━━');
 
       // Bottom sections present
       expect(text).toContain('матчей'); // pulse
@@ -212,13 +212,13 @@ describe('buildDigest', () => {
       // No Epic Moment section header
       expect(text).not.toContain('Самый яркий момент');
 
-      // Divider appears BEFORE pulse (bright block is above bottom)
-      const dividerPos = text.indexOf('━━━━━━━━━━━━━━');
+      // Bright block appears BEFORE weekly recap.
+      const brightPos = text.toLowerCase().indexOf('знает толк');
       const pulsePos = text.indexOf('матчей');
-      expect(dividerPos).toBeLessThan(pulsePos);
+      expect(brightPos).toBeLessThan(pulsePos);
     });
 
-    it('omits divider when no bright events', async () => {
+    it('still has no divider when there are no bright events', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'Player1', riotTag: 'P1' });
       seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW });
       // no bright events
