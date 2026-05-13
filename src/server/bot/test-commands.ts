@@ -7,8 +7,12 @@
  *                               (default 2) as separate messages to the owner's
  *                               DM. Pure read from detected_events — no
  *                               detector re-runs, no DB writes.
+ *   /test_daily_ace           — preview what the next 23:00 daily-ace cron
+ *                               would post: aces since the last successful
+ *                               daily run. Read-only — does not write to
+ *                               daily_digest_runs.
  *
- * Both commands are gated by the hardcoded `OWNER_TELEGRAM_ID` below.
+ * All commands are gated by the hardcoded `OWNER_TELEGRAM_ID` below.
  * Non-owners are silently ignored (the bot does not reply at all).
  *
  * Why bot.api.sendMessage directly (bypassing safe-telegram.ts):
@@ -20,11 +24,13 @@
  */
 
 import { type Context, type MiddlewareFn, type Bot } from 'grammy';
-import { and, gte, lt, asc, eq } from 'drizzle-orm';
+import { and, gte, lt, asc, eq, isNotNull, desc } from 'drizzle-orm';
 import { detectedEvents } from '../db/schema/detected_events.ts';
 import { users } from '../db/schema/users.ts';
 import { matchRecords } from '../db/schema/match_records.ts';
+import { dailyDigestRuns } from '../db/schema/daily_digest_runs.ts';
 import { buildDigest } from '../digest/build.ts';
+import { buildDailyAceDigest } from '../digest-daily/build.ts';
 import { renderTemplate, type TemplateMatch, type TemplateUser } from '../publisher/templates.ts';
 import { isRealtimeEvent, type EventType } from '../publisher/types.ts';
 import logger from '../lib/log.ts';
@@ -215,6 +221,66 @@ export function makeTestRuntimeEventsHandler(deps: TestCommandsDeps): Middleware
       await deps.bot.api.sendMessage(fromId!, `<i>--- Preview complete (${realtimeOnly.length} событий отправлено) ---</i>`, HTML_OPTS);
     } catch (err) {
       logger.error({ module: 'test_commands', cmd: 'test_runtime_events', err }, 'Preview events failed');
+      try {
+        await deps.bot.api.sendMessage(fromId!, `<i>Ошибка: ${(err as Error).message ?? 'unknown'}</i>`, HTML_OPTS);
+      } catch {
+        // swallow
+      }
+    }
+  };
+}
+
+/**
+ * Resolve the window for /test_daily_ace:
+ *   windowStart = most recent daily_digest_runs.posted_at (where posted_at IS NOT NULL)
+ *   Fallback to now - 24h when no prior successful run exists.
+ *   windowEnd = Date.now()
+ */
+export async function resolveDailyAceWindow(
+  db: AnyDb,
+): Promise<{ windowStart: number; windowEnd: number }> {
+  const windowEnd = Date.now();
+
+  const [lastRun] = await db
+    .select({ posted_at: dailyDigestRuns.posted_at })
+    .from(dailyDigestRuns)
+    .where(isNotNull(dailyDigestRuns.posted_at))
+    .orderBy(desc(dailyDigestRuns.posted_at))
+    .limit(1);
+
+  const windowStart =
+    lastRun?.posted_at != null
+      ? (lastRun.posted_at as number)
+      : windowEnd - 24 * 3600 * 1000;
+
+  return { windowStart, windowEnd };
+}
+
+export function makeTestDailyAceHandler(deps: TestCommandsDeps): MiddlewareFn<Context> {
+  return async (ctx: Context): Promise<void> => {
+    const fromId = ctx.from?.id;
+    if (!isOwner(fromId)) return; // silent ignore
+
+    logger.info(
+      { module: 'test_commands', cmd: 'test_daily_ace', owner_id: fromId },
+      'Building daily ace preview',
+    );
+
+    try {
+      const { windowStart, windowEnd } = await resolveDailyAceWindow(deps.db);
+
+      const result = await buildDailyAceDigest({ db: deps.db, windowStart, windowEnd });
+
+      if (result.text) {
+        await deps.bot.api.sendMessage(fromId!, result.text, HTML_OPTS);
+      } else {
+        const msg =
+          `Нет ейсов с прошлого тика.\n` +
+          `Окно: ${new Date(windowStart).toISOString()} → ${new Date(windowEnd).toISOString()}`;
+        await deps.bot.api.sendMessage(fromId!, msg, HTML_OPTS);
+      }
+    } catch (err) {
+      logger.error({ module: 'test_commands', cmd: 'test_daily_ace', err }, 'Daily ace preview failed');
       try {
         await deps.bot.api.sendMessage(fromId!, `<i>Ошибка: ${(err as Error).message ?? 'unknown'}</i>`, HTML_OPTS);
       } catch {

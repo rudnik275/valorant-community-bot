@@ -1,5 +1,17 @@
-import { describe, it, expect, vi } from 'vitest';
-import { isOwner, OWNER_TELEGRAM_ID, parseDaysArg, makeTestDigestHandler, makeTestRuntimeEventsHandler } from './test-commands.ts';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import Database from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
+import { join } from 'node:path';
+import {
+  isOwner,
+  OWNER_TELEGRAM_ID,
+  parseDaysArg,
+  makeTestDigestHandler,
+  makeTestRuntimeEventsHandler,
+  makeTestDailyAceHandler,
+  resolveDailyAceWindow,
+} from './test-commands.ts';
 
 describe('isOwner', () => {
   it('returns true for the hardcoded OWNER_TELEGRAM_ID', () => {
@@ -96,5 +108,212 @@ describe('admin gate (non-owner is silently ignored)', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await handler(ctx as any, async () => {});
     expect(bot.api.sendMessage).not.toHaveBeenCalled();
+  });
+});
+
+// ─── /test_daily_ace ─────────────────────────────────────────────────────────
+
+vi.mock('../lib/log.ts', () => ({
+  default: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
+
+const MIGRATIONS_FOLDER = join(process.cwd(), 'drizzle');
+
+function makeTestDb() {
+  const sqlite = new Database(':memory:');
+  sqlite.exec('PRAGMA foreign_keys=OFF;');
+  const db = drizzle(sqlite);
+  migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
+  return { db, sqlite };
+}
+
+function seedUser(sqlite: Database.Database, id: number, puuid: string) {
+  sqlite
+    .prepare(
+      `INSERT OR REPLACE INTO users (telegram_id, riot_puuid, riot_name, riot_tag, joined_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(id, puuid, `Player${id}`, 'TAG', Date.now());
+}
+
+function seedMatch(sqlite: Database.Database, puuid: string, matchId: string, startedAt: number) {
+  sqlite
+    .prepare(
+      `INSERT OR REPLACE INTO match_records
+       (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result, rounds_played, kill_events_compact)
+       VALUES (?, ?, ?, 'Ascent', 'Jett', 15, 10, 0, 'win', 20, '[]')`,
+    )
+    .run(puuid, matchId, startedAt);
+}
+
+function seedAceEvent(
+  sqlite: Database.Database,
+  puuid: string,
+  matchId: string,
+  detectedAt: number,
+  status = 'silent',
+): number {
+  const payload = { weapons_per_round: [['Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal']] };
+  const result = sqlite
+    .prepare(
+      `INSERT INTO detected_events (event_type, riot_puuid, match_id, payload_json, detected_at, status)
+       VALUES ('ace', ?, ?, ?, ?, ?)`,
+    )
+    .run(puuid, matchId, JSON.stringify(payload), detectedAt, status);
+  return result.lastInsertRowid as number;
+}
+
+function seedDailyRun(sqlite: Database.Database, runDate: string, postedAt: number | null) {
+  sqlite
+    .prepare(
+      `INSERT OR REPLACE INTO daily_digest_runs
+       (run_date, started_at, posted_at, included_event_ids)
+       VALUES (?, ?, ?, '[]')`,
+    )
+    .run(runDate, postedAt ?? Date.now() - 60_000, postedAt);
+}
+
+describe('resolveDailyAceWindow', () => {
+  let db: ReturnType<typeof makeTestDb>['db'];
+  let sqlite: Database.Database;
+
+  beforeEach(() => {
+    ({ db, sqlite } = makeTestDb());
+  });
+
+  afterEach(() => {
+    sqlite.close();
+  });
+
+  it('falls back to 24h when no daily_digest_runs rows exist', async () => {
+    const before = Date.now();
+    const { windowStart, windowEnd } = await resolveDailyAceWindow(db);
+    const after = Date.now();
+
+    expect(windowEnd).toBeGreaterThanOrEqual(before);
+    expect(windowEnd).toBeLessThanOrEqual(after);
+    expect(windowStart).toBeCloseTo(windowEnd - 24 * 3600 * 1000, -2);
+  });
+
+  it('falls back to 24h when runs exist but all have posted_at=null', async () => {
+    seedDailyRun(sqlite, '2025-01-01', null);
+    const before = Date.now();
+    const { windowStart, windowEnd } = await resolveDailyAceWindow(db);
+    const after = Date.now();
+
+    expect(windowEnd).toBeGreaterThanOrEqual(before);
+    expect(windowEnd).toBeLessThanOrEqual(after);
+    expect(windowStart).toBeCloseTo(windowEnd - 24 * 3600 * 1000, -2);
+  });
+
+  it('uses the most recent posted_at as windowStart', async () => {
+    const olderPostedAt = Date.now() - 48 * 3600 * 1000;
+    const recentPostedAt = Date.now() - 3 * 3600 * 1000;
+    seedDailyRun(sqlite, '2025-01-01', olderPostedAt);
+    seedDailyRun(sqlite, '2025-01-02', recentPostedAt);
+
+    const { windowStart } = await resolveDailyAceWindow(db);
+    expect(windowStart).toBe(recentPostedAt);
+  });
+});
+
+describe('makeTestDailyAceHandler', () => {
+  let db: ReturnType<typeof makeTestDb>['db'];
+  let sqlite: Database.Database;
+
+  beforeEach(() => {
+    ({ db, sqlite } = makeTestDb());
+  });
+
+  afterEach(() => {
+    sqlite.close();
+  });
+
+  function makeMockBot() {
+    return {
+      api: { sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }) },
+    };
+  }
+
+  it('non-owner is silently ignored — no sendMessage', async () => {
+    const bot = makeMockBot();
+    const handler = makeTestDailyAceHandler({ db, bot: bot as never });
+    const ctx = { from: { id: 99999 }, message: { text: '/test_daily_ace' } };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await handler(ctx as any, async () => {});
+    expect(bot.api.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('owner + empty daily_digest_runs + no aces → fallback 24h window + "Нет ейсов" reply', async () => {
+    const bot = makeMockBot();
+    const handler = makeTestDailyAceHandler({ db, bot: bot as never });
+    const ctx = { from: { id: OWNER_TELEGRAM_ID }, message: { text: '/test_daily_ace' } };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await handler(ctx as any, async () => {});
+
+    expect(bot.api.sendMessage).toHaveBeenCalledTimes(1);
+    const [targetId, text] = bot.api.sendMessage.mock.calls[0]!;
+    expect(targetId).toBe(OWNER_TELEGRAM_ID);
+    expect(text).toContain('Нет ейсов с прошлого тика');
+    // Should include ISO window bounds
+    expect(text).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+  });
+
+  it('owner + recent successful run → windowStart = last posted_at', async () => {
+    const postedAt = Date.now() - 5 * 3600 * 1000; // 5h ago
+    seedDailyRun(sqlite, '2025-05-10', postedAt);
+
+    const bot = makeMockBot();
+    const handler = makeTestDailyAceHandler({ db, bot: bot as never });
+    const ctx = { from: { id: OWNER_TELEGRAM_ID }, message: { text: '/test_daily_ace' } };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await handler(ctx as any, async () => {});
+
+    // No aces in DB → null text → sends "Нет ейсов" with correct window start ISO
+    expect(bot.api.sendMessage).toHaveBeenCalledTimes(1);
+    const [, text] = bot.api.sendMessage.mock.calls[0]!;
+    expect(text).toContain('Нет ейсов с прошлого тика');
+    // The window start should appear in the message as ISO string of postedAt
+    const expectedIso = new Date(postedAt).toISOString();
+    expect(text).toContain(expectedIso);
+  });
+
+  it('owner + aces in window → text reply contains rendered output', async () => {
+    const postedAt = Date.now() - 6 * 3600 * 1000;
+    seedDailyRun(sqlite, '2025-05-10', postedAt);
+
+    const inWindow = postedAt + 1000; // after last run
+    seedUser(sqlite, 1, 'p1');
+    seedMatch(sqlite, 'p1', 'match-1', inWindow);
+    seedAceEvent(sqlite, 'p1', 'match-1', inWindow);
+
+    const bot = makeMockBot();
+    const handler = makeTestDailyAceHandler({ db, bot: bot as never });
+    const ctx = { from: { id: OWNER_TELEGRAM_ID }, message: { text: '/test_daily_ace' } };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await handler(ctx as any, async () => {});
+
+    expect(bot.api.sendMessage).toHaveBeenCalledTimes(1);
+    const [targetId, text] = bot.api.sendMessage.mock.calls[0]!;
+    expect(targetId).toBe(OWNER_TELEGRAM_ID);
+    // Rendered digest header
+    expect(text).toContain('Ейсы за сутки');
+    expect(text).toContain('Player1');
+  });
+
+  it('does NOT insert into daily_digest_runs', async () => {
+    seedUser(sqlite, 1, 'p1');
+    const inWindow = Date.now() - 1000;
+    seedMatch(sqlite, 'p1', 'match-1', inWindow);
+    seedAceEvent(sqlite, 'p1', 'match-1', inWindow);
+
+    const bot = makeMockBot();
+    const handler = makeTestDailyAceHandler({ db, bot: bot as never });
+    const ctx = { from: { id: OWNER_TELEGRAM_ID }, message: { text: '/test_daily_ace' } };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await handler(ctx as any, async () => {});
+
+    const rows = sqlite.prepare('SELECT COUNT(*) AS cnt FROM daily_digest_runs').get() as { cnt: number };
+    expect(rows.cnt).toBe(0);
   });
 });
