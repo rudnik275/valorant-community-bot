@@ -58,9 +58,9 @@ function matchLinkInline(match_id: string | undefined): string {
   return ` | <a href="https://tracker.gg/valorant/match/${esc(match_id)}">Ссылка на матч</a>`;
 }
 
-/** Wraps a context-description line in italic + underline for digest templates. */
+/** Wraps a context-description line in italic for digest templates. */
 function ctxLine(text: string): string {
-  return `<i><u>${text}</u></i>`;
+  return `<i>${text}</i>`;
 }
 
 function mapSuffix(map: string | undefined): string {
@@ -126,7 +126,7 @@ const templates: Record<EventType, TemplateFn> = {
     const killsStr = maxKills > 5 ? ` — ${maxKills} убийств` : '';
     const desc = `${playerTag(user)}${killsStr}${mapSuffix(match?.map)}`;
     const link = match?.match_id ? matchLine(match.match_id) : '';
-    return `🎯 <b>AAAAAAACE!</b>\n\n${desc}${link}`;
+    return `🎯 <u>AAAAAAACE!</u>\n\n${desc}${link}`;
   },
 
   ace_rare_weapon_week: (payload, user, match) => {
@@ -144,7 +144,7 @@ const templates: Record<EventType, TemplateFn> = {
     }
     const weaponStr = Array.from(rareNames).join(', ') || 'редким';
     const valueLine = `${playerTag(user)} — эйс с ${esc(weaponStr)}${mapSuffix(match?.map)}${matchLinkInline(match?.match_id)}`;
-    return `💎 <b>Знает толк в извращениях</b>\n${valueLine}`;
+    return `💎 <u>Знает толк в извращениях</u>\n${valueLine}`;
   },
 
   peak_rank_up: (payload, user, _match) => {
@@ -155,13 +155,13 @@ const templates: Record<EventType, TemplateFn> = {
       rankPart = rankEmoji ? ` ${rankEmoji} ${esc(String(to))}` : ` ${esc(String(to))}`;
     }
     const desc = `${playerTag(user)} — поднялся(лась) до${rankPart}`;
-    return `🎖 <b>Повышение по службе</b>\n${desc}`;
+    return `🎖 <u>Повышение по службе</u>\n${desc}`;
   },
 
   winstreak_10plus: (payload, user, _match) => {
     const streak = payload['streak'] ?? 10;
     const desc = `${playerTag(user)} — ${esc(String(streak))} побед подряд`;
-    return `🏆 <b>Винстрик недели:</b>\n${desc}`;
+    return `🏆 <u>Винстрик недели:</u>\n${desc}`;
   },
 
   giant_slayer: (payload, user, match) => {
@@ -171,13 +171,13 @@ const templates: Record<EventType, TemplateFn> = {
     const enemyStr = enemy ? ` (средний ранг ${esc(String(enemy))})` : '';
     const desc = `${playerTag(user)}${ownStr} — выиграл(а) против превосходящего врага${enemyStr}`;
     const link = match?.match_id ? matchLine(match.match_id) : '';
-    return `💪 <b>Поводил(ла) по губам</b>\n\n${desc}${link}`;
+    return `💪 <u>Поводил(ла) по губам</u>\n\n${desc}${link}`;
   },
 
   return_after_pause: (payload, user, _match) => {
     const days = payload['days_paused'] ?? '?';
     const desc = `${playerTag(user)} — после ${esc(String(days))} дней паузы снова в строю`;
-    return `👋 <b>С возвращением</b>\n\n${desc}`;
+    return `👋 <u>С возвращением</u>\n\n${desc}`;
   },
 
   teamkill: (payload, user, match) => {
@@ -188,7 +188,7 @@ const templates: Record<EventType, TemplateFn> = {
     const victimStr = uniqueVictims.length > 0 ? ` (${uniqueVictims.map((n) => `<b>${esc(n)}</b>`).join(', ')})` : '';
     const desc = `${playerTag(user)} убил(а) своего${victimStr}${count}${mapSuffix(match?.map)}`;
     const link = match?.match_id ? matchLine(match.match_id) : '';
-    return `🐀 <b>Ля ты и крыса</b>\n\n${desc}${link}`;
+    return `🐀 <u>Ля ты и крыса</u>\n\n${desc}${link}`;
   },
 
   fall_damage_death: (payload, user, match) => {
@@ -196,7 +196,7 @@ const templates: Record<EventType, TemplateFn> = {
     const countStr = n > 1 ? ` (${n}×)` : '';
     const desc = `${playerTag(user)} — умер(ла) от падения${countStr}${mapSuffix(match?.map)}`;
     const link = match?.match_id ? matchLine(match.match_id) : '';
-    return `🪂 <b>1:0 в пользу гравитации</b>\n\n${desc}${link}`;
+    return `🪂 <u>1:0 в пользу гравитации</u>\n\n${desc}${link}`;
   },
 
   record_damage_dealt_match: (payload, user, match) => {
@@ -204,7 +204,7 @@ const templates: Record<EventType, TemplateFn> = {
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = recordContextLine('record_damage_dealt_match');
     const valueLine = `${playerTag(user)} — ${esc(String(value))} dmg${matchLinkInline(match?.match_id)}`;
-    return `🥩 <b>Мясник</b>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
+    return `🥩 <u>Мясник</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
   },
 
   record_damage_received_match: (payload, user, match) => {
@@ -212,7 +212,7 @@ const templates: Record<EventType, TemplateFn> = {
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = recordContextLine('record_damage_received_match');
     const valueLine = `${playerTag(user)} — получил(а) ${esc(String(value))} dmg${matchLinkInline(match?.match_id)}`;
-    return `🤕 <b>Груша для битья</b>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
+    return `🤕 <u>Груша для битья</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
   },
 
   record_kills_match: (payload, user, match) => {
@@ -220,7 +220,7 @@ const templates: Record<EventType, TemplateFn> = {
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = recordContextLine('record_kills_match');
     const valueLine = `${playerTag(user)} — ${esc(String(value))} фрагов${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
-    return `💀 <b>Мирного рішення не буде</b>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
+    return `💀 <u>Мирного рішення не буде</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
   },
 
   record_deaths_match: (payload, user, match) => {
@@ -228,7 +228,7 @@ const templates: Record<EventType, TemplateFn> = {
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = recordContextLine('record_deaths_match');
     const valueLine = `${playerTag(user)} — ${esc(String(value))} смертей${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
-    return `⚰️ <b>Жертва насилия</b>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
+    return `⚰️ <u>Жертва насилия</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
   },
 
   record_headshots_match: (payload, user, match) => {
@@ -236,7 +236,7 @@ const templates: Record<EventType, TemplateFn> = {
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = recordContextLine('record_headshots_match');
     const valueLine = `${playerTag(user)} — ${esc(String(value))} попаданий в голову${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
-    return `🤠 <b>Директор дикого запада</b>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
+    return `🤠 <u>Директор дикого запада</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
   },
 
   record_legshots_match: (payload, user, match) => {
@@ -244,7 +244,7 @@ const templates: Record<EventType, TemplateFn> = {
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = recordContextLine('record_legshots_match');
     const valueLine = `${playerTag(user)} — ${esc(String(value))} попаданий в ноги${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
-    return `♿️ <b>Угадай куда шмальну</b>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
+    return `♿️ <u>Угадай куда шмальну</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
   },
 
   knife_kill: (payload, user, match) => {
@@ -252,7 +252,7 @@ const templates: Record<EventType, TemplateFn> = {
     const countStr = count > 1 ? `${count} врагов` : 'врага';
     const desc = `${playerTag(user)} — зарезал(а) ${countStr} с ножа${mapSuffix(match?.map)}`;
     const link = match?.match_id ? matchLine(match.match_id) : '';
-    return `🔪 <b>Заколол кабанчика</b>\n\n${desc}${link}`;
+    return `🔪 <u>Заколол кабанчика</u>\n\n${desc}${link}`;
   },
 
   record_mvp_count_week: (payload, user, _match) => {
@@ -263,7 +263,7 @@ const templates: Record<EventType, TemplateFn> = {
     const prev = prevRecordLine(prevForLine, payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid, 'MVP');
     const ctx = recordContextLine('record_mvp_count_week');
     const valueLine = `${playerTag(user)} — ${esc(String(value))} MVP-матчей`;
-    return `🏅 <b>Отказался(лась) от личной жизни</b>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
+    return `🏅 <u>Легенда</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
   },
 
   match_comeback: (payload, user, match) => {
@@ -273,7 +273,7 @@ const templates: Record<EventType, TemplateFn> = {
     const fop = payload['final_score_opponent'] ?? '?';
     const desc = `${playerTag(user)} — отыгрались с ${dp}:${dop} до ${fp}:${fop}${mapSuffix(match?.map)}`;
     const link = match?.match_id ? matchLine(match.match_id) : '';
-    return `👏 <b>Мы вами гордимся</b>\n\n${desc}${link}`;
+    return `👏 <u>Мы вами гордимся</u>\n\n${desc}${link}`;
   },
 
   record_kills_per_weapon: (payload, user, _match) => {
@@ -283,7 +283,7 @@ const templates: Record<EventType, TemplateFn> = {
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = 'самое большое количество убийств за игру из одного оружия';
     const valueLine = `${playerTag(user)} — ${esc(String(value))} фрагов${matchLinkInline(realMatchId ? String(realMatchId) : undefined)}`;
-    return `🔫 <b>Эксперт по ${esc(String(weapon))}</b>\n${ctxLine(ctx)}\n${valueLine}${prev}`;
+    return `🔫 <u>Эксперт по ${esc(String(weapon))}</u>\n${ctxLine(ctx)}\n${valueLine}${prev}`;
   },
 
   record_longest_match_minutes: (payload, user, match) => {
@@ -295,7 +295,7 @@ const templates: Record<EventType, TemplateFn> = {
       ? payload['community_players'] as Array<{ puuid: string; name: string; tag: string }>
       : [];
     const playersLine = players
-      .map((p) => p.name ? `${esc(p.name)}#${esc(p.tag ?? '')}` : '')
+      .map((p) => p.name ? `<b>${esc(p.name)}#${esc(p.tag ?? '')}</b>` : '')
       .filter((s) => s)
       .join(', ');
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid, 'минут');
@@ -303,7 +303,7 @@ const templates: Record<EventType, TemplateFn> = {
     const roundsPart = rounds ? ` (${esc(String(rounds))} раундов)` : '';
     const resultPart = resultEmoji ? ` ${resultEmoji}` : '';
     const valueLine = `${esc(String(minutes))} минут${roundsPart}${mapSuffix(match?.map)}${resultPart}${matchLinkInline(match?.match_id)}`;
-    return `⏳ <b>Дело принципа</b>\n${ctxLine(ctx)}\n${valueLine}${playersLine ? '\n' + playersLine : ''}${prev}`;
+    return `⏳ <u>Дело принципа</u>\n${ctxLine(ctx)}\n${valueLine}${playersLine ? '\n' + playersLine : ''}${prev}`;
   },
 
   community_clash: (payload, _user, match) => {
@@ -335,7 +335,7 @@ const templates: Record<EventType, TemplateFn> = {
 
     const desc = lines.join('\n');
     const link = match?.match_id ? matchLine(match.match_id) : '';
-    return `⚔️ <b>Френдлифаер</b>\n\n${desc}${link}`;
+    return `⚔️ <u>Френдлифаер</u>\n\n${desc}${link}`;
   },
 };
 
@@ -382,7 +382,7 @@ export function renderDigestGroup(eventType: EventType, entries: DigestEntry[]):
       }))
       .sort((a, b) => b.streak - a.streak)
       .map((x) => x.line);
-    return `🏆 <b>Винстрик недели:</b>\n${lines.join('\n')}`;
+    return `🏆 <u>Винстрик недели:</u>\n${lines.join('\n')}`;
   }
 
   if (eventType === 'peak_rank_up') {
@@ -396,7 +396,7 @@ export function renderDigestGroup(eventType: EventType, entries: DigestEntry[]):
       return `${playerTag(e.user)} — поднялся(лась) до${rankPart}`;
     });
     const header = entries.length === 1 ? 'Повышение по службе' : 'Повышения по службе';
-    return `🎖 <b>${header}</b>\n${lines.join('\n')}`;
+    return `🎖 <u>${header}</u>\n${lines.join('\n')}`;
   }
 
   if (eventType === 'record_kills_per_weapon') {
@@ -411,7 +411,7 @@ export function renderDigestGroup(eventType: EventType, entries: DigestEntry[]):
       })
       .sort((a, b) => b.value - a.value)
       .map((x) => `${esc(x.weapon)} - ${x.value} | <b>${esc(x.user.riot_name)}#${esc(x.user.riot_tag)}</b>`);
-    return `🔫 <b>Мастера своего дела</b>\n${ctxLine('лидеры по убийствам одним оружием за матч')}\n${lines.join('\n')}`;
+    return `🔫 <u>Мастера своего дела</u>\n${ctxLine('лидеры по убийствам одним оружием за матч')}\n${lines.join('\n')}`;
   }
 
   if (eventType === 'ace_rare_weapon_week') {
@@ -431,7 +431,7 @@ export function renderDigestGroup(eventType: EventType, entries: DigestEntry[]):
       return `${playerTag(e.user)} — эйс с ${esc(weaponStr)}${mapSuffix(e.match?.map)}${matchLinkInline(e.match?.match_id)}`;
     });
     const header = entries.length === 1 ? 'Знает толк в извращениях' : 'Знают толк в извращениях';
-    return `💎 <b>${header}</b>\n${lines.join('\n')}`;
+    return `💎 <u>${header}</u>\n${lines.join('\n')}`;
   }
 
   // Fallback: not group-capable but called anyway — render each event individually.
