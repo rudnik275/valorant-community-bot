@@ -243,6 +243,9 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
 
   // ─── BRIGHT EVENTS (top block) ───────────────────────────────────────────────
   const brightBlocks: string[] = [];
+  // Weapons section renders last in the bright area — collected separately so
+  // it can be appended after near-miss blocks too.
+  const weaponsBlocks: string[] = [];
 
   {
     const optedOut = await getOptOutSet();
@@ -437,24 +440,35 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       'ace_rare_weapon_week',
       'record_kills_per_weapon',
     ]);
-    for (const g of groups) {
-      let block: string;
+    const renderGroup = (g: Group): string => {
       if (g.entries.length >= 2 && GROUP_CAPABLE_TYPES.has(g.eventType)) {
-        block = renderDigestGroup(g.eventType, g.entries);
-      } else if (g.eventType === 'record_kills_per_weapon' && g.entries.length === 1) {
+        return renderDigestGroup(g.eventType, g.entries);
+      }
+      if (g.eventType === 'record_kills_per_weapon' && g.entries.length === 1) {
         // Single weapon record this week — still use the combined renderer for
         // consistency (one-line section with the same header), not the legacy
         // per-weapon template.
-        block = renderDigestGroup(g.eventType, g.entries);
-      } else {
-        // Single-event format via renderTemplate. If a group-capable type has length === 1,
-        // we still use the single-event template (which has the singular header).
-        block = g.entries
-          .map((e) => renderTemplate(e.eventType, e.payload, e.user, e.match))
-          .join('\n\n');
+        return renderDigestGroup(g.eventType, g.entries);
       }
-      brightBlocks.push(block);
+      // Single-event format via renderTemplate. If a group-capable type has length === 1,
+      // we still use the single-event template (which has the singular header).
+      return g.entries
+        .map((e) => renderTemplate(e.eventType, e.payload, e.user, e.match))
+        .join('\n\n');
+    };
+    for (const g of groups) {
+      // Skip weapons here — rendered last (just above weekly recap) per user.
+      if (g.eventType === 'record_kills_per_weapon') continue;
+      brightBlocks.push(renderGroup(g));
       sectionsIncluded.push(g.eventType);
+    }
+    // Render weapons last so it sits right above the always-bottom recap,
+    // AFTER the near-miss blocks too — collected in `weaponsBlocks` and
+    // appended after near-miss in the final concat below.
+    const weaponsGroup = groups.find((g) => g.eventType === 'record_kills_per_weapon');
+    if (weaponsGroup) {
+      weaponsBlocks.push(renderGroup(weaponsGroup));
+      sectionsIncluded.push(weaponsGroup.eventType);
     }
   }
 
@@ -562,9 +576,9 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
   // ─── Compose ─────────────────────────────────────────────────────────────────
   const parts: string[] = [header];
 
-  // Near-miss blocks join the bright events, not the weekly recap below —
-  // they're conceptually "records that almost happened".
-  const allBrightBlocks = [...brightBlocks, ...nearMissBlocks];
+  // Order in the bright area: regular bright blocks → near-miss → weapons.
+  // Weapons sit last so they're right above the always-bottom recap.
+  const allBrightBlocks = [...brightBlocks, ...nearMissBlocks, ...weaponsBlocks];
   if (allBrightBlocks.length > 0) {
     parts.push('');
     parts.push(allBrightBlocks.join('\n\n'));
