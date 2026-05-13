@@ -201,29 +201,30 @@ describe('buildDailyAceDigest', () => {
       expect(text).not.toContain('\xd72'); // ×2
     });
 
-    it('shows ×2 when two rows exist for same player+match', async () => {
+    it('shows ×2 when one row carries two aces (multi-round payload)', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'MultiAce', riotTag: 'MA' });
       seedMatch(sqlite, { puuid: 'p1', matchId: 'mx', startedAt: IN_WINDOW, map: 'Haven' });
 
-      // Insert two rows manually with different event data but same match_id
-      // by bypassing the UNIQUE with explicit IDs (FOREIGN_KEYS=OFF)
-      sqlite.prepare(
-        `INSERT INTO detected_events (id, event_type, riot_puuid, match_id, payload_json, detected_at, status)
-         VALUES (1001, 'ace', 'p1', 'mx', '{"weapons_per_round":[["Vandal","Vandal","Vandal","Vandal","Vandal"]]}', ?, 'silent')`,
-      ).run(IN_WINDOW);
-      sqlite.prepare(
-        `INSERT INTO detected_events (id, event_type, riot_puuid, match_id, payload_json, detected_at, status)
-         VALUES (1002, 'ace', 'p1', 'mx', '{"weapons_per_round":[["Vandal","Vandal","Vandal","Vandal","Vandal"]]}', ?, 'digest-only')`,
-      ).run(IN_WINDOW + 100);
+      // UNIQUE(match_id, event_type, riot_puuid) means a player can only have
+      // one ace event row per match. Two aces in the same match are encoded
+      // as two entries inside payload.weapons_per_round.
+      seedAceEvent(sqlite, {
+        puuid: 'p1',
+        matchId: 'mx',
+        detectedAt: IN_WINDOW,
+        weaponsPerRound: [
+          ['Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal'],
+          ['Phantom', 'Phantom', 'Phantom', 'Phantom', 'Phantom'],
+        ],
+      });
 
       const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
       expect(result.text).not.toBeNull();
       const text = result.text!;
 
-      // Player has 2 ace rows for same match → collapsed into one bullet with ×2
+      // Player has 2 aces in same match → one bullet with ×2 and totalAces=2
       expect(text).toContain('MultiAce#MA</b> (2)');
       expect(text).toContain('×2');
-      // Only one bullet (one match link) since they share match_id
       const bulletCount = (text.match(/^• /mg) ?? []).length;
       expect(bulletCount).toBe(1);
     });

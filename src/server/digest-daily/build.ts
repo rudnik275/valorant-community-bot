@@ -47,7 +47,7 @@ interface MatchBullet {
   matchId: string;
   map: string | null;
   maxKills: number;
-  aceCount: number; // number of rows for this match (collapsed ×M)
+  aceCount: number; // payload.weapons_per_round.length — number of aces in this match
   detectedAt: number; // earliest detected_at for sorting
 }
 
@@ -135,17 +135,21 @@ export async function buildDailyAceDigest(
       matchMap.get(mid)!.push(row);
     }
 
-    // Build bullets (one per match)
+    // Build bullets (one per match). Under the UNIQUE(match_id, event_type,
+    // riot_puuid) constraint on detected_events there is at most one row per
+    // (match, player); multiple aces in the same match are encoded as multiple
+    // entries inside payload.weapons_per_round (length === number of aces).
     const bullets: MatchBullet[] = [];
     for (const [matchId, matchRows] of matchMap) {
-      // Max kills across all rounds in all ace events for this match
       let maxKills = 5;
+      let aceCount = 0;
       for (const r of matchRows) {
         try {
           const payload = JSON.parse(r.payloadJson) as Record<string, unknown>;
           const wpr = Array.isArray(payload['weapons_per_round'])
             ? (payload['weapons_per_round'] as unknown[][])
             : [];
+          aceCount += wpr.length;
           for (const round of wpr) {
             if (Array.isArray(round) && round.length > maxKills) {
               maxKills = round.length;
@@ -160,7 +164,7 @@ export async function buildDailyAceDigest(
         matchId,
         map: matchRows[0]?.map ?? null,
         maxKills,
-        aceCount: matchRows.length,
+        aceCount: aceCount || matchRows.length,
         detectedAt: Math.min(...matchRows.map((r) => r.detectedAt)),
       });
     }
