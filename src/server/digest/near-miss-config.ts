@@ -21,8 +21,8 @@ export interface NearMissThreshold {
 export const NEAR_MISS_THRESHOLDS: NearMissThreshold[] = [
   { recordType: 'kills_match',           threshold: 2,    source: 'kills',                emoji: '💀', header: 'Был(ла) близко к рекорду по киллам',                                  unit: 'фрагов'   },
   { recordType: 'deaths_match',          threshold: 2,    source: 'deaths',               emoji: '⚰️', header: 'Был(ла) близко к тому чтоб стать новой жертвой насилия',              unit: 'смертей'  },
-  { recordType: 'headshots_match',       threshold: 2,    source: 'headshots',            emoji: '🤠', header: 'Чуть не разорвал(а) рекорд по хедшотам',                              unit: 'хедшотов' },
-  { recordType: 'legshots_match',        threshold: 2,    source: 'legshots',             emoji: '♿️', header: 'Был(а) близок(ка) к рекорду по убийствам в ноги',                     unit: 'легшотов' },
+  { recordType: 'headshots_match',       threshold: 2,    source: 'headshots',            emoji: '🤠', header: 'Чуть не разорвал(а) рекорд по попаданиям в голову',                  unit: 'попаданий' },
+  { recordType: 'legshots_match',        threshold: 2,    source: 'legshots',             emoji: '♿️', header: 'Был(а) близок(ка) к рекорду по попаданиям в ноги',                    unit: 'попаданий' },
   { recordType: 'damage_dealt_match',    threshold: 1000, source: 'damage_dealt',         emoji: '🥩', header: 'Был(ла) близко к тому чтоб стать мясником недели',                    unit: 'dmg'      },
   { recordType: 'damage_received_match', threshold: 1000, source: 'damage_received',      emoji: '🤕', header: 'Был(а) близок(ка) к рекорду по полученному урону',                    unit: 'dmg'      },
   { recordType: 'longest_match_minutes', threshold: 2,    source: 'game_length_minutes',  emoji: '⏳', header: 'Близко к самому длинному матчу по минутам',                           unit: 'минут'    },

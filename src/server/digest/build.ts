@@ -408,11 +408,40 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       g.entries = [{ ...winner, payload: mergedPayload }];
     }
 
+    // Phase 2.9: merge all per-weapon kills_per_weapon groups into ONE group.
+    // After per-weapon dedup (Phase 2.5), each weapon has its single best entry;
+    // we now collapse all weapons into a single group so the digest renders one
+    // combined "Оружейная мастерская" section instead of N separate "Эксперт по X"
+    // blocks. The combined renderer lives in renderDigestGroup.
+    const kpwGroups = groups.filter((g) => g.eventType === 'record_kills_per_weapon');
+    if (kpwGroups.length > 0) {
+      const merged: Group = {
+        eventType: 'record_kills_per_weapon',
+        entries: kpwGroups.flatMap((g) => g.entries),
+      };
+      // Remove the original per-weapon groups, append the merged one.
+      let idx: number;
+      while ((idx = groups.findIndex((g) => g.eventType === 'record_kills_per_weapon')) !== -1) {
+        groups.splice(idx, 1);
+      }
+      groups.push(merged);
+    }
+
     // Phase 3: render each group
-    const GROUP_CAPABLE_TYPES = new Set<string>(['winstreak_10plus', 'peak_rank_up', 'ace_rare_weapon_week']);
+    const GROUP_CAPABLE_TYPES = new Set<string>([
+      'winstreak_10plus',
+      'peak_rank_up',
+      'ace_rare_weapon_week',
+      'record_kills_per_weapon',
+    ]);
     for (const g of groups) {
       let block: string;
       if (g.entries.length >= 2 && GROUP_CAPABLE_TYPES.has(g.eventType)) {
+        block = renderDigestGroup(g.eventType, g.entries);
+      } else if (g.eventType === 'record_kills_per_weapon' && g.entries.length === 1) {
+        // Single weapon record this week — still use the combined renderer for
+        // consistency (one-line section with the same header), not the legacy
+        // per-weapon template.
         block = renderDigestGroup(g.eventType, g.entries);
       } else {
         // Single-event format via renderTemplate. If a group-capable type has length === 1,
