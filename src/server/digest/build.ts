@@ -4,11 +4,11 @@
  * Queries DB over a rolling 7-day window and renders sections in block layout:
  *
  * BRIGHT EVENTS (top block — omitted if none):
- *   record_kills_match, winstreak_10plus, giant_slayer, ace_rare_weapon_week,
- *   ace, rank_promo
- * Divider ━━━━━━━━━━━━━━
+ *   record_*_match, winstreak_10plus, ace_rare_weapon_week, peak_rank_up,
+ *   record_kills_per_weapon (combined section), record_longest_match_minutes,
+ *   record_mvp_count_week, plus near-miss blocks (merged into the same group).
  *
- * ALWAYS-SECTIONS (bottom block):
+ * ALWAYS-SECTIONS (bottom block, no divider):
  *   Pulse → Top Player → Top Maps → Top Agents
  *
  * Last line: #digest
@@ -158,7 +158,10 @@ async function renderNearMisses(
       .limit(1);
 
     const userTag = user ? `<b>${esc(user.riot_name)}#${esc(user.riot_tag)}</b>` : `<b>${esc(String(row.riot_puuid))}</b>`;
-    blocks.push(`${cfg.emoji} <b>${cfg.header}</b>\n<blockquote>${userTag} — ${weekMax} ${cfg.unit} (рекорд: ${currentRecord})</blockquote>`);
+    // New format consistent with bright events: underlined caption, value line.
+    // Drops the "(рекорд: X)" prev-record info — same call user made for the
+    // record templates.
+    blocks.push(`${cfg.emoji} <u>${cfg.header}</u>\n${userTag} — ${weekMax} ${cfg.unit}`);
   }
 
   return blocks;
@@ -559,16 +562,12 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
   // ─── Compose ─────────────────────────────────────────────────────────────────
   const parts: string[] = [header];
 
-  if (brightBlocks.length > 0) {
+  // Near-miss blocks join the bright events, not the weekly recap below —
+  // they're conceptually "records that almost happened".
+  const allBrightBlocks = [...brightBlocks, ...nearMissBlocks];
+  if (allBrightBlocks.length > 0) {
     parts.push('');
-    parts.push(brightBlocks.join('\n\n'));
-    parts.push('');
-    parts.push('━━━━━━━━━━━━━━');
-  }
-
-  if (nearMissBlocks.length > 0) {
-    parts.push('');
-    parts.push(nearMissBlocks.join('\n'));
+    parts.push(allBrightBlocks.join('\n\n'));
   }
 
   parts.push('');
