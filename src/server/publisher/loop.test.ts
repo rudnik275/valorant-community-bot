@@ -457,7 +457,7 @@ describe('startPublisherLoop', () => {
 
       const [, body] = sendMessage.mock.calls[0]!;
       expect(body).toContain(`tracker.gg/valorant/match/${matchId}`);
-      expect(body).toContain('Ссылка на матч');
+      expect(body).toContain('>матч</a>');
     });
 
     it('sends to the primary chat ID', async () => {

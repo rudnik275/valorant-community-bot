@@ -49,13 +49,13 @@ function playerTag(user: TemplateUser): string {
 
 /** Match-link line for realtime templates — separated from the body by a blank line. */
 function matchLine(match_id: string): string {
-  return `\n\n<a href="https://tracker.gg/valorant/match/${esc(match_id)}">Ссылка на матч</a>`;
+  return `\n\n<a href="https://tracker.gg/valorant/match/${esc(match_id)}">матч</a>`;
 }
 
 /** Inline match-link suffix for digest templates — joined with " | " separator. */
 function matchLinkInline(match_id: string | undefined): string {
   if (!match_id) return '';
-  return ` | <a href="https://tracker.gg/valorant/match/${esc(match_id)}">Ссылка на матч</a>`;
+  return ` | <a href="https://tracker.gg/valorant/match/${esc(match_id)}">матч</a>`;
 }
 
 /** Wraps a context-description line in italic for digest templates. */
