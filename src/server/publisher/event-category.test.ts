@@ -28,12 +28,11 @@ describe('EVENT_CATEGORY', () => {
     expect(Object.keys(EVENT_CATEGORY).sort()).toEqual([...allEvents].sort());
   });
 
-  it('has 8 realtime types', () => {
+  it('has 7 realtime types', () => {
     const realtime = Object.entries(EVENT_CATEGORY)
       .filter(([, v]) => v === 'realtime')
       .map(([k]) => k);
     expect(realtime.sort()).toEqual([
-      'ace',
       'community_clash',
       'fall_damage_death',
       'giant_slayer',
@@ -44,12 +43,13 @@ describe('EVENT_CATEGORY', () => {
     ]);
   });
 
-  it('has 12 digest types', () => {
+  it('has 13 digest types', () => {
     const digest = Object.entries(EVENT_CATEGORY)
       .filter(([, v]) => v === 'digest')
       .map(([k]) => k);
-    expect(digest.length).toBe(12);
+    expect(digest.length).toBe(13);
     expect(digest.sort()).toEqual([
+      'ace',
       'ace_rare_weapon_week',
       'peak_rank_up',
       'record_damage_dealt_match',
@@ -74,26 +74,28 @@ describe('EVENT_CATEGORY', () => {
 
 describe('isRealtimeEvent / isDigestEvent', () => {
   it('isRealtimeEvent returns true for realtime types', () => {
-    expect(isRealtimeEvent('ace')).toBe(true);
     expect(isRealtimeEvent('teamkill')).toBe(true);
     expect(isRealtimeEvent('return_after_pause')).toBe(true);
+    expect(isRealtimeEvent('giant_slayer')).toBe(true);
   });
 
   it('isRealtimeEvent returns false for digest types', () => {
+    expect(isRealtimeEvent('ace')).toBe(false);
     expect(isRealtimeEvent('winstreak_10plus')).toBe(false);
     expect(isRealtimeEvent('peak_rank_up')).toBe(false);
     expect(isRealtimeEvent('record_kills_match')).toBe(false);
   });
 
   it('isDigestEvent returns true for digest types', () => {
+    expect(isDigestEvent('ace')).toBe(true);
     expect(isDigestEvent('winstreak_10plus')).toBe(true);
     expect(isDigestEvent('peak_rank_up')).toBe(true);
     expect(isDigestEvent('ace_rare_weapon_week')).toBe(true);
   });
 
   it('isDigestEvent returns false for realtime types', () => {
-    expect(isDigestEvent('ace')).toBe(false);
     expect(isDigestEvent('teamkill')).toBe(false);
+    expect(isDigestEvent('knife_kill')).toBe(false);
   });
 
   it('every EventType is exactly one of realtime or digest', () => {
