@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { EVENT_CATEGORY, isRealtimeEvent, isDigestEvent, type EventType } from './types.ts';
 
 describe('EVENT_CATEGORY', () => {
-  it('covers all 21 EventType values exactly once', () => {
+  it('covers all 19 EventType values exactly once', () => {
     const allEvents: EventType[] = [
       'ace',
       'giant_slayer',
@@ -12,7 +12,6 @@ describe('EVENT_CATEGORY', () => {
       'match_comeback',
       'community_clash',
       'return_after_pause',
-      'ace_rare_weapon_week',
       'winstreak_10plus',
       'peak_rank_up',
       'record_kills_match',
@@ -43,14 +42,13 @@ describe('EVENT_CATEGORY', () => {
     ]);
   });
 
-  it('has 13 digest types', () => {
+  it('has 12 digest types', () => {
     const digest = Object.entries(EVENT_CATEGORY)
       .filter(([, v]) => v === 'digest')
       .map(([k]) => k);
-    expect(digest.length).toBe(13);
+    expect(digest.length).toBe(12);
     expect(digest.sort()).toEqual([
       'ace',
-      'ace_rare_weapon_week',
       'peak_rank_up',
       'record_damage_dealt_match',
       'record_damage_received_match',
@@ -90,7 +88,7 @@ describe('isRealtimeEvent / isDigestEvent', () => {
     expect(isDigestEvent('ace')).toBe(true);
     expect(isDigestEvent('winstreak_10plus')).toBe(true);
     expect(isDigestEvent('peak_rank_up')).toBe(true);
-    expect(isDigestEvent('ace_rare_weapon_week')).toBe(true);
+    expect(isDigestEvent('record_kills_match')).toBe(true);
   });
 
   it('isDigestEvent returns false for realtime types', () => {

@@ -4,7 +4,6 @@ import type { EventType } from './types.ts';
 
 const ALL_EVENT_TYPES: EventType[] = [
   'ace',
-  'ace_rare_weapon_week',
   'peak_rank_up',
   'winstreak_10plus',
   'giant_slayer',
@@ -39,7 +38,6 @@ const injectionUser = {
 
 const minimalPayloads: Record<EventType, Record<string, unknown>> = {
   ace: {},
-  ace_rare_weapon_week: {},
   peak_rank_up: {},
   winstreak_10plus: {},
   giant_slayer: {},
@@ -103,12 +101,29 @@ describe('renderTemplate — HTML injection prevention', () => {
 });
 
 describe('renderTemplate — payload-specific behavior', () => {
-  it('ace_rare_weapon_week: shows Classic weapon from weapons_per_round', () => {
-    const output = renderTemplate('ace_rare_weapon_week', {
-      weapons_per_round: [['Classic', 'Classic', 'Vandal', 'Vandal', 'Classic']],
-    }, safeUser);
-    expect(output).toContain('Classic');
-    expect(output.toLowerCase()).toContain('знает толк в извращениях');
+  it('ace: shows kill count when round had 6+ kills', () => {
+    const output = renderTemplate('ace', { weapons_per_round: [['Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal']] }, safeUser);
+    expect(output).toContain('6 убийств');
+  });
+
+  it('ace: no kill count when round had exactly 5 kills', () => {
+    const output = renderTemplate('ace', { weapons_per_round: [['Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal']] }, safeUser);
+    expect(output).not.toContain('убийств');
+  });
+
+  it('ace: includes map from match param', () => {
+    const output = renderTemplate('ace', {}, safeUser, { map: 'Ascent' });
+    expect(output).toContain('на карте Ascent');
+  });
+
+  it('ace: contains AAAAAAACE heading', () => {
+    const output = renderTemplate('ace', {}, safeUser);
+    expect(output).toContain('AAAAAAACE');
+  });
+
+  it('ace: includes match link when match_id present', () => {
+    const output = renderTemplate('ace', {}, safeUser, { match_id: 'abc123' });
+    expect(output).toContain('tracker.gg/valorant/match/abc123');
   });
 
   it('rank_promo: Ascendant 1 shows "Повышение по службе" heading + icon + full rank label', () => {
@@ -222,13 +237,6 @@ describe('renderTemplate — payload-specific behavior', () => {
   it('fall_damage_death: includes match link when match_id present', () => {
     const output = renderTemplate('fall_damage_death', {}, safeUser, { match_id: 'fall42' });
     expect(output).toContain('tracker.gg/valorant/match/fall42');
-  });
-
-  it('ace_rare_weapon_week: weapon name from rare set is HTML-escaped in fallback text', () => {
-    // When weapons_per_round has no known rare tokens, weaponStr falls back to 'редким'
-    const output = renderTemplate('ace_rare_weapon_week', { weapons_per_round: [['Vandal', 'Phantom']] }, safeUser);
-    expect(output).toContain('редким');
-    expect(output.toLowerCase()).toContain('знает толк в извращениях');
   });
 
   it('record_damage_dealt_match: shows Мясник heading and value', () => {

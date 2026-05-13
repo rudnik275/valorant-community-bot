@@ -106,23 +106,21 @@ function prevRecordLine(
   return '';
 }
 
-const templates: Partial<Record<EventType, TemplateFn>> = {
-  ace_rare_weapon_week: (payload, user, match) => {
-    const weaponsPerRound = Array.isArray(payload['weapons_per_round']) ? payload['weapons_per_round'] as string[][] : [];
-    const KNIFE_TOKENS = new Set(['Knife', '2f59173c-4bed-b6c3-2191-dea9b58be9c7']);
-    const CLASSIC_TOKENS = new Set(['Classic', '29a0cfab-485b-f5d5-779a-b59f85e204a8']);
-
-    const rareNames = new Set<string>();
+const templates: Record<EventType, TemplateFn> = {
+  ace: (_payload, user, match) => {
+    const weaponsPerRound = Array.isArray(_payload['weapons_per_round'])
+      ? _payload['weapons_per_round'] as unknown[][]
+      : [];
+    let maxKills = 5;
     for (const round of weaponsPerRound) {
-      if (!Array.isArray(round)) continue;
-      for (const w of round) {
-        if (KNIFE_TOKENS.has(w)) rareNames.add('Knife');
-        else if (CLASSIC_TOKENS.has(w)) rareNames.add('Classic');
+      if (Array.isArray(round) && round.length > maxKills) {
+        maxKills = round.length;
       }
     }
-    const weaponStr = Array.from(rareNames).join(', ') || 'редким';
-    const valueLine = `${playerTag(user)} — эйс с ${esc(weaponStr)}${mapSuffix(match?.map)}${matchLinkInline(match?.match_id)}`;
-    return `💎 <u>Знает толк в извращениях</u>\n${valueLine}`;
+    const killsStr = maxKills > 5 ? ` — ${maxKills} убийств` : '';
+    const desc = `${playerTag(user)}${killsStr}${mapSuffix(match?.map)}`;
+    const link = match?.match_id ? matchLine(match.match_id) : '';
+    return `🎯 <u>AAAAAAACE!</u>\n\n${desc}${link}`;
   },
 
   peak_rank_up: (payload, user, _match) => {
@@ -338,7 +336,7 @@ export function renderTemplate(
 
 /**
  * Render a digest group block for group-capable digest event types
- * (winstreak_10plus, peak_rank_up, ace_rare_weapon_week) when ≥2 entries of the
+ * (winstreak_10plus, peak_rank_up) when ≥2 entries of the
  * same event_type fall into one week.
  *
  * Other event types fall back to joined per-event renderTemplate calls — but the
@@ -392,26 +390,6 @@ export function renderDigestGroup(eventType: EventType, entries: DigestEntry[]):
       .sort((a, b) => b.value - a.value)
       .map((x) => `🎯 ${esc(x.weapon)} ${x.value} - <b>${esc(x.user.riot_name)}#${esc(x.user.riot_tag)}</b>`);
     return `🔫 <u>Мастера своего дела</u>\n${ctxLine('лидеры по убийствам одним оружием за матч')}\n${lines.join('\n')}`;
-  }
-
-  if (eventType === 'ace_rare_weapon_week') {
-    const KNIFE_TOKENS = new Set(['Knife', '2f59173c-4bed-b6c3-2191-dea9b58be9c7']);
-    const CLASSIC_TOKENS = new Set(['Classic', '29a0cfab-485b-f5d5-779a-b59f85e204a8']);
-    const lines = entries.map((e) => {
-      const weaponsPerRound = Array.isArray(e.payload['weapons_per_round']) ? e.payload['weapons_per_round'] as string[][] : [];
-      const rareNames = new Set<string>();
-      for (const round of weaponsPerRound) {
-        if (!Array.isArray(round)) continue;
-        for (const w of round) {
-          if (KNIFE_TOKENS.has(w)) rareNames.add('Knife');
-          else if (CLASSIC_TOKENS.has(w)) rareNames.add('Classic');
-        }
-      }
-      const weaponStr = Array.from(rareNames).join(', ') || 'редким';
-      return `${playerTag(e.user)} — эйс с ${esc(weaponStr)}${mapSuffix(e.match?.map)}${matchLinkInline(e.match?.match_id)}`;
-    });
-    const header = entries.length === 1 ? 'Знает толк в извращениях' : 'Знают толк в извращениях';
-    return `💎 <u>${header}</u>\n${lines.join('\n')}`;
   }
 
   // Fallback: not group-capable but called anyway — render each event individually.

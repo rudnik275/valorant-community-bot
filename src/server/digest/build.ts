@@ -4,7 +4,7 @@
  * Queries DB over a rolling 7-day window and renders sections in block layout:
  *
  * BRIGHT EVENTS (top block — omitted if none):
- *   record_*_match, winstreak_10plus, ace_rare_weapon_week, peak_rank_up,
+ *   record_*_match, winstreak_10plus, peak_rank_up,
  *   record_kills_per_weapon (combined section), record_longest_match_minutes,
  *   record_mvp_count_week, plus near-miss blocks (merged into the same group).
  *
@@ -62,7 +62,6 @@ const DIGEST_ALLOWED_WEAPONS = new Set([
 ]);
 
 const BRIGHT_EVENT_WEIGHTS: Record<string, number> = {
-  ace_rare_weapon_week: 10,
   record_kills_match: 7,
   record_damage_dealt_match: 7,
   record_damage_received_match: 7,
@@ -437,7 +436,6 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
     const GROUP_CAPABLE_TYPES = new Set<string>([
       'winstreak_10plus',
       'peak_rank_up',
-      'ace_rare_weapon_week',
       'record_kills_per_weapon',
     ]);
     const renderGroup = (g: Group): string => {
