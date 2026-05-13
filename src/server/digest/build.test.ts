@@ -237,7 +237,7 @@ describe('buildDigest', () => {
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       expect(result.sectionsIncluded).toContain('pulse');
-      expect(result.text).toContain('2 матч');
+      expect(result.text).toContain('<b>2</b> матч');
       // No avg-per-player
       expect(result.text).not.toContain('в среднем');
     });

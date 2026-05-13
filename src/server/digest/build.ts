@@ -478,7 +478,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
 
   // Pulse (simplified)
   {
-    alwaysSections.push(`📊 За неделю мы сыграли ${totalMatches} матчей`);
+    alwaysSections.push(`📊 За неделю мы сыграли <b>${totalMatches}</b> матчей`);
     sectionsIncluded.push('pulse');
   }
 
@@ -506,7 +506,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       if (optedOut.has(user.telegram_id)) continue;
 
       const name = `<b>${esc(user.riot_name)}#${esc(user.riot_tag)}</b>`;
-      alwaysSections.push(`🏆 Больше всех матчей — ${name} (${cnt} за неделю)`);
+      alwaysSections.push(`🏆 Больше всех матчей\n${name} - ${cnt} за неделю`);
       sectionsIncluded.push('mostActive');
       break;
     }
@@ -526,10 +526,10 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       .limit(3);
 
     if (maps.length > 0) {
-      const mapStr = maps
-        .map((m: { map: string; cnt: number }) => `<b>${esc(String(m.map))}</b> (${Number(m.cnt)}×)`)
-        .join(', ');
-      alwaysSections.push(`🗺 Чаще всего играли на: ${mapStr}`);
+      const mapLines = maps
+        .map((m: { map: string; cnt: number }) => `• <b>${esc(String(m.map))}</b> (${Number(m.cnt)}×)`)
+        .join('\n');
+      alwaysSections.push(`🗺 Чаще всего играли на:\n${mapLines}`);
       sectionsIncluded.push('topMaps');
     }
   }
@@ -548,10 +548,10 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       .limit(3);
 
     if (agents.length > 0) {
-      const agentStr = agents
-        .map((a: { agent: string; cnt: number }) => `<b>${esc(String(a.agent))}</b> (${Number(a.cnt)}×)`)
-        .join(', ');
-      alwaysSections.push(`🎭 Чаще всего пикали: ${agentStr}`);
+      const agentLines = agents
+        .map((a: { agent: string; cnt: number }) => `• <b>${esc(String(a.agent))}</b> (${Number(a.cnt)}×)`)
+        .join('\n');
+      alwaysSections.push(`🎭 Чаще всего пикали:\n${agentLines}`);
       sectionsIncluded.push('topAgents');
     }
   }
