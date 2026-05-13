@@ -429,9 +429,9 @@ describe('renderDigestGroup — record_kills_per_weapon combined section', () =>
     ]);
     expect(output).toContain('Мастера своего дела');
     expect(output).toContain('лидеры по убийствам одним оружием');
-    expect(output).toContain('Bulldog - 7 | <b>Alice#AAA</b>');
-    expect(output).toContain('Sheriff - 10 | <b>Bob#BBB</b>');
-    expect(output).toContain('Operator - 6 | <b>Cara#CCC</b>');
+    expect(output).toContain('🎯 Bulldog 7 - <b>Alice#AAA</b>');
+    expect(output).toContain('🎯 Sheriff 10 - <b>Bob#BBB</b>');
+    expect(output).toContain('🎯 Operator 6 - <b>Cara#CCC</b>');
   });
 
   it('sorts entries by frag count descending', () => {
