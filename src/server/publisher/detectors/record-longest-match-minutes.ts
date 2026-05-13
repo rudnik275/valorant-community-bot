@@ -46,6 +46,16 @@ export const recordLongestMatchMinutesDetector: Detector = {
         match_id: record.match_id,
         payload: {
           value: minutes,
+          // Total rounds played in this match — rendered next to minutes in
+          // the template (e.g. "58 минут (30 раундов)"). The triggering
+          // player's `rounds_played` equals the match length, so we just
+          // pass it through.
+          rounds: record.rounds_played,
+          // Match result from the triggering player's perspective. Friend
+          // groups usually queue together so this is representative; if the
+          // community split across both teams it just reflects whichever
+          // puuid first broke the record.
+          result: record.result,
           prev_value: result.prev?.value ?? null,
           prev_puuid: result.prev?.puuid ?? null,
           prev_name: prevName,

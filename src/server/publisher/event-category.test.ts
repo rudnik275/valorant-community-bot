@@ -23,7 +23,6 @@ describe('EVENT_CATEGORY', () => {
       'record_damage_received_match',
       'record_kills_per_weapon',
       'record_longest_match_minutes',
-      'record_longest_match_rounds',
       'record_mvp_count_week',
     ];
     expect(Object.keys(EVENT_CATEGORY).sort()).toEqual([...allEvents].sort());
@@ -45,11 +44,11 @@ describe('EVENT_CATEGORY', () => {
     ]);
   });
 
-  it('has 13 digest types', () => {
+  it('has 12 digest types', () => {
     const digest = Object.entries(EVENT_CATEGORY)
       .filter(([, v]) => v === 'digest')
       .map(([k]) => k);
-    expect(digest.length).toBe(13);
+    expect(digest.length).toBe(12);
     expect(digest.sort()).toEqual([
       'ace_rare_weapon_week',
       'peak_rank_up',
@@ -61,7 +60,6 @@ describe('EVENT_CATEGORY', () => {
       'record_kills_per_weapon',
       'record_legshots_match',
       'record_longest_match_minutes',
-      'record_longest_match_rounds',
       'record_mvp_count_week',
       'winstreak_10plus',
     ]);
