@@ -48,6 +48,19 @@ function esc(s: string): string {
  * Bright event types rendered in the top block of the digest.
  * Ordered by display priority (highest weight first for sort).
  */
+// Defense-in-depth: even though record-kills-per-weapon.ts now whitelists
+// these on insert, historical detected_events rows from before the filter
+// landed still carry abilities (Curveball, Showstopper, TURRET, …). Filter
+// them out at digest build time too.
+const DIGEST_ALLOWED_WEAPONS = new Set([
+  'Classic', 'Shorty', 'Frenzy', 'Ghost', 'Sheriff',
+  'Stinger', 'Spectre',
+  'Bucky', 'Judge',
+  'Bulldog', 'Guardian',
+  'Marshal', 'Outlaw', 'Operator',
+  'Ares', 'Odin',
+]);
+
 const BRIGHT_EVENT_WEIGHTS: Record<string, number> = {
   ace_rare_weapon_week: 10,
   record_kills_match: 7,
@@ -282,15 +295,14 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
 
       const payload = safeParseJson(ev.payload_json as string);
 
-      // Skip kills_per_weapon events whose payload weapon is unusable
-      // (empty string, or a raw UUID Henrik shipped instead of a name).
-      // The detector now filters these going forward, but historical
-      // detected_events rows still carry them and would render as
-      // "Эксперт по " or "Эксперт по 39099fb5-…" in the digest.
+      // Only canonical Valorant weapons count for "Эксперт по …" records —
+      // skip abilities/utilities/empty/UUID weapon names. The detector now
+      // applies the same whitelist on insert, but historical detected_events
+      // rows still carry stale entries and would render as e.g.
+      // "Эксперт по Curveball" / "Эксперт по Showstopper" / "Эксперт по ".
       if (ev.event_type === 'record_kills_per_weapon') {
         const w = String(payload['weapon'] ?? '');
-        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(w);
-        if (!w || isUuid) continue;
+        if (!DIGEST_ALLOWED_WEAPONS.has(w)) continue;
       }
 
       // record_kills_per_weapon uses a synthetic match_id (match_id#kpw-WEAPON) for dedup.
