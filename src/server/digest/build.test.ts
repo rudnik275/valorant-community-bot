@@ -415,7 +415,7 @@ describe('buildDigest', () => {
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       expect(result.sectionsIncluded).toContain('record_kills_match');
-      expect(result.text).toContain('Мирного рішення не буде');
+      expect(result.text).toContain('Серийный маньяк');
       expect(result.text).toContain('Killer');
       expect(result.text).toContain('38');
     });
