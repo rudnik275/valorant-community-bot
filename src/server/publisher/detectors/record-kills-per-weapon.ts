@@ -12,33 +12,31 @@ interface KillEvent {
   victim_team: string;
 }
 
-// Weapons to ignore: Vandal/Phantom (too dominant), Knife/Fall (handled by other detectors).
-// Canonical UUIDs included (Henrik may return either form).
-const EXCLUDED = new Set([
-  'Vandal',
-  'Phantom',
-  'Knife',
-  'Fall',
-  '9c82e19d-4575-0200-1a81-3eacf00cf872', // Vandal
-  'ee8e8d15-496b-07ac-e5f6-8fae5d4c7b1a', // Phantom
-  '2f59173c-4bed-b6c3-2191-dea9b58be9c7', // Knife
-]);
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /**
- * Return true if the raw weapon string is usable as a human-readable label.
- * Henrik returns `weapon.name` for known weapons but sometimes only ships the
- * UUID; we don't keep a UUID→name map (the previous one had several wrong
- * entries — see fixture: a03b24d3… is Operator, not Ghost). Anything that
- * looks like a UUID or is empty is dropped — it would render as
- * "Эксперт по 39099fb5-…" in the digest, which is just noise.
+ * Whitelist of canonical Valorant weapons that count for "Эксперт по …" records.
+ *
+ * Henrik returns `weapon.name` for every kill, including ability/utility kills
+ * — Phoenix's Curveball flash, Raze's Showstopper, Killjoy's TURRET, Sova's
+ * Hunter's Fury, etc. Those would render as "Эксперт по Curveball" in the
+ * weekly digest which reads weird; user prefers real-weapon records only.
+ *
+ * Vandal/Phantom are intentionally excluded (too dominant — would crowd out
+ * the more interesting records). Knife/Fall are handled by their own detectors.
  */
-function isUsableWeaponName(raw: string): boolean {
-  if (!raw) return false;
-  if (UUID_PATTERN.test(raw)) return false;
-  return true;
-}
+const ALLOWED_WEAPONS = new Set([
+  // Sidearms
+  'Classic', 'Shorty', 'Frenzy', 'Ghost', 'Sheriff',
+  // SMGs
+  'Stinger', 'Spectre',
+  // Shotguns
+  'Bucky', 'Judge',
+  // Rifles (Phantom + Vandal excluded as too dominant)
+  'Bulldog', 'Guardian',
+  // Snipers
+  'Marshal', 'Outlaw', 'Operator',
+  // Machine guns
+  'Ares', 'Odin',
+]);
 
 export const recordKillsPerWeaponDetector: Detector = {
   type: 'record_kills_per_weapon',
@@ -56,13 +54,12 @@ export const recordKillsPerWeaponDetector: Detector = {
     if (kills.length === 0) return [];
 
     // Group kills by weapon, attacker = this community player.
-    // Skip empty weapon strings and raw UUIDs — those can't be rendered
-    // meaningfully in the digest.
+    // Only canonical Valorant weapons count — abilities, utilities, knife,
+    // fall damage, Vandal and Phantom are all filtered out.
     const byWeapon = new Map<string, number>();
     for (const k of kills) {
       if (k.attacker_puuid !== puuid) continue;
-      if (EXCLUDED.has(k.weapon)) continue;
-      if (!isUsableWeaponName(k.weapon)) continue;
+      if (!ALLOWED_WEAPONS.has(k.weapon)) continue;
       byWeapon.set(k.weapon, (byWeapon.get(k.weapon) ?? 0) + 1);
     }
     if (byWeapon.size === 0) return [];

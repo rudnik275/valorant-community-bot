@@ -203,17 +203,23 @@ describe('recordKillsPerWeaponDetector', () => {
     }
   });
 
-  it('excluded weapon UUID (Vandal UUID) → treated as excluded', async () => {
+  it('drops Vandal kills (intentionally excluded — too dominant)', async () => {
     const record = makeRecord({
-      killEvents: [
-        makeKillEvent({ weapon: '9c82e19d-4575-0200-1a81-3eacf00cf872' }), // Vandal UUID
-      ],
+      killEvents: [makeKillEvent({ weapon: 'Vandal' })],
     });
     const events = await recordKillsPerWeaponDetector.detectAsync!(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
-  it('drops kills with empty weapon string (no usable name)', async () => {
+  it('drops Phantom kills (intentionally excluded — too dominant)', async () => {
+    const record = makeRecord({
+      killEvents: [makeKillEvent({ weapon: 'Phantom' })],
+    });
+    const events = await recordKillsPerWeaponDetector.detectAsync!(record, [], { db });
+    expect(events).toHaveLength(0);
+  });
+
+  it('drops kills with empty weapon string', async () => {
     const record = makeRecord({
       killEvents: [makeKillEvent({ weapon: '' }), makeKillEvent({ weapon: '' })],
     });
@@ -221,8 +227,7 @@ describe('recordKillsPerWeaponDetector', () => {
     expect(events).toHaveLength(0);
   });
 
-  it('drops kills whose weapon is an unknown raw UUID (would render as gibberish)', async () => {
-    // Some random UUID that is not in our excluded set and not a recognised name.
+  it('drops kills whose weapon is a raw UUID (not in whitelist)', async () => {
     const record = makeRecord({
       killEvents: [
         makeKillEvent({ weapon: '39099fb5-4293-def4-1e09-2e9080ce7456' }),
@@ -231,6 +236,20 @@ describe('recordKillsPerWeaponDetector', () => {
     });
     const events = await recordKillsPerWeaponDetector.detectAsync!(record, [], { db });
     expect(events).toHaveLength(0);
+  });
+
+  it('drops agent ability kills (Curveball, Showstopper, Hunter\'s Fury, TURRET)', async () => {
+    // These are real names Henrik returns for ability kills — but they are
+    // not weapons and the user does not want them in the digest records.
+    const abilities = ['Curveball', 'Showstopper', "Hunter's Fury", 'TURRET', 'Blade Storm', 'Sky Smoke', 'Special Delivery'];
+    for (const ability of abilities) {
+      const record = makeRecord({
+        match_id: `m-${ability}`,
+        killEvents: [makeKillEvent({ weapon: ability })],
+      });
+      const events = await recordKillsPerWeaponDetector.detectAsync!(record, [], { db });
+      expect(events, `${ability} should be filtered out`).toHaveLength(0);
+    }
   });
 
   it('only counts kills where attacker_puuid matches the community player', async () => {
