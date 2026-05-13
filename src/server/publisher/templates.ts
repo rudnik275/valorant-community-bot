@@ -410,7 +410,7 @@ export function renderDigestGroup(eventType: EventType, entries: DigestEntry[]):
         return { weapon, value, user: e.user };
       })
       .sort((a, b) => b.value - a.value)
-      .map((x) => `${esc(x.weapon)} - ${x.value} | <b>${esc(x.user.riot_name)}#${esc(x.user.riot_tag)}</b>`);
+      .map((x) => `🎯 ${esc(x.weapon)} ${x.value} - <b>${esc(x.user.riot_name)}#${esc(x.user.riot_tag)}</b>`);
     return `🔫 <u>Мастера своего дела</u>\n${ctxLine('лидеры по убийствам одним оружием за матч')}\n${lines.join('\n')}`;
   }
 
