@@ -213,7 +213,7 @@ const templates: Record<EventType, TemplateFn> = {
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = recordContextLine('record_kills_match');
     const valueLine = `${playerTag(user)} — ${esc(String(value))} фрагов${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
-    return `💀 <u>Мирного рішення не буде</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
+    return `💀 <u>Серийный маньяк</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
   },
 
   record_deaths_match: (payload, user, match) => {
