@@ -92,24 +92,17 @@ function recordContextLine(eventType: EventType): string | null {
  * Returns either '' (first record) or '\n…' line to append inside <blockquote>.
  */
 function prevRecordLine(
-  prevValue: unknown,
-  prevName: unknown,
-  prevTag: unknown,
-  prevPuuid: unknown,
-  ownPuuid: string | undefined,
-  unit?: string,
+  _prevValue: unknown,
+  _prevName: unknown,
+  _prevTag: unknown,
+  _prevPuuid: unknown,
+  _ownPuuid: string | undefined,
+  _unit?: string,
 ): string {
-  if (prevValue === null || prevValue === undefined) return '';
-  const unitStr = unit ? ` ${unit}` : '';
-  const samePlayer = prevPuuid === ownPuuid;
-  if (samePlayer) {
-    return `\nпрошлый рекорд: ${esc(String(prevValue))}${unitStr} (тоже его)`;
-  }
-  if (prevName) {
-    const tag = prevTag ? '#' + esc(String(prevTag)) : '';
-    return `\nпрошлый рекорд: ${esc(String(prevValue))}${unitStr} у <b>${esc(String(prevName))}${tag}</b>`;
-  }
-  return `\nпрошлый рекорд: ${esc(String(prevValue))}${unitStr}`;
+  // Per user: do not show the "прошлый рекорд" line in any record template.
+  // Kept as a no-op so existing call sites don't need surgery; if anything
+  // ever wants to re-introduce previous-record context, change here once.
+  return '';
 }
 
 const templates: Record<EventType, TemplateFn> = {
@@ -298,12 +291,14 @@ const templates: Record<EventType, TemplateFn> = {
       .map((p) => p.name ? `<b>${esc(p.name)}#${esc(p.tag ?? '')}</b>` : '')
       .filter((s) => s)
       .join(', ');
-    const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid, 'минут');
     const ctx = 'рекорд по длительности матча';
     const roundsPart = rounds ? ` (${esc(String(rounds))} раундов)` : '';
     const resultPart = resultEmoji ? ` ${resultEmoji}` : '';
-    const valueLine = `${esc(String(minutes))} минут${roundsPart}${mapSuffix(match?.map)}${resultPart}${matchLinkInline(match?.match_id)}`;
-    return `⏳ <u>Дело принципа</u>\n${ctxLine(ctx)}\n${valueLine}${playersLine ? '\n' + playersLine : ''}${prev}`;
+    // Per user: nick first, then the data line — single line.
+    // Fallback to playerTag(user) when there are no community_players in payload.
+    const lead = playersLine || playerTag(user);
+    const valueLine = `${lead} - ${esc(String(minutes))} минут${roundsPart}${mapSuffix(match?.map)}${resultPart}${matchLinkInline(match?.match_id)}`;
+    return `⏳ <u>Дело принципа</u>\n${ctxLine(ctx)}\n${valueLine}`;
   },
 
   community_clash: (payload, _user, match) => {

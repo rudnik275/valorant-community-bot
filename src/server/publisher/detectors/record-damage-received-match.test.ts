@@ -126,7 +126,7 @@ describe('recordDamageReceivedMatchDetector', () => {
     expect(events[0]!.payload.prev_puuid).toBe(puuid); // same player
   });
 
-  it('same-player self-record: template renders "тоже его" suffix', () => {
+  it('same-player self-record: template does NOT render "тоже его" or prev value (prev-record removed per user)', () => {
     const puuid = 'puuid-same';
     const output = renderTemplate(
       'record_damage_received_match',
@@ -139,7 +139,8 @@ describe('recordDamageReceivedMatchDetector', () => {
       },
       { riot_name: 'Player', riot_tag: 'TAG', telegram_id: 12345, riot_puuid: puuid },
     );
-    expect(output).toContain('тоже его');
-    expect(output).toContain('5000');
+    expect(output).not.toContain('тоже его');
+    expect(output).not.toContain('5000');
+    expect(output).not.toContain('прошлый рекорд');
   });
 });
