@@ -572,7 +572,10 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
   }
 
   parts.push('');
-  parts.push(alwaysSections.join('\n'));
+  // Blank line between each sub-section of the weekly recap (matches / top
+  // player / top maps / top agents) so they breathe instead of mushing into
+  // one block.
+  parts.push(alwaysSections.join('\n\n'));
   parts.push('');
   parts.push('#digest');
 

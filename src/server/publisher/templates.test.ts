@@ -263,7 +263,7 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('<b>Player#TAG</b>');
   });
 
-  it('record_damage_dealt_match: shows prev_name when different player holds record', () => {
+  it('record_damage_dealt_match: does NOT render prev_name line (prev-record removed per user)', () => {
     const output = renderTemplate('record_damage_dealt_match', {
       value: 6840,
       prev_value: 6420,
@@ -271,11 +271,12 @@ describe('renderTemplate — payload-specific behavior', () => {
       prev_name: 'OldHolder',
       prev_tag: 'OLD',
     }, { ...safeUser, riot_puuid: 'current-puuid' });
-    expect(output).toContain('6420');
-    expect(output).toContain('OldHolder');
+    expect(output).not.toContain('6420');
+    expect(output).not.toContain('OldHolder');
+    expect(output).not.toContain('прошлый рекорд');
   });
 
-  it('record_damage_dealt_match: shows "тоже его" when same player beats own record', () => {
+  it('record_damage_dealt_match: does NOT render "тоже его" (prev-record removed per user)', () => {
     const output = renderTemplate('record_damage_dealt_match', {
       value: 7000,
       prev_value: 6840,
@@ -283,8 +284,7 @@ describe('renderTemplate — payload-specific behavior', () => {
       prev_name: 'Player',
       prev_tag: 'TAG',
     }, { ...safeUser, riot_puuid: 'same-puuid' });
-    expect(output).toContain('тоже его');
-    expect(output).not.toContain('OldHolder');
+    expect(output).not.toContain('тоже его');
   });
 
   it('record_damage_dealt_match: includes match link', () => {
@@ -299,7 +299,7 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('<b>Player#TAG</b>');
   });
 
-  it('record_damage_received_match: shows "тоже его" when same player beats own record', () => {
+  it('record_damage_received_match: does NOT render "тоже его" (prev-record removed)', () => {
     const output = renderTemplate('record_damage_received_match', {
       value: 6100,
       prev_value: 5910,
@@ -307,10 +307,11 @@ describe('renderTemplate — payload-specific behavior', () => {
       prev_name: 'Player',
       prev_tag: 'TAG',
     }, { ...safeUser, riot_puuid: 'same-puuid' });
-    expect(output).toContain('тоже его');
+    expect(output).not.toContain('тоже его');
+    expect(output).not.toContain('прошлый рекорд');
   });
 
-  it('record_damage_received_match: shows prev_name when different player holds record', () => {
+  it('record_damage_received_match: does NOT render prev_name line (prev-record removed)', () => {
     const output = renderTemplate('record_damage_received_match', {
       value: 6100,
       prev_value: 5910,
@@ -318,8 +319,8 @@ describe('renderTemplate — payload-specific behavior', () => {
       prev_name: 'ToughGuy',
       prev_tag: 'TGH',
     }, { ...safeUser, riot_puuid: 'current-puuid' });
-    expect(output).toContain('5910');
-    expect(output).toContain('ToughGuy');
+    expect(output).not.toContain('5910');
+    expect(output).not.toContain('ToughGuy');
   });
 
   it('record_damage_received_match: includes match link', () => {
@@ -370,7 +371,7 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('🏳️');
   });
 
-  it('record_longest_match_minutes: shows prev_name when different player held record', () => {
+  it('record_longest_match_minutes: does NOT render prev_name line (prev-record removed)', () => {
     const output = renderTemplate('record_longest_match_minutes', {
       value: 60, rounds: 32, result: 'win',
       prev_value: 45,
@@ -379,11 +380,11 @@ describe('renderTemplate — payload-specific behavior', () => {
       prev_tag: 'OLD',
       community_players: [],
     }, { ...safeUser, riot_puuid: 'current-puuid' });
-    expect(output).toContain('45');
-    expect(output).toContain('OldHolder');
+    expect(output).not.toContain('OldHolder');
+    expect(output).not.toContain('прошлый рекорд');
   });
 
-  it('record_longest_match_minutes: shows тоже его when same player beats own record', () => {
+  it('record_longest_match_minutes: does NOT render "тоже его" (prev-record removed)', () => {
     const output = renderTemplate('record_longest_match_minutes', {
       value: 60, rounds: 32, result: 'win',
       prev_value: 45,
@@ -392,7 +393,16 @@ describe('renderTemplate — payload-specific behavior', () => {
       prev_tag: 'TAG',
       community_players: [],
     }, { ...safeUser, riot_puuid: 'same-puuid' });
-    expect(output).toContain('тоже его');
+    expect(output).not.toContain('тоже его');
+  });
+
+  it('record_longest_match_minutes: nick appears BEFORE the data line (single line)', () => {
+    const output = renderTemplate('record_longest_match_minutes', {
+      value: 49, rounds: 23, result: 'win',
+      community_players: [{ puuid: 'p1', name: 'Champ', tag: '7777' }],
+    }, safeUser, { map: 'Ascent' });
+    // Single line: nick - minutes (rounds) на карте X 🏆
+    expect(output).toMatch(/Champ#7777<\/b> - 49 минут \(23 раундов\) на карте Ascent 🏆/);
   });
 
   it('record_longest_match_minutes: includes match link when match_id present', () => {
