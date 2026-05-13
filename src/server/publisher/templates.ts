@@ -76,8 +76,8 @@ function recordContextLine(eventType: EventType): string | null {
   switch (eventType) {
     case 'record_kills_match':           return 'рекорд по количеству фрагов за игру';
     case 'record_deaths_match':          return 'рекорд по количеству смертей за игру';
-    case 'record_headshots_match':       return 'рекорд по количеству хедшотов за игру';
-    case 'record_legshots_match':        return 'рекорд по количеству убийств в ноги за игру';
+    case 'record_headshots_match':       return 'рекорд по количеству попаданий в голову за игру (не убийств)';
+    case 'record_legshots_match':        return 'рекорд по количеству попаданий в ноги за игру (не убийств)';
     case 'record_damage_dealt_match':    return 'рекорд по нанесённому урону за игру';
     case 'record_damage_received_match': return 'рекорд по полученному урону за игру';
     case 'record_mvp_count_week':        return 'рекорд по количеству MVP-матчей за неделю';
@@ -235,7 +235,7 @@ const templates: Record<EventType, TemplateFn> = {
     const value = payload['value'];
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = recordContextLine('record_headshots_match');
-    const valueLine = `${playerTag(user)} — ${esc(String(value))} хедшотов${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
+    const valueLine = `${playerTag(user)} — ${esc(String(value))} попаданий в голову${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
     return `🤠 <b>Директор дикого запада</b>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
   },
 
@@ -243,7 +243,7 @@ const templates: Record<EventType, TemplateFn> = {
     const value = payload['value'];
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = recordContextLine('record_legshots_match');
-    const valueLine = `${playerTag(user)} — ${esc(String(value))} убийств в ноги${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
+    const valueLine = `${playerTag(user)} — ${esc(String(value))} попаданий в ноги${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
     return `♿️ <b>Угадай куда шмальну</b>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
   },
 
@@ -290,7 +290,7 @@ const templates: Record<EventType, TemplateFn> = {
     const minutes = payload['value'];
     const rounds = payload['rounds'];
     const result = String(payload['result'] ?? '');
-    const resultEmoji = result === 'win' ? '🏆' : result === 'loss' ? '💀' : result === 'draw' ? '🤝' : '';
+    const resultEmoji = result === 'win' ? '🏆' : result === 'loss' ? '💀' : result === 'draw' ? '🏳️' : '';
     const players = Array.isArray(payload['community_players'])
       ? payload['community_players'] as Array<{ puuid: string; name: string; tag: string }>
       : [];
@@ -397,6 +397,21 @@ export function renderDigestGroup(eventType: EventType, entries: DigestEntry[]):
     });
     const header = entries.length === 1 ? 'Повышение по службе' : 'Повышения по службе';
     return `🎖 <b>${header}</b>\n${lines.join('\n')}`;
+  }
+
+  if (eventType === 'record_kills_per_weapon') {
+    // Combined section: one block listing all weapon records of the week.
+    // Per user: weapon name, nickname#tag, count. No match link, no prev record.
+    const lines = entries
+      .map((e) => {
+        const weapon = String(e.payload['weapon'] ?? '?');
+        const value = Number(e.payload['value'] ?? 0);
+        return { weapon, value, user: e.user };
+      })
+      // Sort by frag count desc — most impressive at the top.
+      .sort((a, b) => b.value - a.value)
+      .map((x) => `<b>${esc(x.weapon)}</b> · ${esc(x.user.riot_name)}#${esc(x.user.riot_tag)} — ${x.value} фрагов`);
+    return `🔫 <b>Оружейная мастерская</b>\n${ctxLine('лидеры по убийствам одним оружием за матч')}\n${lines.join('\n')}`;
   }
 
   if (eventType === 'ace_rare_weapon_week') {

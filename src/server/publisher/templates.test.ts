@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderTemplate, esc } from './templates.ts';
+import { renderTemplate, renderDigestGroup, esc } from './templates.ts';
 import type { EventType } from './types.ts';
 
 const ALL_EVENT_TYPES: EventType[] = [
@@ -326,7 +326,6 @@ describe('renderTemplate — payload-specific behavior', () => {
     const output = renderTemplate('record_damage_received_match', { value: 5910, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '' }, safeUser, { match_id: 'rcv-match-1' });
     expect(output).toContain('tracker.gg/valorant/match/rcv-match-1');
   });
-});
 
   it('record_longest_match_minutes: shows minutes, rounds, map, result emoji, player line', () => {
     const output = renderTemplate('record_longest_match_minutes', {
@@ -362,13 +361,13 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).not.toContain('🏆');
   });
 
-  it('record_longest_match_minutes: shows draw emoji 🤝 on result=draw', () => {
+  it('record_longest_match_minutes: shows draw emoji 🏳️ on result=draw', () => {
     const output = renderTemplate('record_longest_match_minutes', {
       value: 58, rounds: 30, result: 'draw',
       prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '',
       community_players: [],
     }, safeUser, { map: 'Haven' });
-    expect(output).toContain('🤝');
+    expect(output).toContain('🏳️');
   });
 
   it('record_longest_match_minutes: shows prev_name when different player held record', () => {
@@ -415,4 +414,72 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('&lt;script&gt;');
     expect(output).toContain('&lt;img&gt;');
   });
+});
 
+describe('renderDigestGroup — record_kills_per_weapon combined section', () => {
+  const playerA = { riot_name: 'Alice', riot_tag: 'AAA', telegram_id: 1 };
+  const playerB = { riot_name: 'Bob',   riot_tag: 'BBB', telegram_id: 2 };
+  const playerC = { riot_name: 'Cara',  riot_tag: 'CCC', telegram_id: 3 };
+
+  it('renders header "Оружейная мастерская" and one line per weapon entry', () => {
+    const output = renderDigestGroup('record_kills_per_weapon', [
+      { payload: { weapon: 'Bulldog', value: 7 }, user: playerA },
+      { payload: { weapon: 'Sheriff', value: 10 }, user: playerB },
+      { payload: { weapon: 'Operator', value: 6 }, user: playerC },
+    ]);
+    expect(output).toContain('Оружейная мастерская');
+    expect(output).toContain('лидеры по убийствам одним оружием');
+    expect(output).toContain('Bulldog');
+    expect(output).toContain('Sheriff');
+    expect(output).toContain('Operator');
+    expect(output).toContain('Alice#AAA');
+    expect(output).toContain('Bob#BBB');
+    expect(output).toContain('Cara#CCC');
+    expect(output).toContain('7 фрагов');
+    expect(output).toContain('10 фрагов');
+    expect(output).toContain('6 фрагов');
+  });
+
+  it('sorts entries by frag count descending', () => {
+    const output = renderDigestGroup('record_kills_per_weapon', [
+      { payload: { weapon: 'Bulldog', value: 4 }, user: playerA },
+      { payload: { weapon: 'Sheriff', value: 10 }, user: playerB },
+      { payload: { weapon: 'Operator', value: 7 }, user: playerC },
+    ]);
+    const idxSheriff = output.indexOf('Sheriff');
+    const idxOperator = output.indexOf('Operator');
+    const idxBulldog = output.indexOf('Bulldog');
+    expect(idxSheriff).toBeLessThan(idxOperator);
+    expect(idxOperator).toBeLessThan(idxBulldog);
+  });
+
+  it('does NOT include match link or prev-record line', () => {
+    const output = renderDigestGroup('record_kills_per_weapon', [
+      {
+        payload: {
+          weapon: 'Bulldog',
+          value: 7,
+          real_match_id: 'some-match-id',
+          prev_value: 5,
+          prev_name: 'Old',
+          prev_tag: 'OLD',
+          prev_puuid: 'other-puuid',
+        },
+        user: playerA,
+      },
+    ]);
+    expect(output).not.toContain('tracker.gg');
+    expect(output).not.toContain('прошлый рекорд');
+    expect(output).not.toContain('Old#OLD');
+  });
+
+  it('HTML-escapes weapon names and player nicks', () => {
+    const output = renderDigestGroup('record_kills_per_weapon', [
+      { payload: { weapon: '<img>', value: 1 }, user: { riot_name: '<script>', riot_tag: 'X', telegram_id: 1 } },
+    ]);
+    expect(output).not.toContain('<img>');
+    expect(output).not.toContain('<script>');
+    expect(output).toContain('&lt;img&gt;');
+    expect(output).toContain('&lt;script&gt;');
+  });
+});
