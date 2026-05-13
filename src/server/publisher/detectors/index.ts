@@ -17,7 +17,6 @@ import { matchComebackDetector } from './match-comeback.ts';
 import { communityClashDetector } from './community-clash.ts';
 import { recordKillsPerWeaponDetector } from './record-kills-per-weapon.ts';
 import { recordLongestMatchMinutesDetector } from './record-longest-match-minutes.ts';
-import { recordLongestMatchRoundsDetector } from './record-longest-match-rounds.ts';
 
 export const ALL_DETECTORS: Detector[] = [
   aceDetector,
@@ -38,5 +37,4 @@ export const ALL_DETECTORS: Detector[] = [
   communityClashDetector,
   recordKillsPerWeaponDetector,
   recordLongestMatchMinutesDetector,
-  recordLongestMatchRoundsDetector,
 ];

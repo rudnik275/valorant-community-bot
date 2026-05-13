@@ -23,7 +23,6 @@ const ALL_EVENT_TYPES: EventType[] = [
   'community_clash',
   'record_kills_per_weapon',
   'record_longest_match_minutes',
-  'record_longest_match_rounds',
 ];
 
 const safeUser = {
@@ -58,8 +57,7 @@ const minimalPayloads: Record<EventType, Record<string, unknown>> = {
   record_mvp_count_week: { value: 5, prev_value: null, prev_puuid: null },
   community_clash: { teams: [], winner_team_id: null },
   record_kills_per_weapon: { weapon: 'Operator', value: 5, prev_value: 3, prev_puuid: 'other-puuid', prev_name: 'OldHolder', prev_tag: 'OLD', real_match_id: 'match-xyz' },
-  record_longest_match_minutes: { value: 45, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '', community_players: [] },
-  record_longest_match_rounds: { value: 30, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '', community_players: [] },
+  record_longest_match_minutes: { value: 45, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '', community_players: [], rounds: 24, result: 'win' },
 };
 
 describe('esc()', () => {
@@ -330,23 +328,11 @@ describe('renderTemplate — payload-specific behavior', () => {
   });
 });
 
-  it('record_longest_match_minutes: shows minutes and keyword "проинвестировал"', () => {
+  it('record_longest_match_minutes: shows minutes, rounds, map, result emoji, player line', () => {
     const output = renderTemplate('record_longest_match_minutes', {
-      value: 45,
-      prev_value: null,
-      prev_puuid: null,
-      prev_name: '',
-      prev_tag: '',
-      community_players: [],
-    }, safeUser);
-    expect(output).toContain('45');
-    expect(output).toContain('проинвестировал');
-    expect(output).toContain('минут');
-  });
-
-  it('record_longest_match_minutes: shows community player names when present', () => {
-    const output = renderTemplate('record_longest_match_minutes', {
-      value: 45,
+      value: 58,
+      rounds: 30,
+      result: 'win',
       prev_value: null,
       prev_puuid: null,
       prev_name: '',
@@ -355,15 +341,39 @@ describe('renderTemplate — payload-specific behavior', () => {
         { puuid: 'p1', name: 'Alice', tag: 'ALI' },
         { puuid: 'p2', name: 'Bob', tag: 'BOB' },
       ],
-    }, safeUser);
-    expect(output).toContain('Alice');
-    expect(output).toContain('Bob');
-    expect(output).toContain('проинвестировали');
+    }, safeUser, { map: 'Ascent' });
+    expect(output).toContain('Дело принципа');
+    expect(output).toContain('58 минут');
+    expect(output).toContain('(30 раундов)');
+    expect(output).toContain('на карте Ascent');
+    expect(output).toContain('🏆'); // win
+    // Player line: nick#tag, nick#tag — not bolded, not "проинвестировал"
+    expect(output).toContain('Alice#ALI');
+    expect(output).toContain('Bob#BOB');
+  });
+
+  it('record_longest_match_minutes: shows loss emoji 💀 on result=loss', () => {
+    const output = renderTemplate('record_longest_match_minutes', {
+      value: 58, rounds: 30, result: 'loss',
+      prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '',
+      community_players: [],
+    }, safeUser, { map: 'Bind' });
+    expect(output).toContain('💀');
+    expect(output).not.toContain('🏆');
+  });
+
+  it('record_longest_match_minutes: shows draw emoji 🤝 on result=draw', () => {
+    const output = renderTemplate('record_longest_match_minutes', {
+      value: 58, rounds: 30, result: 'draw',
+      prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '',
+      community_players: [],
+    }, safeUser, { map: 'Haven' });
+    expect(output).toContain('🤝');
   });
 
   it('record_longest_match_minutes: shows prev_name when different player held record', () => {
     const output = renderTemplate('record_longest_match_minutes', {
-      value: 50,
+      value: 60, rounds: 32, result: 'win',
       prev_value: 45,
       prev_puuid: 'other-puuid',
       prev_name: 'OldHolder',
@@ -376,7 +386,7 @@ describe('renderTemplate — payload-specific behavior', () => {
 
   it('record_longest_match_minutes: shows тоже его when same player beats own record', () => {
     const output = renderTemplate('record_longest_match_minutes', {
-      value: 50,
+      value: 60, rounds: 32, result: 'win',
       prev_value: 45,
       prev_puuid: 'same-puuid',
       prev_name: 'Player',
@@ -388,83 +398,21 @@ describe('renderTemplate — payload-specific behavior', () => {
 
   it('record_longest_match_minutes: includes match link when match_id present', () => {
     const output = renderTemplate('record_longest_match_minutes', {
-      value: 45,
-      prev_value: null,
-      prev_puuid: null,
-      prev_name: '',
-      prev_tag: '',
+      value: 45, rounds: 25, result: 'win',
+      prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '',
       community_players: [],
     }, safeUser, { match_id: 'test-match-id' });
     expect(output).toContain('tracker.gg/valorant/match/test-match-id');
   });
 
-  it('record_longest_match_rounds: shows rounds and keyword "пережил"', () => {
-    const output = renderTemplate('record_longest_match_rounds', {
-      value: 30,
-      prev_value: null,
-      prev_puuid: null,
-      prev_name: '',
-      prev_tag: '',
-      community_players: [],
-    }, safeUser);
-    expect(output).toContain('30');
-    expect(output).toContain('пережил');
-    expect(output).toContain('раундов');
-    expect(output.toLowerCase()).toContain('надеюсь это того стоило');
-  });
-
-  it('record_longest_match_rounds: shows пережили (plural) with multiple community players', () => {
-    const output = renderTemplate('record_longest_match_rounds', {
-      value: 30,
-      prev_value: null,
-      prev_puuid: null,
-      prev_name: '',
-      prev_tag: '',
-      community_players: [
-        { puuid: 'p1', name: 'Alice', tag: 'ALI' },
-        { puuid: 'p2', name: 'Bob', tag: 'BOB' },
-      ],
-    }, safeUser);
-    expect(output).toContain('пережили');
-    expect(output).toContain('Alice');
-    expect(output).toContain('Bob');
-  });
-
-  it('record_longest_match_rounds: shows prev_name when different player held record', () => {
-    const output = renderTemplate('record_longest_match_rounds', {
-      value: 40,
-      prev_value: 30,
-      prev_puuid: 'other-puuid',
-      prev_name: 'Marathon',
-      prev_tag: 'MTH',
-      community_players: [],
-    }, { ...safeUser, riot_puuid: 'current-puuid' });
-    expect(output).toContain('30');
-    expect(output).toContain('Marathon');
-  });
-
-  it('record_longest_match_rounds: shows тоже его when same player beats own record', () => {
-    const output = renderTemplate('record_longest_match_rounds', {
-      value: 40,
-      prev_value: 30,
-      prev_puuid: 'same-puuid',
-      prev_name: 'Player',
-      prev_tag: 'TAG',
-      community_players: [],
-    }, { ...safeUser, riot_puuid: 'same-puuid' });
-    expect(output).toContain('тоже его');
-  });
-
-  it('record_longest_match_rounds: community player names are HTML-escaped', () => {
-    const output = renderTemplate('record_longest_match_rounds', {
-      value: 30,
-      prev_value: null,
-      prev_puuid: null,
-      prev_name: '',
-      prev_tag: '',
-      community_players: [{ puuid: 'p1', name: '<script>xss</script>', tag: '' }],
+  it('record_longest_match_minutes: HTML-escapes community player names and tags', () => {
+    const output = renderTemplate('record_longest_match_minutes', {
+      value: 45, rounds: 25, result: 'win',
+      prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '',
+      community_players: [{ puuid: 'p1', name: '<script>xss</script>', tag: '<img>' }],
     }, safeUser);
     expect(output).not.toContain('<script>');
     expect(output).toContain('&lt;script&gt;');
+    expect(output).toContain('&lt;img&gt;');
   });
 

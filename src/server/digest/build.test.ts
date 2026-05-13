@@ -665,6 +665,8 @@ describe('buildDigest', () => {
         eventType: 'record_longest_match_minutes',
         payload: {
           value: 52,
+          rounds: 28,
+          result: 'win',
           prev_value: 45,
           prev_puuid: 'other-puuid',
           prev_name: 'OldHolder',
@@ -676,8 +678,11 @@ describe('buildDigest', () => {
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       expect(result.sectionsIncluded).toContain('record_longest_match_minutes');
-      expect(result.text).toContain('проинвестировал');
-      expect(result.text).toContain('52');
+      expect(result.text).toContain('Дело принципа');
+      expect(result.text).toContain('52 минут');
+      expect(result.text).toContain('(28 раундов)');
+      expect(result.text).toContain('🏆');
+      expect(result.text).toContain('LongPlayer#LNG');
     });
 
     it('does NOT render record_longest_match_minutes when no events in window', async () => {
@@ -686,41 +691,6 @@ describe('buildDigest', () => {
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       expect(result.sectionsIncluded).not.toContain('record_longest_match_minutes');
-    });
-  });
-
-  describe('bright events — record_longest_match_rounds', () => {
-    it('renders record_longest_match_rounds in bright block', async () => {
-      seedUser(sqlite, 1, 'p1', { riotName: 'MarathonGuy', riotTag: 'MRG' });
-      seedMatch(sqlite, { puuid: 'p1', matchId: 'rounds-match', startedAt: IN_WINDOW, map: 'Abyss' });
-      seedEvent(sqlite, {
-        puuid: 'p1',
-        matchId: 'rounds-match',
-        eventType: 'record_longest_match_rounds',
-        payload: {
-          value: 40,
-          prev_value: 30,
-          prev_puuid: 'other-puuid',
-          prev_name: 'OldEndurer',
-          prev_tag: 'OEN',
-          community_players: [{ puuid: 'p1', name: 'MarathonGuy', tag: 'MRG' }],
-        },
-        detectedAt: IN_WINDOW,
-      });
-
-      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
-      expect(result.sectionsIncluded).toContain('record_longest_match_rounds');
-      expect(result.text).toContain('пережил');
-      expect(result.text).toContain('40');
-      expect(result.text!.toLowerCase()).toContain('надеюсь это того стоило');
-    });
-
-    it('does NOT render record_longest_match_rounds when no events in window', async () => {
-      seedUser(sqlite, 1, 'p1', { riotName: 'Player1', riotTag: 'P1' });
-      seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW });
-
-      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
-      expect(result.sectionsIncluded).not.toContain('record_longest_match_rounds');
     });
   });
 

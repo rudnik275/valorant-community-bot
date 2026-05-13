@@ -72,7 +72,6 @@ const BRIGHT_EVENT_WEIGHTS: Record<string, number> = {
   record_mvp_count_week: 7,
   record_kills_per_weapon: 7,
   record_longest_match_minutes: 7,
-  record_longest_match_rounds: 7,
   winstreak_10plus: 4,
   peak_rank_up: 3,
 };
@@ -382,7 +381,6 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       'record_damage_dealt_match',
       'record_damage_received_match',
       'record_longest_match_minutes',
-      'record_longest_match_rounds',
       'record_mvp_count_week',
       'record_kills_per_weapon',
     ]);

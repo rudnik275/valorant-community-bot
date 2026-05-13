@@ -81,8 +81,8 @@ function recordContextLine(eventType: EventType): string | null {
     case 'record_damage_dealt_match':    return 'рекорд по нанесённому урону за игру';
     case 'record_damage_received_match': return 'рекорд по полученному урону за игру';
     case 'record_mvp_count_week':        return 'рекорд по количеству MVP-матчей за неделю';
-    // record_kills_per_weapon, record_longest_match_minutes,
-    // record_longest_match_rounds — context line is already inside their body
+    // record_kills_per_weapon, record_longest_match_minutes — context line
+    // is already inside their template body.
     default: return null;
   }
 }
@@ -287,35 +287,23 @@ const templates: Record<EventType, TemplateFn> = {
   },
 
   record_longest_match_minutes: (payload, user, match) => {
-    const value = payload['value'];
+    const minutes = payload['value'];
+    const rounds = payload['rounds'];
+    const result = String(payload['result'] ?? '');
+    const resultEmoji = result === 'win' ? '🏆' : result === 'loss' ? '💀' : result === 'draw' ? '🤝' : '';
     const players = Array.isArray(payload['community_players'])
       ? payload['community_players'] as Array<{ puuid: string; name: string; tag: string }>
       : [];
-    const playerNames = players
-      .map((p) => p.name ? `<b>${esc(p.name)}</b>` : '')
+    const playersLine = players
+      .map((p) => p.name ? `${esc(p.name)}#${esc(p.tag ?? '')}` : '')
       .filter((s) => s)
-      .join(', ') || playerTag(user);
-    const verb = players.length > 1 ? 'проинвестировали' : 'проинвестировал(а)';
+      .join(', ');
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid, 'минут');
     const ctx = 'рекорд по длительности матча';
-    const valueLine = `${esc(String(value))} минут${mapSuffix(match?.map)}${matchLinkInline(match?.match_id)}`;
-    return `⏳ <b>${playerNames} — ${verb} свое время правильно</b>\n${ctxLine(ctx)}\n${valueLine}${prev}`;
-  },
-
-  record_longest_match_rounds: (payload, user, match) => {
-    const value = payload['value'];
-    const players = Array.isArray(payload['community_players'])
-      ? payload['community_players'] as Array<{ puuid: string; name: string; tag: string }>
-      : [];
-    const playerNames = players
-      .map((p) => p.name ? `<b>${esc(p.name)}</b>` : '')
-      .filter((s) => s)
-      .join(', ') || playerTag(user);
-    const verb = players.length > 1 ? 'пережили' : 'пережил(а)';
-    const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid, 'раундов');
-    const ctx = 'рекорд по количеству раундов в матче';
-    const valueLine = `${playerNames} — ${verb} ${esc(String(value))} раундов${mapSuffix(match?.map)}${matchLinkInline(match?.match_id)}`;
-    return `😰 <b>Надеюсь это того стоило</b>\n${ctxLine(ctx)}\n${valueLine}${prev}`;
+    const roundsPart = rounds ? ` (${esc(String(rounds))} раундов)` : '';
+    const resultPart = resultEmoji ? ` ${resultEmoji}` : '';
+    const valueLine = `${esc(String(minutes))} минут${roundsPart}${mapSuffix(match?.map)}${resultPart}${matchLinkInline(match?.match_id)}`;
+    return `⏳ <b>Дело принципа</b>\n${ctxLine(ctx)}\n${valueLine}${playersLine ? '\n' + playersLine : ''}${prev}`;
   },
 
   community_clash: (payload, _user, match) => {

@@ -26,6 +26,5 @@ export const NEAR_MISS_THRESHOLDS: NearMissThreshold[] = [
   { recordType: 'damage_dealt_match',    threshold: 1000, source: 'damage_dealt',         emoji: '🥩', header: 'Был(ла) близко к тому чтоб стать мясником недели',                    unit: 'dmg'      },
   { recordType: 'damage_received_match', threshold: 1000, source: 'damage_received',      emoji: '🤕', header: 'Был(а) близок(ка) к рекорду по полученному урону',                    unit: 'dmg'      },
   { recordType: 'longest_match_minutes', threshold: 2,    source: 'game_length_minutes',  emoji: '⏳', header: 'Близко к самому длинному матчу по минутам',                           unit: 'минут'    },
-  { recordType: 'longest_match_rounds',  threshold: 2,    source: 'rounds_played',        emoji: '😰', header: 'Раунды не кончались — но кончились',                                 unit: 'раундов'  },
   // kills_per_weapon excluded — too many sub-types, low signal-to-noise
 ];
