@@ -77,7 +77,7 @@ function recordContextLine(eventType: EventType): string | null {
     case 'record_kills_match':           return 'рекорд по количеству фрагов за игру';
     case 'record_deaths_match':          return 'рекорд по количеству смертей за игру';
     case 'record_headshots_match':       return 'рекорд по количеству хедшотов за игру';
-    case 'record_legshots_match':        return 'рекорд по количеству легшотов за игру';
+    case 'record_legshots_match':        return 'рекорд по количеству убийств в ноги за игру';
     case 'record_damage_dealt_match':    return 'рекорд по нанесённому урону за игру';
     case 'record_damage_received_match': return 'рекорд по полученному урону за игру';
     case 'record_mvp_count_week':        return 'рекорд по количеству MVP-матчей за неделю';
@@ -243,7 +243,7 @@ const templates: Record<EventType, TemplateFn> = {
     const value = payload['value'];
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = recordContextLine('record_legshots_match');
-    const valueLine = `${playerTag(user)} — ${esc(String(value))} легшотов${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
+    const valueLine = `${playerTag(user)} — ${esc(String(value))} убийств в ноги${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
     return `♿️ <b>Угадай куда шмальну</b>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
   },
 
