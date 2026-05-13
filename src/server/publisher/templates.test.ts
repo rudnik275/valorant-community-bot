@@ -421,23 +421,17 @@ describe('renderDigestGroup — record_kills_per_weapon combined section', () =>
   const playerB = { riot_name: 'Bob',   riot_tag: 'BBB', telegram_id: 2 };
   const playerC = { riot_name: 'Cara',  riot_tag: 'CCC', telegram_id: 3 };
 
-  it('renders header "Оружейная мастерская" and one line per weapon entry', () => {
+  it('renders header "Мастера своего дела" with `Weapon - N | <b>nick#tag</b>` lines', () => {
     const output = renderDigestGroup('record_kills_per_weapon', [
       { payload: { weapon: 'Bulldog', value: 7 }, user: playerA },
       { payload: { weapon: 'Sheriff', value: 10 }, user: playerB },
       { payload: { weapon: 'Operator', value: 6 }, user: playerC },
     ]);
-    expect(output).toContain('Оружейная мастерская');
+    expect(output).toContain('Мастера своего дела');
     expect(output).toContain('лидеры по убийствам одним оружием');
-    expect(output).toContain('Bulldog');
-    expect(output).toContain('Sheriff');
-    expect(output).toContain('Operator');
-    expect(output).toContain('Alice#AAA');
-    expect(output).toContain('Bob#BBB');
-    expect(output).toContain('Cara#CCC');
-    expect(output).toContain('7 фрагов');
-    expect(output).toContain('10 фрагов');
-    expect(output).toContain('6 фрагов');
+    expect(output).toContain('Bulldog - 7 | <b>Alice#AAA</b>');
+    expect(output).toContain('Sheriff - 10 | <b>Bob#BBB</b>');
+    expect(output).toContain('Operator - 6 | <b>Cara#CCC</b>');
   });
 
   it('sorts entries by frag count descending', () => {

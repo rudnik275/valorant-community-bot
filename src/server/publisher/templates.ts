@@ -401,17 +401,17 @@ export function renderDigestGroup(eventType: EventType, entries: DigestEntry[]):
 
   if (eventType === 'record_kills_per_weapon') {
     // Combined section: one block listing all weapon records of the week.
-    // Per user: weapon name, nickname#tag, count. No match link, no prev record.
+    // Per user line format: `Weapon - N | <b>nick#tag</b>`. No match link, no
+    // prev record. Sorted desc by frag count.
     const lines = entries
       .map((e) => {
         const weapon = String(e.payload['weapon'] ?? '?');
         const value = Number(e.payload['value'] ?? 0);
         return { weapon, value, user: e.user };
       })
-      // Sort by frag count desc — most impressive at the top.
       .sort((a, b) => b.value - a.value)
-      .map((x) => `<b>${esc(x.weapon)}</b> · ${esc(x.user.riot_name)}#${esc(x.user.riot_tag)} — ${x.value} фрагов`);
-    return `🔫 <b>Оружейная мастерская</b>\n${ctxLine('лидеры по убийствам одним оружием за матч')}\n${lines.join('\n')}`;
+      .map((x) => `${esc(x.weapon)} - ${x.value} | <b>${esc(x.user.riot_name)}#${esc(x.user.riot_tag)}</b>`);
+    return `🔫 <b>Мастера своего дела</b>\n${ctxLine('лидеры по убийствам одним оружием за матч')}\n${lines.join('\n')}`;
   }
 
   if (eventType === 'ace_rare_weapon_week') {
