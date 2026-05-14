@@ -5,6 +5,7 @@ import {
   parseDaysArg,
   makeTestDigestHandler,
   makeTestRuntimeEventsHandler,
+  collapseGroupableEvents,
 } from './test-commands.ts';
 
 describe('isOwner', () => {
@@ -102,5 +103,45 @@ describe('admin gate (non-owner is silently ignored)', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await handler(ctx as any, async () => {});
     expect(bot.api.sendMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('collapseGroupableEvents', () => {
+  const baseEv = { payload_json: '{}', detected_at: 0 } as const;
+
+  it('keeps the earliest match_comeback row per match and drops siblings', () => {
+    const events = [
+      { ...baseEv, event_type: 'match_comeback', riot_puuid: 'a', match_id: 'm1', detected_at: 100 },
+      { ...baseEv, event_type: 'match_comeback', riot_puuid: 'b', match_id: 'm1', detected_at: 110 },
+      { ...baseEv, event_type: 'match_comeback', riot_puuid: 'c', match_id: 'm1', detected_at: 120 },
+    ];
+    const out = collapseGroupableEvents(events);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.riot_puuid).toBe('a');
+  });
+
+  it('does not collapse match_comeback across different matches', () => {
+    const events = [
+      { ...baseEv, event_type: 'match_comeback', riot_puuid: 'a', match_id: 'm1', detected_at: 100 },
+      { ...baseEv, event_type: 'match_comeback', riot_puuid: 'a', match_id: 'm2', detected_at: 110 },
+    ];
+    expect(collapseGroupableEvents(events)).toHaveLength(2);
+  });
+
+  it('does not collapse non-groupable event types', () => {
+    const events = [
+      { ...baseEv, event_type: 'ace', riot_puuid: 'a', match_id: 'm1', detected_at: 100 },
+      { ...baseEv, event_type: 'ace', riot_puuid: 'b', match_id: 'm1', detected_at: 110 },
+      { ...baseEv, event_type: 'teamkill', riot_puuid: 'a', match_id: 'm1', detected_at: 120 },
+    ];
+    expect(collapseGroupableEvents(events)).toHaveLength(3);
+  });
+
+  it('passes through groupable rows with null match_id (defensive)', () => {
+    const events = [
+      { ...baseEv, event_type: 'match_comeback', riot_puuid: 'a', match_id: null, detected_at: 100 },
+      { ...baseEv, event_type: 'match_comeback', riot_puuid: 'b', match_id: null, detected_at: 110 },
+    ];
+    expect(collapseGroupableEvents(events)).toHaveLength(2);
   });
 });

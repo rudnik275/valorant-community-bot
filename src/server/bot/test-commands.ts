@@ -23,6 +23,7 @@ import { and, gte, lt, asc, eq } from 'drizzle-orm';
 import { detectedEvents } from '../db/schema/detected_events.ts';
 import { users } from '../db/schema/users.ts';
 import { matchRecords } from '../db/schema/match_records.ts';
+import { matchRosters } from '../db/schema/match_rosters.ts';
 import { buildDigest } from '../digest/build.ts';
 import { renderTemplate, type TemplateMatch, type TemplateUser } from '../publisher/templates.ts';
 import { isRealtimeEvent, type EventType } from '../publisher/types.ts';
@@ -140,10 +141,17 @@ export function makeTestRuntimeEventsHandler(deps: TestCommandsDeps): Middleware
         isRealtimeEvent(ev.event_type as EventType),
       );
 
-      const header = `<i>--- Preview: realtime-события за последние ${days} дн. (${realtimeOnly.length} шт.) ---</i>`;
+      // Legacy match_comeback rows were per-player — before the grouping fix,
+      // 5 community winners in one match meant 5 separate rows. The publisher
+      // now emits one row per match with community_players in the payload, but
+      // the historical rows still live in detected_events. Collapse them here
+      // so the preview matches what the chat would see today.
+      const collapsed = collapseGroupableEvents(realtimeOnly);
+
+      const header = `<i>--- Preview: realtime-события за последние ${days} дн. (${collapsed.length} шт.) ---</i>`;
       await deps.bot.api.sendMessage(fromId!, header, HTML_OPTS);
 
-      if (realtimeOnly.length === 0) {
+      if (collapsed.length === 0) {
         await deps.bot.api.sendMessage(
           fromId!,
           '<i>(нет realtime-событий в этом окне)</i>',
@@ -152,7 +160,7 @@ export function makeTestRuntimeEventsHandler(deps: TestCommandsDeps): Middleware
         return;
       }
 
-      for (const ev of realtimeOnly) {
+      for (const ev of collapsed) {
         const puuid = ev.riot_puuid as string;
         const [userRow] = await deps.db
           .select()
@@ -177,6 +185,18 @@ export function makeTestRuntimeEventsHandler(deps: TestCommandsDeps): Middleware
             .where(and(eq(matchRecords.match_id, matchId), eq(matchRecords.riot_puuid, puuid)))
             .limit(1);
           map = m?.map ? String(m.map) : undefined;
+        }
+
+        // Augment legacy match_comeback rows (saved before the grouping fix)
+        // with community_players, so the rendered preview lists every winning
+        // community member instead of the single triggering user.
+        if (
+          ev.event_type === 'match_comeback' &&
+          matchId &&
+          !Array.isArray(payload['community_players'])
+        ) {
+          const players = await fetchWinningTeamCommunity(deps.db, matchId, puuid);
+          if (players.length > 0) payload['community_players'] = players;
         }
 
         const tplUser: TemplateUser = {
@@ -211,7 +231,7 @@ export function makeTestRuntimeEventsHandler(deps: TestCommandsDeps): Middleware
         await new Promise((r) => setTimeout(r, RUNTIME_EVENT_SEND_DELAY_MS));
       }
 
-      await deps.bot.api.sendMessage(fromId!, `<i>--- Preview complete (${realtimeOnly.length} событий отправлено) ---</i>`, HTML_OPTS);
+      await deps.bot.api.sendMessage(fromId!, `<i>--- Preview complete (${collapsed.length} событий отправлено) ---</i>`, HTML_OPTS);
     } catch (err) {
       logger.error({ module: 'test_commands', cmd: 'test_runtime_events', err }, 'Preview events failed');
       try {
@@ -221,5 +241,67 @@ export function makeTestRuntimeEventsHandler(deps: TestCommandsDeps): Middleware
       }
     }
   };
+}
+
+/** Event types that group all community members of one match into a single
+ *  chat message. New detector runs emit one row per match for these types;
+ *  legacy data may still have N rows. The preview keeps only the earliest. */
+const GROUPABLE_PER_MATCH: ReadonlySet<EventType> = new Set(['match_comeback']);
+
+interface PreviewEvent {
+  event_type: string;
+  riot_puuid: string;
+  match_id: string | null;
+  payload_json: string;
+  detected_at: number;
+}
+
+/**
+ * For groupable-per-match event types, keep only the earliest row per match.
+ * Non-groupable types pass through untouched. Input must already be sorted by
+ * detected_at ascending so "first seen" == "earliest".
+ */
+export function collapseGroupableEvents(events: PreviewEvent[]): PreviewEvent[] {
+  const seen = new Set<string>();
+  const out: PreviewEvent[] = [];
+  for (const ev of events) {
+    if (GROUPABLE_PER_MATCH.has(ev.event_type as EventType) && ev.match_id) {
+      const key = `${ev.event_type}|${ev.match_id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
+    out.push(ev);
+  }
+  return out;
+}
+
+async function fetchWinningTeamCommunity(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  db: any,
+  matchId: string,
+  winnerPuuid: string,
+): Promise<Array<{ puuid: string; name: string; tag: string }>> {
+  const [winnerRow] = await db
+    .select({ team: matchRosters.team })
+    .from(matchRosters)
+    .where(and(eq(matchRosters.match_id, matchId), eq(matchRosters.riot_puuid, winnerPuuid)))
+    .limit(1);
+  if (!winnerRow?.team) return [];
+
+  const rows = await db
+    .select({
+      riot_puuid: matchRosters.riot_puuid,
+      riot_name: users.riot_name,
+      riot_tag: users.riot_tag,
+    })
+    .from(matchRosters)
+    .innerJoin(users, eq(users.riot_puuid, matchRosters.riot_puuid))
+    .where(and(eq(matchRosters.match_id, matchId), eq(matchRosters.team, winnerRow.team as string)));
+
+  return rows.map((r: { riot_puuid: string; riot_name: string | null; riot_tag: string | null }) => ({
+    puuid: r.riot_puuid,
+    name: r.riot_name ?? '',
+    tag: r.riot_tag ?? '',
+  }));
 }
 
