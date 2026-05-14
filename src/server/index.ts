@@ -10,6 +10,7 @@ import { makeLastMessageHandler } from './bot/listener.ts';
 import { makeChatMemberListener } from './bot/chat-member-listener.ts';
 import { makeTestDigestHandler, makeTestRuntimeEventsHandler, makeTestDailyCronHandler } from './bot/test-commands.ts';
 import { makeCongratsHandler, makeCongratsCallbackHandler } from './bot/congrats-command.ts';
+import { makePostMissedAcesHandler, makePostMissedAcesCallbackHandler } from './bot/missed-aces-command.ts';
 import { setupAdminCommandsForOwner } from './bot/setup-admin-commands.ts';
 import { isAllowedChat } from './lib/scope.ts';
 import { makeAuthMiddleware } from './api/auth.ts';
@@ -55,6 +56,8 @@ if (botToken) {
   const getPrimaryChatId = () => Number(process.env['TELEGRAM_PRIMARY_CHAT_ID'] ?? '0');
   bot.command('congrats', makeCongratsHandler({ db, bot, getPrimaryChatId }));
   bot.callbackQuery(/^congrats:/, makeCongratsCallbackHandler({ db, bot, getPrimaryChatId }));
+  bot.command('post_missed_aces', makePostMissedAcesHandler({ db, bot, getPrimaryChatId }));
+  bot.callbackQuery(/^missed_aces:/, makePostMissedAcesCallbackHandler({ db, bot, getPrimaryChatId }));
   const lastMessageHandler = makeLastMessageHandler({ db, isAllowedChat });
   bot.on('message', lastMessageHandler);
   bot.on('chat_member', makeChatMemberListener({ db, isAllowedChat }));

@@ -51,9 +51,11 @@ interface AceRow {
   riotTag: string | null;
   map: string | null;
   agent: string | null;
+  roundsCompactJson: string | null;
+  killEventsCompactJson: string | null;
 }
 
-interface Line {
+export interface Line {
   eventId: number;
   riotName: string;
   riotTag: string;
@@ -61,8 +63,50 @@ interface Line {
   map: string | null;
   matchId: string;
   rounds: number[]; // 0-indexed round ids
-  roundsWon: number[] | null; // null = legacy event without the field
+  roundsWon: number[] | null; // null = unknown (no match_records data); [] = all lost
   detectedAt: number;
+}
+
+/**
+ * Derive the set of "won" round IDs for the player on the fly from match_records,
+ * used when the event's payload lacks `rounds_won` (legacy pre-ADR-0003 events).
+ * Returns null if we can't determine (no match_records row, malformed JSON, or
+ * the player's team can't be inferred from kill_events).
+ */
+function deriveRoundsWon(
+  rounds: number[],
+  roundsCompactJson: string | null,
+  killEventsCompactJson: string | null,
+  riotPuuid: string,
+): number[] | null {
+  if (!roundsCompactJson || !killEventsCompactJson) return null;
+  let roundsCompact: Array<{ r: number; w?: string }> = [];
+  try {
+    roundsCompact = JSON.parse(roundsCompactJson);
+  } catch {
+    return null;
+  }
+  let killEvents: Array<{ attacker_puuid: string; attacker_team: string }> = [];
+  try {
+    killEvents = JSON.parse(killEventsCompactJson);
+  } catch {
+    return null;
+  }
+  const playerTeam = killEvents.find((k) => k.attacker_puuid === riotPuuid)?.attacker_team;
+  if (!playerTeam) return null;
+  const winnerByRound = new Map<number, string>();
+  for (const r of roundsCompact) {
+    if (r.w) winnerByRound.set(r.r, r.w);
+  }
+  return rounds.filter((r) => winnerByRound.get(r) === playerTeam);
+}
+
+/** Pure renderer: text from a list of Line objects. Used by both the cron and ad-hoc preview paths. */
+export function renderDailyAceText(lines: Line[], headerNote?: string): string {
+  const header = `🎯 Daily Ace${headerNote ? ` ${headerNote}` : ''}`;
+  const legend = `<i>💀 ace без победы в раунде</i>\n<i>🏆 ace с победой в раунде</i>`;
+  const lineTexts = lines.map((l) => renderLine(l));
+  return `${header}\n${legend}\n\n${lineTexts.join('\n')}`;
 }
 
 export async function buildDailyAceDigest(
@@ -95,6 +139,8 @@ export async function buildDailyAceDigest(
       riotTag: users.riot_tag,
       map: matchRecords.map,
       agent: matchRecords.agent,
+      roundsCompactJson: matchRecords.rounds_compact,
+      killEventsCompactJson: matchRecords.kill_events_compact,
     })
     .from(detectedEvents)
     .leftJoin(users, eq(users.riot_puuid, detectedEvents.riot_puuid))
@@ -118,18 +164,25 @@ export async function buildDailyAceDigest(
   // One line per row (UNIQUE(match_id, event_type, riot_puuid) gives at most one row per (player, match)).
   const lines: Line[] = typedRows.map((row) => {
     let rounds: number[] = [];
-    let roundsWon: number[] | null = null;
+    let roundsWonFromPayload: number[] | null = null;
     try {
       const payload = JSON.parse(row.payloadJson) as Record<string, unknown>;
       if (Array.isArray(payload['rounds'])) {
         rounds = (payload['rounds'] as unknown[]).filter((r): r is number => typeof r === 'number');
       }
       if (Array.isArray(payload['rounds_won'])) {
-        roundsWon = (payload['rounds_won'] as unknown[]).filter((r): r is number => typeof r === 'number');
+        roundsWonFromPayload = (payload['rounds_won'] as unknown[]).filter((r): r is number => typeof r === 'number');
       }
     } catch {
       // ignore bad json
     }
+    const sortedRounds = [...rounds].sort((a, b) => a - b);
+    const roundsWon = roundsWonFromPayload ?? deriveRoundsWon(
+      sortedRounds,
+      row.roundsCompactJson,
+      row.killEventsCompactJson,
+      row.puuid,
+    );
 
     return {
       eventId: row.id,
@@ -138,7 +191,7 @@ export async function buildDailyAceDigest(
       agent: row.agent ?? '',
       map: row.map,
       matchId: row.matchId,
-      rounds: [...rounds].sort((a, b) => a - b),
+      rounds: sortedRounds,
       roundsWon,
       detectedAt: row.detectedAt,
     };
@@ -147,13 +200,7 @@ export async function buildDailyAceDigest(
   // Chronology — earliest first.
   lines.sort((a, b) => a.detectedAt - b.detectedAt);
 
-  const header = `🎯 Daily Ace`;
-  const legend = `<i>💀 ace без победы в раунде</i>\n<i>🏆 ace с победой в раунде</i>`;
-
-  const lineTexts = lines.map((l) => renderLine(l));
-  const text = `${header}\n${legend}\n\n${lineTexts.join('\n')}`;
-
-  return { text, includedEventIds };
+  return { text: renderDailyAceText(lines), includedEventIds };
 }
 
 function renderLine(l: Line): string {
