@@ -248,17 +248,19 @@ const templates: Record<EventType, TemplateFn> = {
     const fp = payload['final_score_player'] ?? '?';
     const fop = payload['final_score_opponent'] ?? '?';
     // Group all community members on the winning team into one message instead
-    // of spamming N copies. Falls back to the single triggering user when
-    // community_players is absent (older events, tests with minimal payloads).
+    // of spamming N copies. Each player on its own line. Falls back to the
+    // single triggering user when community_players is absent (older events,
+    // tests with minimal payloads) — that path stays inline with the dash.
     const players = Array.isArray(payload['community_players'])
       ? payload['community_players'] as Array<{ puuid: string; name: string; tag: string }>
       : [];
-    const playersLine = players
+    const playerLines = players
       .map((p) => p.name ? `<b>${esc(p.name)}#${esc(p.tag ?? '')}</b>` : '')
-      .filter((s) => s)
-      .join(', ');
-    const lead = playersLine || playerTag(user);
-    const desc = `${lead} — отыгрались с ${dp}:${dop} до ${fp}:${fop}${mapSuffix(match?.map)}`;
+      .filter((s) => s);
+    const action = `отыгрались с ${dp}:${dop} до ${fp}:${fop}${mapSuffix(match?.map)}`;
+    const desc = playerLines.length > 0
+      ? `${playerLines.join('\n')}\n— ${action}`
+      : `${playerTag(user)} — ${action}`;
     const link = match?.match_id ? matchLine(match.match_id) : '';
     return `👏 <u>Мы вами гордимся</u>\n\n${desc}${link}`;
   },
