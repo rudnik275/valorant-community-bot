@@ -1,6 +1,23 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import Database from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
+import { join } from 'node:path';
 import { matchComebackDetector } from './match-comeback.ts';
+import { matchRosters } from '../../db/schema/match_rosters.ts';
+import { users } from '../../db/schema/users.ts';
+import { detectedEvents } from '../../db/schema/detected_events.ts';
 import type { MatchRecord } from '../types.ts';
+
+const MIGRATIONS_FOLDER = join(process.cwd(), 'drizzle');
+
+function makeTestDb() {
+  const sqlite = new Database(':memory:');
+  sqlite.exec('PRAGMA foreign_keys=OFF;');
+  const db = drizzle(sqlite);
+  migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
+  return { db, sqlite };
+}
 
 const BASE_RECORD: MatchRecord = {
   riot_puuid: 'puuid-1',
@@ -34,9 +51,6 @@ const BASE_RECORD: MatchRecord = {
 
 /**
  * Build rounds_compact JSON simulating a comeback match.
- *
- * blueWins: array of round ids won by Blue.
- * redWins: array of round ids won by Red.
  */
 function makeRoundsCompact(blueWins: number[], redWins: number[]): string {
   const rounds = [
@@ -46,10 +60,42 @@ function makeRoundsCompact(blueWins: number[], redWins: number[]): string {
   return JSON.stringify(rounds);
 }
 
+async function seedUser(db: ReturnType<typeof makeTestDb>['db'], puuid: string, name: string, tag: string) {
+  await db.insert(users).values({
+    telegram_id: Math.floor(Math.random() * 1_000_000),
+    riot_puuid: puuid,
+    riot_name: name,
+    riot_tag: tag,
+  });
+}
+
+async function seedRoster(
+  db: ReturnType<typeof makeTestDb>['db'],
+  matchId: string,
+  puuid: string,
+  team: string,
+) {
+  await db.insert(matchRosters).values({ match_id: matchId, riot_puuid: puuid, team });
+}
+
 describe('matchComebackDetector', () => {
-  it('emits when team had exactly 8-round deficit and won 13:11', () => {
-    // Blue wins rounds 1-2 then 13-23; Red wins rounds 3-12 then 24.
-    // After round 12: Blue=2, Red=10 → deficit=8.
+  let db: ReturnType<typeof makeTestDb>['db'];
+  let sqlite: ReturnType<typeof makeTestDb>['sqlite'];
+
+  beforeEach(() => {
+    ({ db, sqlite } = makeTestDb());
+  });
+
+  afterEach(() => {
+    sqlite.close();
+  });
+
+  it('emits when team had exactly 8-round deficit and won 13:11', async () => {
+    await seedUser(db, 'puuid-1', 'Player1', 'TAG1');
+    await seedRoster(db, 'match-comeback-001', 'puuid-1', 'Blue');
+
+    // Walk: B,B,R,R,R,R,R,R,R,R,R,R,B,...
+    // Round 12: Blue=2, Red=10 → only deficit point ≥ 8 → displayed.
     const blueWins = [1, 2, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23];
     const redWins = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 24];
     const record: MatchRecord = {
@@ -58,19 +104,21 @@ describe('matchComebackDetector', () => {
       team_rounds_won: 13,
       team_rounds_lost: 11,
     };
-    const events = matchComebackDetector.detect(record, []);
+    const events = await matchComebackDetector.detectAsync!(record, [], { db });
     expect(events).toHaveLength(1);
     expect(events[0]!.type).toBe('match_comeback');
     expect(events[0]!.payload.max_deficit).toBe(8);
+    // Single deficit-≥8 point: round 12 (Blue=2, Red=10).
     expect(events[0]!.payload.deficit_score_player).toBe(2);
     expect(events[0]!.payload.deficit_score_opponent).toBe(10);
     expect(events[0]!.payload.final_score_player).toBe(13);
     expect(events[0]!.payload.final_score_opponent).toBe(11);
   });
 
-  it('emits with max_deficit=10 when trailing 0:10 then won 13:11', () => {
-    // Red wins rounds 1-10, then Blue wins rounds 11-23, Red wins 24.
-    // After round 10: Blue=0, Red=10 → deficit=10.
+  it('emits with max_deficit=10 when trailing 0:10 then won 13:11', async () => {
+    await seedUser(db, 'puuid-1', 'Player1', 'TAG1');
+    await seedRoster(db, 'match-comeback-001', 'puuid-1', 'Blue');
+
     const redWins = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 24];
     const blueWins = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23];
     const record: MatchRecord = {
@@ -79,38 +127,64 @@ describe('matchComebackDetector', () => {
       team_rounds_won: 13,
       team_rounds_lost: 11,
     };
-    const events = matchComebackDetector.detect(record, []);
+    const events = await matchComebackDetector.detectAsync!(record, [], { db });
     expect(events).toHaveLength(1);
     expect(events[0]!.payload.max_deficit).toBe(10);
     expect(events[0]!.payload.deficit_score_player).toBe(0);
     expect(events[0]!.payload.deficit_score_opponent).toBe(10);
   });
 
-  it('does NOT emit when max deficit was only 7', () => {
-    // Blue wins rounds 1-3, Red wins 4-10 (Blue=3, Red=7, deficit=4 — not 8).
-    // Actually: Blue=3, Red=7, deficit=4. Not enough.
-    // Let's try: Blue 2, Red 9 → deficit=7. Not ≥8.
-    const blueWins = [1, 2, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
-    const redWins = [3, 4, 5, 6, 7, 8, 9, 20, 21];
-    // After round 9: Blue=2, Red=7, deficit=5. Let's recalculate...
-    // Actually build a simpler case: Blue wins 1, Red wins 2-8 (7 wins), then Blue wins the rest.
-    // After round 8: Blue=1, Red=7, deficit=6. Still not 8.
-    // Blue wins 1, Red wins 2-9 (8 Red wins), Blue wins rest to win 13:8.
-    // After round 9: Blue=1, Red=8, deficit=7. NOT ≥8.
+  it('reports the max-gap point, not later qualifying points: 0:9 (gap 9) beats 3:11 (gap 8)', async () => {
+    // Real-match regression for tracker match 779b0c65 (Breeze 16:14 OT).
+    // The trajectory hits two deficit-≥8 points: 0:9 after round 9 (gap=9)
+    // and 3:11 after round 14 (gap=8). The displayed score must be the
+    // max-gap point (0:9), even though the opponent reaches match-point
+    // (11/13) at the later, smaller-gap point.
+    await seedUser(db, 'puuid-1', 'Player1', 'TAG1');
+    await seedRoster(db, 'match-779', 'puuid-1', 'A');
+
+    const aWins = [10, 11, 12, 15, 16, 17, 18, 20, 21, 22, 23, 24, 25, 27, 29, 30];
+    const bWins = [1, 2, 3, 4, 5, 6, 7, 8, 9, 13, 14, 19, 26, 28];
+    const rounds = [
+      ...aWins.map((r) => ({ r, w: 'A' })),
+      ...bWins.map((r) => ({ r, w: 'B' })),
+    ].sort((a, b) => a.r - b.r);
+    const record: MatchRecord = {
+      ...BASE_RECORD,
+      match_id: 'match-779',
+      rounds_compact: JSON.stringify(rounds),
+      team_rounds_won: 16,
+      team_rounds_lost: 14,
+    };
+    const events = await matchComebackDetector.detectAsync!(record, [], { db });
+    expect(events).toHaveLength(1);
+    expect(events[0]!.payload.max_deficit).toBe(9);
+    expect(events[0]!.payload.deficit_score_player).toBe(0);
+    expect(events[0]!.payload.deficit_score_opponent).toBe(9);
+    expect(events[0]!.payload.final_score_player).toBe(16);
+    expect(events[0]!.payload.final_score_opponent).toBe(14);
+  });
+
+  it('does NOT emit when max deficit was only 7', async () => {
+    await seedUser(db, 'puuid-1', 'Player1', 'TAG1');
+    await seedRoster(db, 'match-comeback-001', 'puuid-1', 'Blue');
+
     const blueWins2 = [1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21];
     const redWins2 = [2, 3, 4, 5, 6, 7, 8, 9];
-    // After round 9: Blue=1, Red=8, deficit=7. Blue wins rest, ends 13:8.
     const record: MatchRecord = {
       ...BASE_RECORD,
       rounds_compact: makeRoundsCompact(blueWins2, redWins2),
       team_rounds_won: 13,
       team_rounds_lost: 8,
     };
-    const events = matchComebackDetector.detect(record, []);
+    const events = await matchComebackDetector.detectAsync!(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
-  it('does NOT emit when result is loss', () => {
+  it('does NOT emit when result is loss', async () => {
+    await seedUser(db, 'puuid-1', 'Player1', 'TAG1');
+    await seedRoster(db, 'match-comeback-001', 'puuid-1', 'Red');
+
     const blueWins = [1, 2, 13, 14, 15, 16, 17, 18, 19, 20, 21];
     const redWins = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 22, 23, 24];
     const record: MatchRecord = {
@@ -120,30 +194,29 @@ describe('matchComebackDetector', () => {
       team_rounds_won: 11,
       team_rounds_lost: 13,
     };
-    const events = matchComebackDetector.detect(record, []);
+    const events = await matchComebackDetector.detectAsync!(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
-  it('does NOT emit when rounds_compact is null (older match)', () => {
+  it('does NOT emit when rounds_compact is null (older match)', async () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       rounds_compact: null,
     };
-    const events = matchComebackDetector.detect(record, []);
+    const events = await matchComebackDetector.detectAsync!(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
-  it('does NOT emit when rounds_compact is empty array', () => {
+  it('does NOT emit when rounds_compact is empty array', async () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       rounds_compact: '[]',
     };
-    const events = matchComebackDetector.detect(record, []);
+    const events = await matchComebackDetector.detectAsync!(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
-  it('does NOT emit when team_rounds_won does not match any team count (corrupt data)', () => {
-    // rounds_compact has Blue winning 13, Red winning 11, but team_rounds_won=99 (corrupt).
+  it('does NOT emit when team_rounds_won does not match any team count (corrupt data)', async () => {
     const blueWins = [1, 2, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23];
     const redWins = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 24];
     const record: MatchRecord = {
@@ -151,16 +224,95 @@ describe('matchComebackDetector', () => {
       rounds_compact: makeRoundsCompact(blueWins, redWins),
       team_rounds_won: 99,
     };
-    const events = matchComebackDetector.detect(record, []);
+    const events = await matchComebackDetector.detectAsync!(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
-  it('handles invalid JSON in rounds_compact gracefully', () => {
+  it('handles invalid JSON in rounds_compact gracefully', async () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       rounds_compact: 'not-valid-json',
     };
-    const events = matchComebackDetector.detect(record, []);
+    const events = await matchComebackDetector.detectAsync!(record, [], { db });
     expect(events).toHaveLength(0);
+  });
+
+  it('idempotency: ran twice → only first call emits (detected_events guard)', async () => {
+    await seedUser(db, 'puuid-1', 'Player1', 'TAG1');
+    await seedRoster(db, 'match-comeback-001', 'puuid-1', 'Blue');
+
+    const blueWins = [1, 2, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23];
+    const redWins = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 24];
+    const record: MatchRecord = {
+      ...BASE_RECORD,
+      rounds_compact: makeRoundsCompact(blueWins, redWins),
+      team_rounds_won: 13,
+      team_rounds_lost: 11,
+    };
+
+    const firstEvents = await matchComebackDetector.detectAsync!(record, [], { db });
+    expect(firstEvents).toHaveLength(1);
+
+    await db.insert(detectedEvents).values({
+      event_type: 'match_comeback',
+      riot_puuid: 'puuid-1',
+      match_id: 'match-comeback-001',
+      payload_json: JSON.stringify(firstEvents[0]!.payload),
+    });
+
+    const secondEvents = await matchComebackDetector.detectAsync!(record, [], { db });
+    expect(secondEvents).toHaveLength(0);
+  });
+
+  it('grouping: multiple community members on winning team → all in community_players', async () => {
+    await seedUser(db, 'puuid-1', 'Winner1', 'T1');
+    await seedUser(db, 'puuid-2', 'Winner2', 'T2');
+    await seedUser(db, 'puuid-3', 'Winner3', 'T3');
+    await seedRoster(db, 'match-comeback-001', 'puuid-1', 'Blue');
+    await seedRoster(db, 'match-comeback-001', 'puuid-2', 'Blue');
+    await seedRoster(db, 'match-comeback-001', 'puuid-3', 'Blue');
+
+    const blueWins = [1, 2, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23];
+    const redWins = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 24];
+    const record: MatchRecord = {
+      ...BASE_RECORD,
+      rounds_compact: makeRoundsCompact(blueWins, redWins),
+      team_rounds_won: 13,
+      team_rounds_lost: 11,
+    };
+
+    const events = await matchComebackDetector.detectAsync!(record, [], { db });
+    expect(events).toHaveLength(1);
+    const players = events[0]!.payload['community_players'] as Array<{ puuid: string; name: string; tag: string }>;
+    expect(players).toHaveLength(3);
+    const puuids = players.map((p) => p.puuid).sort();
+    expect(puuids).toEqual(['puuid-1', 'puuid-2', 'puuid-3']);
+  });
+
+  it('grouping: community members on enemy (losing) team excluded from payload', async () => {
+    await seedUser(db, 'puuid-1', 'Winner1', 'T1');
+    await seedUser(db, 'puuid-2', 'Winner2', 'T2');
+    await seedUser(db, 'puuid-3', 'Loser1',  'T3');
+    await seedUser(db, 'puuid-4', 'Loser2',  'T4');
+    await seedRoster(db, 'match-comeback-001', 'puuid-1', 'Blue');
+    await seedRoster(db, 'match-comeback-001', 'puuid-2', 'Blue');
+    await seedRoster(db, 'match-comeback-001', 'puuid-3', 'Red');
+    await seedRoster(db, 'match-comeback-001', 'puuid-4', 'Red');
+
+    const blueWins = [1, 2, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23];
+    const redWins = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 24];
+    const record: MatchRecord = {
+      ...BASE_RECORD,
+      rounds_compact: makeRoundsCompact(blueWins, redWins),
+      team_rounds_won: 13,
+      team_rounds_lost: 11,
+    };
+
+    const events = await matchComebackDetector.detectAsync!(record, [], { db });
+    expect(events).toHaveLength(1);
+    const players = events[0]!.payload['community_players'] as Array<{ puuid: string; name: string; tag: string }>;
+    expect(players).toHaveLength(2);
+    const puuids = players.map((p) => p.puuid).sort();
+    expect(puuids).toEqual(['puuid-1', 'puuid-2']);
   });
 });
