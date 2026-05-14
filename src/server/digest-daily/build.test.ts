@@ -40,6 +40,7 @@ interface MatchOpts {
   matchId?: string;
   startedAt?: number;
   map?: string;
+  agent?: string;
 }
 
 function seedMatch(sqlite: Database.Database, opts: MatchOpts) {
@@ -47,13 +48,14 @@ function seedMatch(sqlite: Database.Database, opts: MatchOpts) {
     .prepare(
       `INSERT OR REPLACE INTO match_records
        (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result, rounds_played, kill_events_compact)
-       VALUES (?, ?, ?, ?, 'Jett', 15, 10, 0, 'win', 20, '[]')`,
+       VALUES (?, ?, ?, ?, ?, 15, 10, 0, 'win', 20, '[]')`,
     )
     .run(
       opts.puuid,
       opts.matchId ?? `match-${Date.now()}-${Math.random()}`,
       opts.startedAt ?? Date.now(),
       opts.map ?? 'Ascent',
+      opts.agent ?? 'Jett',
     );
 }
 
@@ -62,12 +64,18 @@ interface AceEventOpts {
   matchId: string;
   detectedAt?: number;
   status?: string;
+  rounds?: number[]; // 0-indexed
+  roundsWon?: number[]; // subset of rounds
   weaponsPerRound?: unknown[][];
 }
 
 function seedAceEvent(sqlite: Database.Database, opts: AceEventOpts): number {
-  const payload = {
-    weapons_per_round: opts.weaponsPerRound ?? [['Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal']],
+  const rounds = opts.rounds ?? [0];
+  const payload: Record<string, unknown> = {
+    rounds,
+    rounds_won: opts.roundsWon ?? [],
+    weapons_per_round:
+      opts.weaponsPerRound ?? rounds.map(() => ['Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal']),
   };
   const result = sqlite
     .prepare(
@@ -80,11 +88,11 @@ function seedAceEvent(sqlite: Database.Database, opts: AceEventOpts): number {
 
 // ─── Test window constants ────────────────────────────────────────────────────
 
-const NOW = 1_746_000_000_000; // arbitrary fixed point
+const NOW = 1_746_000_000_000;
 const WIN_END = NOW;
 const WIN_START = WIN_END - 24 * 3600 * 1000;
-const IN_WINDOW = WIN_START + 3600 * 1000; // 1h into window
-const OUT_OF_WINDOW = WIN_START - 3600 * 1000; // 1h before window start
+const IN_WINDOW = WIN_START + 3600 * 1000;
+const OUT_OF_WINDOW = WIN_START - 3600 * 1000;
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
@@ -100,12 +108,10 @@ describe('buildDailyAceDigest', () => {
     sqlite.close();
   });
 
-  // ── Test 1: Zero aces in window ──────────────────────────────────────────────
   describe('zero aces in window', () => {
     it('returns { text: null, includedEventIds: [] } when no aces exist', async () => {
       seedUser(sqlite, 1, 'p1');
       seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW });
-      // No ace events seeded
 
       const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
       expect(result.text).toBeNull();
@@ -123,177 +129,130 @@ describe('buildDailyAceDigest', () => {
     });
   });
 
-  // ── Test 2: Single ace, one player ──────────────────────────────────────────
   describe('single ace, one player', () => {
-    it('renders header + one section + one bullet', async () => {
+    it('renders header, legend, and one line with round-won emoji', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'AcePlayer', riotTag: 'ACE' });
-      seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW, map: 'Ascent' });
-      const id = seedAceEvent(sqlite, { puuid: 'p1', matchId: 'm1', detectedAt: IN_WINDOW });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW, map: 'Ascent', agent: 'Omen' });
+      const id = seedAceEvent(sqlite, {
+        puuid: 'p1',
+        matchId: 'm1',
+        detectedAt: IN_WINDOW,
+        rounds: [1], // 0-indexed → displayed as "round 2"
+        roundsWon: [1],
+      });
 
       const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
       expect(result.text).not.toBeNull();
       expect(result.includedEventIds).toEqual([id]);
 
       const text = result.text!;
-      // Header
-      expect(text).toContain('🎯');
-      expect(text).toContain('Ейсы за сутки');
-      // Player section
-      expect(text).toContain('AcePlayer#ACE');
-      expect(text).toContain('(1)');
-      // Bullet with map
-      expect(text).toContain('Ascent');
-      // Match link
-      expect(text).toContain('матч');
+      expect(text).toContain('🎯 Daily Ace');
+      expect(text).toContain('💀 ace без победы в раунде');
+      expect(text).toContain('🏆 ace с победой в раунде');
+      expect(text).toContain('<b>AcePlayer#ACE</b>');
+      expect(text).toContain('(Omen)');
+      expect(text).toContain('🏆round 2');
+      expect(text).toContain('🗺');
       expect(text).toContain('tracker.gg/valorant/match/m1');
+      expect(text).toContain('>Ascent</a>');
+    });
+
+    it('uses 💀 when the ace round was lost', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'LostAcer', riotTag: 'L' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW, map: 'Breeze', agent: 'Jett' });
+      seedAceEvent(sqlite, {
+        puuid: 'p1',
+        matchId: 'm1',
+        detectedAt: IN_WINDOW,
+        rounds: [7],
+        roundsWon: [], // round was lost
+      });
+
+      const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
+      const text = result.text!;
+      expect(text).toContain('💀round 8');
+      expect(text).not.toContain('🏆round 8');
     });
   });
 
-  // ── Test 3: Two players, three aces ─────────────────────────────────────────
-  describe('two players, three aces', () => {
-    it('groups by player and sorts by ace count desc', async () => {
-      seedUser(sqlite, 1, 'p1', { riotName: 'TopAcer', riotTag: 'TOP' });
-      seedUser(sqlite, 2, 'p2', { riotName: 'OneAce', riotTag: 'ONE' });
-
-      // p1 gets 2 aces in different matches
+  describe('chronological order across players', () => {
+    it('lines are sorted by detected_at ascending (earliest first), no player grouping', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'EarlyBird', riotTag: 'EB' });
+      seedUser(sqlite, 2, 'p2', { riotName: 'LateBird', riotTag: 'LB' });
       seedMatch(sqlite, { puuid: 'p1', matchId: 'p1m1', startedAt: IN_WINDOW });
-      seedMatch(sqlite, { puuid: 'p1', matchId: 'p1m2', startedAt: IN_WINDOW + 1000 });
-      const id1 = seedAceEvent(sqlite, { puuid: 'p1', matchId: 'p1m1', detectedAt: IN_WINDOW });
-      const id2 = seedAceEvent(sqlite, { puuid: 'p1', matchId: 'p1m2', detectedAt: IN_WINDOW + 1000 });
-
-      // p2 gets 1 ace
       seedMatch(sqlite, { puuid: 'p2', matchId: 'p2m1', startedAt: IN_WINDOW + 2000 });
-      const id3 = seedAceEvent(sqlite, { puuid: 'p2', matchId: 'p2m1', detectedAt: IN_WINDOW + 2000 });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'p1m2', startedAt: IN_WINDOW + 4000 });
+
+      seedAceEvent(sqlite, { puuid: 'p1', matchId: 'p1m1', detectedAt: IN_WINDOW, rounds: [0], roundsWon: [0] });
+      seedAceEvent(sqlite, { puuid: 'p2', matchId: 'p2m1', detectedAt: IN_WINDOW + 2000, rounds: [3], roundsWon: [3] });
+      seedAceEvent(sqlite, { puuid: 'p1', matchId: 'p1m2', detectedAt: IN_WINDOW + 4000, rounds: [5], roundsWon: [] });
 
       const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
-      expect(result.text).not.toBeNull();
-      expect(result.includedEventIds).toHaveLength(3);
-      expect(result.includedEventIds).toContain(id1);
-      expect(result.includedEventIds).toContain(id2);
-      expect(result.includedEventIds).toContain(id3);
-
       const text = result.text!;
-      // TopAcer has 2 aces, OneAce has 1 — TopAcer should appear first
-      const topPos = text.indexOf('TopAcer');
-      const onePos = text.indexOf('OneAce');
-      expect(topPos).toBeLessThan(onePos);
 
-      // TopAcer has count (2), OneAce has count (1)
-      expect(text).toContain('TopAcer#TOP</b> (2)');
-      expect(text).toContain('OneAce#ONE</b> (1)');
+      const posEarly = text.indexOf('EarlyBird#EB');
+      const posLate = text.indexOf('LateBird#LB');
+      const posEarlySecond = text.lastIndexOf('EarlyBird#EB');
+      // First EarlyBird line comes before LateBird line; second EarlyBird comes after.
+      expect(posEarly).toBeLessThan(posLate);
+      expect(posLate).toBeLessThan(posEarlySecond);
     });
   });
 
-  // ── Test 4: One player, two aces in same match ───────────────────────────────
-  describe('one player, two aces in same match', () => {
-    it('renders one bullet without ×M for a normal single-row ace', async () => {
-      seedUser(sqlite, 1, 'p1', { riotName: 'DoubleAce', riotTag: 'DBL' });
-      seedMatch(sqlite, { puuid: 'p1', matchId: 'same-match', startedAt: IN_WINDOW, map: 'Bind' });
-      seedAceEvent(sqlite, { puuid: 'p1', matchId: 'same-match', detectedAt: IN_WINDOW });
-
-      const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
-      expect(result.text).not.toBeNull();
-      const text = result.text!;
-
-      expect(text).toContain('DoubleAce#DBL');
-      expect(text).toContain('Bind');
-      // Only one row → no ×M label
-      expect(text).not.toContain('\xd72'); // ×2
-    });
-
-    it('shows ×2 when one row carries two aces (multi-round payload)', async () => {
+  describe('multiple aces in same match', () => {
+    it('renders xN with per-round emojis in parentheses', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'MultiAce', riotTag: 'MA' });
-      seedMatch(sqlite, { puuid: 'p1', matchId: 'mx', startedAt: IN_WINDOW, map: 'Haven' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'mx', startedAt: IN_WINDOW, map: 'Lotus', agent: 'Jett' });
 
-      // UNIQUE(match_id, event_type, riot_puuid) means a player can only have
-      // one ace event row per match. Two aces in the same match are encoded
-      // as two entries inside payload.weapons_per_round.
       seedAceEvent(sqlite, {
         puuid: 'p1',
         matchId: 'mx',
         detectedAt: IN_WINDOW,
-        weaponsPerRound: [
-          ['Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal'],
-          ['Phantom', 'Phantom', 'Phantom', 'Phantom', 'Phantom'],
-        ],
+        rounds: [0, 11], // displayed as 1 and 12
+        roundsWon: [11], // round 1 lost, round 12 won
       });
 
       const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
-      expect(result.text).not.toBeNull();
       const text = result.text!;
-
-      // Player has 2 aces in same match → one bullet with ×2 and totalAces=2
-      expect(text).toContain('MultiAce#MA</b> (2)');
-      expect(text).toContain('×2');
-      const bulletCount = (text.match(/^• /mg) ?? []).length;
-      expect(bulletCount).toBe(1);
-    });
-  });
-
-  // ── Test 5: One player, aces in two different matches ────────────────────────
-  describe('one player, aces in two different matches', () => {
-    it('renders two separate bullets', async () => {
-      seedUser(sqlite, 1, 'p1', { riotName: 'TwoMatch', riotTag: 'TM' });
-      seedMatch(sqlite, { puuid: 'p1', matchId: 'match-a', startedAt: IN_WINDOW, map: 'Lotus' });
-      seedMatch(sqlite, { puuid: 'p1', matchId: 'match-b', startedAt: IN_WINDOW + 5000, map: 'Pearl' });
-      seedAceEvent(sqlite, { puuid: 'p1', matchId: 'match-a', detectedAt: IN_WINDOW });
-      seedAceEvent(sqlite, { puuid: 'p1', matchId: 'match-b', detectedAt: IN_WINDOW + 5000 });
-
-      const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
-      expect(result.text).not.toBeNull();
-      const text = result.text!;
-
-      // Two bullets for two different matches
+      expect(text).toContain('x2 (💀round 1, 🏆round 12)');
       expect(text).toContain('Lotus');
-      expect(text).toContain('Pearl');
-      const bulletCount = (text.match(/^• /mg) ?? []).length;
-      expect(bulletCount).toBe(2);
-
-      // Player has 2 total aces
-      expect(text).toContain('TwoMatch#TM</b> (2)');
-    });
-  });
-
-  // ── Test 6: 6-kill ace ───────────────────────────────────────────────────────
-  describe('6-kill ace', () => {
-    it('shows ", 6 убийств" when weapons_per_round has 6 entries in a round', async () => {
-      seedUser(sqlite, 1, 'p1', { riotName: 'SixKiller', riotTag: 'SK' });
-      seedMatch(sqlite, { puuid: 'p1', matchId: 'six-kill', startedAt: IN_WINDOW, map: 'Fracture' });
-
-      // 6 kills in one round
-      const sixKillPayload = {
-        weapons_per_round: [['Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal']],
-      };
-      sqlite.prepare(
-        `INSERT INTO detected_events (event_type, riot_puuid, match_id, payload_json, detected_at, status)
-         VALUES ('ace', 'p1', 'six-kill', ?, ?, 'silent')`,
-      ).run(JSON.stringify(sixKillPayload), IN_WINDOW);
-
-      const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
-      expect(result.text).not.toBeNull();
-      const text = result.text!;
-
-      expect(text).toContain('6 убийств');
     });
 
-    it('does NOT show убийств label for normal 5-kill ace', async () => {
-      seedUser(sqlite, 1, 'p1', { riotName: 'NormalAce', riotTag: 'NA' });
-      seedMatch(sqlite, { puuid: 'p1', matchId: 'five-kill', startedAt: IN_WINDOW, map: 'Abyss' });
-      // Default payload: 5 kills per round
+    it('sorts rounds ascending inside the parentheses regardless of payload order', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Z', riotTag: 'Z' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'm', startedAt: IN_WINDOW, map: 'Haven' });
       seedAceEvent(sqlite, {
         puuid: 'p1',
-        matchId: 'five-kill',
+        matchId: 'm',
         detectedAt: IN_WINDOW,
-        weaponsPerRound: [['Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal']],
+        rounds: [11, 0, 5], // out of order
+        roundsWon: [0, 5, 11],
       });
 
       const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
-      expect(result.text).not.toBeNull();
-      expect(result.text).not.toContain('убийств');
+      const text = result.text!;
+      expect(text).toContain('x3 (🏆round 1, 🏆round 6, 🏆round 12)');
     });
   });
 
-  // ── Test 7: excludeEventIds filtering ───────────────────────────────────────
+  describe('legacy payload without rounds_won field', () => {
+    it('renders round number without 💀/🏆 emoji', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Legacy', riotTag: 'L' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'leg', startedAt: IN_WINDOW, map: 'Bind' });
+      // Write payload directly without rounds_won field.
+      sqlite.prepare(
+        `INSERT INTO detected_events (event_type, riot_puuid, match_id, payload_json, detected_at, status)
+         VALUES ('ace', 'p1', 'leg', ?, ?, 'silent')`,
+      ).run(JSON.stringify({ rounds: [4], weapons_per_round: [['Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal']] }), IN_WINDOW);
+
+      const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
+      const text = result.text!;
+      expect(text).toContain('round 5');
+      expect(text).not.toContain('💀round 5');
+      expect(text).not.toContain('🏆round 5');
+    });
+  });
+
   describe('excludeEventIds filtering', () => {
     it('skips events whose IDs are in excludeEventIds', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'FilteredPlayer', riotTag: 'FP' });
@@ -319,14 +278,13 @@ describe('buildDailyAceDigest', () => {
         db,
         windowStart: WIN_START,
         windowEnd: WIN_END,
-        excludeEventIds: [99999], // different ID
+        excludeEventIds: [99999],
       });
       expect(result.text).not.toBeNull();
       expect(result.includedEventIds).toContain(id);
     });
   });
 
-  // ── Test 8: Status filtering ─────────────────────────────────────────────────
   describe('status filtering', () => {
     it('includes events with status=silent', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'SilentAce', riotTag: 'SA' });

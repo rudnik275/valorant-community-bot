@@ -18,11 +18,13 @@ const BASE_RECORD: MatchRecord = {
   enemy_avg_rank: 'Diamond 1',
   fall_damage_kills: 0,
   kill_events_compact: '[]',
+  // Player's team in tests is 'Blue' (matches attacker_team in makeKill).
+  // 'Blue' wins rounds 1,2,3; 'Red' wins round 5.
   rounds_compact: JSON.stringify([
-    { r: 1, w: 'Blue', c: 'CeremonyAce' },
-    { r: 2, w: 'Blue', c: 'CeremonyAce' },
-    { r: 3, w: 'Blue', c: 'CeremonyAce' },
-    { r: 5, w: 'Blue', c: 'CeremonyAce' },
+    { r: 1, w: 'Blue' },
+    { r: 2, w: 'Blue' },
+    { r: 3, w: 'Blue' },
+    { r: 5, w: 'Red' },
   ]),
   score: null,
   headshots: null,
@@ -41,7 +43,7 @@ function makeKill(round: number, weapon = 'Vandal', attacker = 'puuid-1', victim
   return { round, attacker_team: 'Blue', victim_team: 'Red', weapon, attacker_puuid: attacker, victim_puuid: victim };
 }
 
-/** Five unique enemies (one full team) in one round — a real ace shape. */
+/** Five unique enemies (one full team) in one round. */
 function makeAceRound(round: number, weapon = 'Vandal') {
   return [
     makeKill(round, weapon, 'puuid-1', 'enemy-1'),
@@ -73,26 +75,12 @@ describe('aceDetector', () => {
     expect(events[0]!.type).toBe('ace');
     expect(events[0]!.payload.rounds).toEqual([3]);
     expect(events[0]!.payload.total_aces).toBe(1);
+    // Round 3 → 'Blue' wins → player's team → rounds_won includes 3.
+    expect(events[0]!.payload.rounds_won).toEqual([3]);
   });
 
-  it('handles 6 kill events with 5 unique victims (Phoenix Run-It-Back dupe) — still an ace', () => {
-    const record: MatchRecord = {
-      ...BASE_RECORD,
-      kill_events_compact: JSON.stringify([
-        ...makeAceRound(2),
-        // Phoenix-shadow died first, then real Phoenix — same victim_puuid twice.
-        makeKill(2, 'Vandal', 'puuid-1', 'enemy-1'),
-      ]),
-    };
-    const events = aceDetector.detect(record, []);
-    expect(events).toHaveLength(1);
-    // Unique-victim count: still 5, NOT 6.
-    expect((events[0]!.payload.weapons_per_round as string[][])[0]).toHaveLength(5);
-  });
-
-  it('does NOT detect an ace when only 4 unique victims even if 5 kill events (Phoenix dupe)', () => {
-    // Regression for #211-bot's false-ace post: 4 real kills + 1 Phoenix-shadow re-kill
-    // was being counted as 5 → ace. Must NOT fire.
+  it('detects an ace when 5 kill events with only 4 unique victims (Sage-revived enemy re-killed)', () => {
+    // Per ADR 0003: we deliberately count the revived re-kill toward the 5.
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
@@ -100,11 +88,30 @@ describe('aceDetector', () => {
         makeKill(1, 'Vandal', 'puuid-1', 'enemy-2'),
         makeKill(1, 'Vandal', 'puuid-1', 'enemy-3'),
         makeKill(1, 'Vandal', 'puuid-1', 'enemy-4'),
-        // 5th event is a re-kill of enemy-1 (Phoenix Run-It-Back) — should not bump count.
+        // 5th event is a re-kill of enemy-1 (revived) — counts toward ace under new rules.
         makeKill(1, 'Vandal', 'puuid-1', 'enemy-1'),
       ]),
     };
-    expect(aceDetector.detect(record, [])).toHaveLength(0);
+    const events = aceDetector.detect(record, []);
+    expect(events).toHaveLength(1);
+    const wpr = events[0]!.payload.weapons_per_round as string[][];
+    expect(wpr[0]).toHaveLength(5); // 5 kill events recorded, no dedup
+    // Victims (for opponent peak) are still deduped → 4 unique.
+    expect((events[0]!.payload.victims as unknown[])).toHaveLength(4);
+  });
+
+  it('detects ace even when CeremonyAce never fired (spike-explosion case)', () => {
+    // Player aced but died to spike before round end → Riot did not fire CeremonyAce.
+    // rounds_compact carries CeremonyCloser, not CeremonyAce. Must still emit.
+    const record: MatchRecord = {
+      ...BASE_RECORD,
+      rounds_compact: JSON.stringify([{ r: 4, w: 'Red', c: 'CeremonyCloser' }]),
+      kill_events_compact: JSON.stringify(makeAceRound(4)),
+    };
+    const events = aceDetector.detect(record, []);
+    expect(events).toHaveLength(1);
+    // Round 4 won by Red, player is Blue → rounds_won is empty.
+    expect(events[0]!.payload.rounds_won).toEqual([]);
   });
 
   it('excludes self-kills (spike suicide) — attacker == victim does not count toward ace', () => {
@@ -117,6 +124,21 @@ describe('aceDetector', () => {
         makeKill(1, 'Vandal', 'puuid-1', 'enemy-4'),
         // Spike detonation logged by Henrik as Yarmaru killing Yarmaru.
         makeKill(1, 'Fall', 'puuid-1', 'puuid-1'),
+      ]),
+    };
+    expect(aceDetector.detect(record, [])).toHaveLength(0);
+  });
+
+  it('excludes friendly fire — same team kills do not count toward ace', () => {
+    const record: MatchRecord = {
+      ...BASE_RECORD,
+      kill_events_compact: JSON.stringify([
+        makeKill(1, 'Vandal', 'puuid-1', 'enemy-1'),
+        makeKill(1, 'Vandal', 'puuid-1', 'enemy-2'),
+        makeKill(1, 'Vandal', 'puuid-1', 'enemy-3'),
+        makeKill(1, 'Vandal', 'puuid-1', 'enemy-4'),
+        // 5th is a teammate kill (same team as attacker).
+        { round: 1, attacker_team: 'Blue', victim_team: 'Blue', weapon: 'Vandal', attacker_puuid: 'puuid-1', victim_puuid: 'teammate-1' },
       ]),
     };
     expect(aceDetector.detect(record, [])).toHaveLength(0);
@@ -135,6 +157,8 @@ describe('aceDetector', () => {
     expect(events[0]!.payload.total_aces).toBe(2);
     expect(events[0]!.payload.rounds).toContain(1);
     expect(events[0]!.payload.rounds).toContain(5);
+    // Round 1 → Blue wins (player team) → in rounds_won; round 5 → Red wins → not in rounds_won.
+    expect(events[0]!.payload.rounds_won).toEqual([1]);
   });
 
   it('only counts kills by the target player', () => {
@@ -163,7 +187,7 @@ describe('findAces', () => {
     expect(findAces(record)).toHaveLength(0);
   });
 
-  it('returns ace rounds with correct weapons', () => {
+  it('returns ace rounds with correct weapons in kill order', () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
@@ -177,6 +201,24 @@ describe('findAces', () => {
     const aces = findAces(record);
     expect(aces).toHaveLength(1);
     expect(aces[0]!.round).toBe(2);
-    expect(aces[0]!.weapons).toContain('Knife');
+    expect(aces[0]!.weapons).toEqual(['Knife', 'Knife', 'Vandal', 'Vandal', 'Phantom']);
+  });
+
+  it('sets won=true when player team won the ace round', () => {
+    const record: MatchRecord = {
+      ...BASE_RECORD,
+      kill_events_compact: JSON.stringify(makeAceRound(1)),
+    };
+    const aces = findAces(record);
+    expect(aces[0]!.won).toBe(true);
+  });
+
+  it('sets won=false when ace round was lost', () => {
+    const record: MatchRecord = {
+      ...BASE_RECORD,
+      kill_events_compact: JSON.stringify(makeAceRound(5)), // round 5 — Red wins
+    };
+    const aces = findAces(record);
+    expect(aces[0]!.won).toBe(false);
   });
 });

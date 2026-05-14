@@ -297,7 +297,7 @@ describe('makeTestDailyAceHandler', () => {
     const [targetId, text] = bot.api.sendMessage.mock.calls[0]!;
     expect(targetId).toBe(OWNER_TELEGRAM_ID);
     // Rendered digest header
-    expect(text).toContain('Ейсы за сутки');
+    expect(text).toContain('Daily Ace');
     expect(text).toContain('Player1');
   });
 

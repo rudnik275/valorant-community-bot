@@ -3,14 +3,15 @@ import type { Detector, DetectedEvent, MatchRecord } from '../types.ts';
 export interface AceRound {
   round: number;
   weapons: string[];
-  /** Victims killed in this ace round, in kill order. */
+  /** True iff the player's team won this round. */
+  won: boolean;
+  /** Victims killed in this ace round, in kill order, deduped by puuid. */
   victims: Array<{ puuid: string; name: string; tag: string }>;
 }
 
 interface RoundsCompactEntry {
   r: number;
   w?: string;
-  /** Henrik's `rounds[].ceremony` verbatim. "CeremonyAce" is the ground-truth ace marker. */
   c?: string;
 }
 
@@ -24,36 +25,18 @@ function parseRoundsCompact(record: MatchRecord): RoundsCompactEntry[] {
 }
 
 /**
- * Finds rounds where the player aced (killed all 5 enemies).
+ * Finds rounds where the player aced.
  *
- * Ground-truth signal: Henrik's `rounds[].ceremony === "CeremonyAce"`, plumbed
- * through `rounds_compact[].c`. This matches the in-game banner, which Valorant
- * fires ONLY when one player kills each unique enemy (no revived re-kills, no
- * self/teamkill counted) — so it sidesteps every agent-specific edge case
- * (Phoenix Run-It-Back, spike-suicide, etc.) that pure kill-count heuristics
- * would mis-handle.
- *
- * Backwards compat: for older `match_records` rows whose `rounds_compact` was
- * stored before the `c` field was added, no rounds carry `c` → no aces are
- * emitted from those rows. New scans (after this migration) populate `c`
- * correctly. We do not retroactively re-detect from kill counts because that
- * is exactly the heuristic the ceremony field replaces.
+ * Definition (this bot, NOT Riot): ≥5 kills by the player against enemies
+ * (non-self, non-teammate) in a single round. Revived-enemy re-kills count.
+ * See ADR 0003.
  */
 export function findAces(record: MatchRecord): AceRound[] {
-  const rounds = parseRoundsCompact(record);
-  const aceRoundIds = new Set(
-    rounds.filter((r) => r.c === 'CeremonyAce').map((r) => r.r),
-  );
-  if (aceRoundIds.size === 0) return [];
-
-  // We still need to attribute the ace to OUR player (ceremony is per-round,
-  // not per-player). The ace-getter killed all 5 enemies, so their kill_events
-  // for that round will contain 5 unique non-self enemy victims. Collect them
-  // so the payload (victims / weapons) reflects reality.
   const kills = parseKillEvents(record);
+
+  // Bucket player's enemy kills per round (no dedup at threshold stage).
   const byRound = new Map<number, KillEvent[]>();
   for (const k of kills) {
-    if (!aceRoundIds.has(k.round)) continue;
     if (k.attacker_puuid !== record.riot_puuid) continue;
     if (k.victim_puuid === k.attacker_puuid) continue; // self-kill (spike suicide)
     if (k.attacker_team && k.victim_team && k.attacker_team === k.victim_team) continue;
@@ -61,30 +44,40 @@ export function findAces(record: MatchRecord): AceRound[] {
     byRound.get(k.round)!.push(k);
   }
 
+  // Player's team — derived from any of their kill events.
+  const playerTeam = kills.find((k) => k.attacker_puuid === record.riot_puuid)?.attacker_team ?? '';
+
+  // Map round → winning team for outcome flag.
+  const roundWinner = new Map<number, string>();
+  for (const r of parseRoundsCompact(record)) {
+    if (r.w) roundWinner.set(r.r, r.w);
+  }
+
   const aces: AceRound[] = [];
-  for (const round of aceRoundIds) {
-    const list = byRound.get(round) ?? [];
-    // Dedupe by victim_puuid in kill order.
+  for (const [round, list] of byRound) {
+    if (list.length < 5) continue;
+
+    // Dedup victims by puuid in kill order — used for display/opponent-peak.
     const seenVictims = new Set<string>();
-    const uniqueKills: KillEvent[] = [];
+    const victims: Array<{ puuid: string; name: string; tag: string }> = [];
     for (const k of list) {
       if (seenVictims.has(k.victim_puuid)) continue;
       seenVictims.add(k.victim_puuid);
-      uniqueKills.push(k);
-    }
-    // If our player has <5 unique enemy victims, the ace belongs to a
-    // teammate, not us — don't emit. (Defensive: in normal play Valorant
-    // requires exactly 5, but data-corruption / missing fields could
-    // produce a stub.)
-    if (uniqueKills.length < 5) continue;
-    aces.push({
-      round,
-      weapons: uniqueKills.map((k) => k.weapon),
-      victims: uniqueKills.map((k) => ({
+      victims.push({
         puuid: k.victim_puuid,
         name: k.victim_name ?? '',
         tag: k.victim_tag ?? '',
-      })),
+      });
+    }
+
+    const winner = roundWinner.get(round);
+    const won = playerTeam !== '' && winner !== undefined && winner === playerTeam;
+
+    aces.push({
+      round,
+      weapons: list.map((k) => k.weapon),
+      won,
+      victims,
     });
   }
   return aces;
@@ -111,7 +104,7 @@ interface KillEvent {
 }
 
 /**
- * Ace detector: 5+ kills in a single round by the player.
+ * Ace detector: ≥5 enemy kills in a single round by the player.
  *
  * If multiple aces occur in the same match (rare but theoretically possible),
  * we emit ONE event with `rounds` array to avoid UNIQUE constraint conflict on
@@ -123,7 +116,6 @@ export const aceDetector: Detector = {
     const aces = findAces(record);
     if (aces.length === 0) return [];
 
-    // Collect all unique victims across all ace rounds (de-duped by puuid, in kill order)
     const seenPuuids = new Set<string>();
     const allVictims: Array<{ puuid: string; name: string; tag: string }> = [];
     for (const ace of aces) {
@@ -142,11 +134,13 @@ export const aceDetector: Detector = {
         match_id: record.match_id,
         payload: {
           rounds: aces.map((a) => a.round),
+          /** Subset of `rounds`: round IDs where the player's team won the round. */
+          rounds_won: aces.filter((a) => a.won).map((a) => a.round),
           weapons_per_round: aces.map((a) => a.weapons),
           total_aces: aces.length,
           /** All unique victims killed across all ace rounds. Used for opponent peak lookup. */
           victims: allVictims,
-          /** Display names in kill order (empty string if unknown). Used by templates. */
+          /** Display names in kill order (deduped). Kept for back-compat with augmenter/templates. */
           victim_names_for_template: allVictims.map((v) => v.name),
         },
       },

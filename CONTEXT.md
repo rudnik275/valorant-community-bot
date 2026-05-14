@@ -8,6 +8,8 @@ Domain terminology used throughout the codebase. See issue #2 for full architect
 
 **Detected event** — строка таблицы `detected_events` со статусом `pending` / `posted` / `digest-only` / `silent` / `opted-out`; представляет один заметный игровой момент (эйс, клатч, антистат), готовый к публикации в чат.
 
+**Ace** — в этом боте: ≥5 килов по врагам (не своим, не себе) одним игроком за один раунд. Шире Riot-определения «убил всех пятерых» — мы засчитываем реврайв-рекилы и кейсы, где игрок умер до конца раунда (например, от спайка). Riot-овская in-game церемония (`CeremonyAce`) намеренно игнорируется. См. ADR 0003.
+
 **Scan-tick** — фоновый cron-job (croner), запускается каждые 30 минут; тянет новые матчи из Henrik API для всех зарегистрированных игроков и пишет Match records + Detected events в БД.
 
 **Publisher-tick** — фоновый cron-job (croner), запускается каждые 1 минуту; читает `pending` Detected events и постит их в Telegram-чат с соблюдением Anti-spam quota.
