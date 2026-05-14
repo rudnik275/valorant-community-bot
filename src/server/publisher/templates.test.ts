@@ -192,6 +192,38 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('tracker.gg/valorant/match/xyz789');
   });
 
+  it('match_comeback: minimal payload (no community_players) falls back to single user inline with dash', () => {
+    const output = renderTemplate(
+      'match_comeback',
+      { deficit_score_player: 0, deficit_score_opponent: 9, final_score_player: 16, final_score_opponent: 14 },
+      safeUser,
+      { map: 'Breeze', match_id: 'abc' },
+    );
+    expect(output).toContain('<b>Player#TAG</b> — отыгрались с 0:9 до 16:14 на карте Breeze');
+  });
+
+  it('match_comeback: multiple community_players renders one per line with dash on action line', () => {
+    const output = renderTemplate(
+      'match_comeback',
+      {
+        deficit_score_player: 0,
+        deficit_score_opponent: 9,
+        final_score_player: 16,
+        final_score_opponent: 14,
+        community_players: [
+          { puuid: 'p1', name: 'Alpha', tag: 'A' },
+          { puuid: 'p2', name: 'Bravo', tag: 'B' },
+          { puuid: 'p3', name: 'Charlie', tag: 'C' },
+        ],
+      },
+      safeUser,
+      { map: 'Breeze' },
+    );
+    expect(output).toContain('<b>Alpha#A</b>\n<b>Bravo#B</b>\n<b>Charlie#C</b>\n— отыгрались с 0:9 до 16:14 на карте Breeze');
+    // The triggering safeUser must not leak when community_players is set.
+    expect(output).not.toContain('<b>Player#TAG</b>');
+  });
+
   it('return_after_pause: shows days_paused and С возвращением text', () => {
     const output = renderTemplate('return_after_pause', { days_paused: 14 }, safeUser);
     expect(output).toContain('14');
