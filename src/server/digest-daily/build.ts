@@ -7,8 +7,8 @@
  *   - detected_at in [windowStart, windowEnd)
  *   - id NOT IN excludeEventIds
  *
- * Groups by player (riot_puuid), collapses same-match events,
- * and renders a group-by-player Telegram HTML message.
+ * Renders a flat chronological list (one line per ace event = one (player, match)).
+ * Format and rationale: see ADR 0003.
  */
 
 import { and, gte, lt, inArray, notInArray, eq } from 'drizzle-orm';
@@ -19,6 +19,8 @@ import { esc } from '../publisher/templates.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
+
+const MAP_EMOJI = '🗺';
 
 export interface BuildDailyDigestDeps {
   db: AnyDb;
@@ -41,23 +43,19 @@ interface AceRow {
   riotName: string | null;
   riotTag: string | null;
   map: string | null;
+  agent: string | null;
 }
 
-interface MatchBullet {
-  matchId: string;
-  map: string | null;
-  maxKills: number;
-  aceCount: number; // payload.weapons_per_round.length — number of aces in this match
-  detectedAt: number; // earliest detected_at for sorting
-}
-
-interface PlayerSection {
-  puuid: string;
+interface Line {
+  eventId: number;
   riotName: string;
   riotTag: string;
-  totalAces: number; // sum of aceCount across all bullets
-  earliestDetectedAt: number;
-  bullets: MatchBullet[];
+  agent: string;
+  map: string | null;
+  matchId: string;
+  rounds: number[]; // 0-indexed round ids
+  roundsWon: number[] | null; // null = legacy event without the field
+  detectedAt: number;
 }
 
 export async function buildDailyAceDigest(
@@ -65,7 +63,6 @@ export async function buildDailyAceDigest(
 ): Promise<BuildDailyDigestResult> {
   const { db, windowStart, windowEnd, excludeEventIds } = deps;
 
-  // Build the WHERE conditions
   const conditions = [
     eq(detectedEvents.event_type, 'ace'),
     inArray(detectedEvents.status, ['silent', 'digest-only']),
@@ -77,7 +74,6 @@ export async function buildDailyAceDigest(
     conditions.push(notInArray(detectedEvents.id, excludeEventIds));
   }
 
-  // Select ace events with user and match info
   const rows = await db
     .select({
       id: detectedEvents.id,
@@ -88,6 +84,7 @@ export async function buildDailyAceDigest(
       riotName: users.riot_name,
       riotTag: users.riot_tag,
       map: matchRecords.map,
+      agent: matchRecords.agent,
     })
     .from(detectedEvents)
     .leftJoin(users, eq(users.riot_puuid, detectedEvents.riot_puuid))
@@ -108,107 +105,70 @@ export async function buildDailyAceDigest(
   const typedRows = rows as AceRow[];
   const includedEventIds: number[] = typedRows.map((r) => r.id);
 
-  // Group by puuid
-  const playerMap = new Map<string, { rows: AceRow[]; riotName: string; riotTag: string }>();
-
-  for (const row of typedRows) {
-    const puuid = row.puuid ?? 'unknown';
-    if (!playerMap.has(puuid)) {
-      playerMap.set(puuid, {
-        rows: [],
-        riotName: row.riotName ?? puuid,
-        riotTag: row.riotTag ?? '',
-      });
-    }
-    playerMap.get(puuid)!.rows.push(row);
-  }
-
-  // Build player sections
-  const sections: PlayerSection[] = [];
-
-  for (const [puuid, { rows: playerRows, riotName, riotTag }] of playerMap) {
-    // Group this player's rows by matchId
-    const matchMap = new Map<string, AceRow[]>();
-    for (const row of playerRows) {
-      const mid = row.matchId;
-      if (!matchMap.has(mid)) matchMap.set(mid, []);
-      matchMap.get(mid)!.push(row);
-    }
-
-    // Build bullets (one per match). Under the UNIQUE(match_id, event_type,
-    // riot_puuid) constraint on detected_events there is at most one row per
-    // (match, player); multiple aces in the same match are encoded as multiple
-    // entries inside payload.weapons_per_round (length === number of aces).
-    const bullets: MatchBullet[] = [];
-    for (const [matchId, matchRows] of matchMap) {
-      let maxKills = 5;
-      let aceCount = 0;
-      for (const r of matchRows) {
-        try {
-          const payload = JSON.parse(r.payloadJson) as Record<string, unknown>;
-          const wpr = Array.isArray(payload['weapons_per_round'])
-            ? (payload['weapons_per_round'] as unknown[][])
-            : [];
-          aceCount += wpr.length;
-          for (const round of wpr) {
-            if (Array.isArray(round) && round.length > maxKills) {
-              maxKills = round.length;
-            }
-          }
-        } catch {
-          // ignore bad json
-        }
+  // One line per row (UNIQUE(match_id, event_type, riot_puuid) gives at most one row per (player, match)).
+  const lines: Line[] = typedRows.map((row) => {
+    let rounds: number[] = [];
+    let roundsWon: number[] | null = null;
+    try {
+      const payload = JSON.parse(row.payloadJson) as Record<string, unknown>;
+      if (Array.isArray(payload['rounds'])) {
+        rounds = (payload['rounds'] as unknown[]).filter((r): r is number => typeof r === 'number');
       }
-
-      bullets.push({
-        matchId,
-        map: matchRows[0]?.map ?? null,
-        maxKills,
-        aceCount: aceCount || matchRows.length,
-        detectedAt: Math.min(...matchRows.map((r) => r.detectedAt)),
-      });
+      if (Array.isArray(payload['rounds_won'])) {
+        roundsWon = (payload['rounds_won'] as unknown[]).filter((r): r is number => typeof r === 'number');
+      }
+    } catch {
+      // ignore bad json
     }
 
-    // Sort bullets by detectedAt asc
-    bullets.sort((a, b) => a.detectedAt - b.detectedAt);
-
-    const totalAces = bullets.reduce((sum, b) => sum + b.aceCount, 0);
-    const earliestDetectedAt = Math.min(...playerRows.map((r) => r.detectedAt));
-
-    sections.push({
-      puuid,
-      riotName,
-      riotTag,
-      totalAces,
-      earliestDetectedAt,
-      bullets,
-    });
-  }
-
-  // Sort sections: by total ace count desc, ties by earliest detected_at asc
-  sections.sort((a, b) => {
-    if (b.totalAces !== a.totalAces) return b.totalAces - a.totalAces;
-    return a.earliestDetectedAt - b.earliestDetectedAt;
+    return {
+      eventId: row.id,
+      riotName: row.riotName ?? row.puuid,
+      riotTag: row.riotTag ?? '',
+      agent: row.agent ?? '',
+      map: row.map,
+      matchId: row.matchId,
+      rounds: [...rounds].sort((a, b) => a - b),
+      roundsWon,
+      detectedAt: row.detectedAt,
+    };
   });
 
-  // Render
-  const header = `🎯 <b>Ейсы за сутки</b>`;
+  // Chronology — earliest first.
+  lines.sort((a, b) => a.detectedAt - b.detectedAt);
 
-  const sectionTexts = sections.map((sec) => {
-    const playerHeader = `<b>${esc(sec.riotName)}#${esc(sec.riotTag)}</b> (${sec.totalAces})`;
+  const header = `🎯 Daily Ace`;
+  const legend = `<i>💀 ace без победы в раунде</i>\n<i>🏆 ace с победой в раунде</i>`;
 
-    const bulletLines = sec.bullets.map((b) => {
-      const mapPart = b.map ? esc(b.map) : '';
-      const killsLabel = b.maxKills > 5 ? `, ${b.maxKills} убийств` : '';
-      const multiLabel = b.aceCount >= 2 ? ` ×${b.aceCount}` : '';
-      const matchLinkPart = ` · <a href="https://tracker.gg/valorant/match/${esc(b.matchId)}">матч</a>`;
-      return `• ${mapPart}${killsLabel}${multiLabel}${matchLinkPart}`;
-    });
-
-    return `${playerHeader}\n${bulletLines.join('\n')}`;
-  });
-
-  const text = `${header}\n\n${sectionTexts.join('\n\n')}`;
+  const lineTexts = lines.map((l) => renderLine(l));
+  const text = `${header}\n${legend}\n\n${lineTexts.join('\n')}`;
 
   return { text, includedEventIds };
+}
+
+function renderLine(l: Line): string {
+  const playerPart = `<b>${esc(l.riotName)}#${esc(l.riotTag)}</b>`;
+  const agentPart = l.agent ? ` (${esc(l.agent)})` : '';
+  const mapPart = l.map
+    ? ` · ${MAP_EMOJI}<a href="https://tracker.gg/valorant/match/${esc(l.matchId)}">${esc(l.map)}</a>`
+    : '';
+
+  const aceCount = l.rounds.length;
+  const roundsPart = aceCount === 0
+    ? ''
+    : aceCount === 1
+      ? ` ${roundLabel(l.rounds[0]!, l.roundsWon)}`
+      : ` x${aceCount} (${l.rounds.map((r) => roundLabel(r, l.roundsWon)).join(', ')})`;
+
+  return `${playerPart}${agentPart}${roundsPart}${mapPart}`;
+}
+
+function roundLabel(round0: number, roundsWon: number[] | null): string {
+  const display = round0 + 1; // 1-indexed for chat (Valorant scoreboard convention)
+  if (roundsWon === null) {
+    // Legacy event without rounds_won field — no win/loss emoji available.
+    return `round ${display}`;
+  }
+  const emoji = roundsWon.includes(round0) ? '🏆' : '💀';
+  return `${emoji}round ${display}`;
 }
