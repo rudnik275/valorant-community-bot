@@ -171,9 +171,12 @@ export async function scanForPuuid(
   }
 
   // 2.6. Refresh account info (riot_card_id) on every scan tick.
+  // `force: true` bypasses Henrik's upstream cache so a user changing their
+  // in-game player card actually propagates here (Henrik caches account
+  // responses for hours otherwise — the card field stays stale).
   // Only write if Henrik returned a non-null cardId — preserve last-known-good otherwise.
   try {
-    const account = await getAccountByPuuid(puuid, { priority });
+    const account = await getAccountByPuuid(puuid, { priority, force: true });
     if (account.cardId != null) {
       await db
         .update(users)

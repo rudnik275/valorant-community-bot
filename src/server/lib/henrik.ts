@@ -488,12 +488,17 @@ export async function validateAccount(
 /**
  * Look up a Riot account by PUUID.
  * Returns parsed account data or throws typed HenrikError.
+ *
+ * `force: true` appends `?force=true` to bypass Henrik's upstream cache —
+ * needed for fields like `card` that change after a user updates their
+ * in-game profile but don't refresh until Henrik re-scrapes.
  */
 export async function getAccountByPuuid(
   puuid: string,
-  opts?: { priority?: Priority },
+  opts?: { priority?: Priority; force?: boolean },
 ): Promise<RiotAccount> {
-  const endpoint = `/valorant/v1/by-puuid/account/${encodeURIComponent(puuid)}`;
+  const base = `/valorant/v1/by-puuid/account/${encodeURIComponent(puuid)}`;
+  const endpoint = opts?.force ? `${base}?force=true` : base;
   return henrikQueue.enqueue({
     key: endpoint,
     priority: opts?.priority ?? 'background',
