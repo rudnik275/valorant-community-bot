@@ -8,7 +8,7 @@ import healthz from './api/healthz.ts';
 import { scopeGuard } from './bot/scope-guard.ts';
 import { makeLastMessageHandler } from './bot/listener.ts';
 import { makeChatMemberListener } from './bot/chat-member-listener.ts';
-import { makeTestDigestHandler, makeTestRuntimeEventsHandler, makeTestDailyAceHandler } from './bot/test-commands.ts';
+import { makeTestDigestHandler, makeTestRuntimeEventsHandler, makeTestDailyCronHandler } from './bot/test-commands.ts';
 import { makeCongratsHandler, makeCongratsCallbackHandler } from './bot/congrats-command.ts';
 import { setupAdminCommandsForOwner } from './bot/setup-admin-commands.ts';
 import { isAllowedChat } from './lib/scope.ts';
@@ -49,7 +49,7 @@ if (botToken) {
   // Admin-only preview commands. Gated internally by isOwner() (TELEGRAM_OWNER_ID).
   bot.command('test_digest', makeTestDigestHandler({ db, bot }));
   bot.command('test_runtime_events', makeTestRuntimeEventsHandler({ db, bot }));
-  bot.command('test_daily_ace', makeTestDailyAceHandler({ db, bot }));
+  bot.command('test_daily_cron', makeTestDailyCronHandler({ db, bot }));
   // Admin: /congrats <nickname> → preview-then-confirm post of yesterday's
   // matches for the matched player to the primary chat.
   const getPrimaryChatId = () => Number(process.env['TELEGRAM_PRIMARY_CHAT_ID'] ?? '0');
