@@ -247,7 +247,18 @@ const templates: Record<EventType, TemplateFn> = {
     const dop = payload['deficit_score_opponent'] ?? '?';
     const fp = payload['final_score_player'] ?? '?';
     const fop = payload['final_score_opponent'] ?? '?';
-    const desc = `${playerTag(user)} — отыгрались с ${dp}:${dop} до ${fp}:${fop}${mapSuffix(match?.map)}`;
+    // Group all community members on the winning team into one message instead
+    // of spamming N copies. Falls back to the single triggering user when
+    // community_players is absent (older events, tests with minimal payloads).
+    const players = Array.isArray(payload['community_players'])
+      ? payload['community_players'] as Array<{ puuid: string; name: string; tag: string }>
+      : [];
+    const playersLine = players
+      .map((p) => p.name ? `<b>${esc(p.name)}#${esc(p.tag ?? '')}</b>` : '')
+      .filter((s) => s)
+      .join(', ');
+    const lead = playersLine || playerTag(user);
+    const desc = `${lead} — отыгрались с ${dp}:${dop} до ${fp}:${fop}${mapSuffix(match?.map)}`;
     const link = match?.match_id ? matchLine(match.match_id) : '';
     return `👏 <u>Мы вами гордимся</u>\n\n${desc}${link}`;
   },
