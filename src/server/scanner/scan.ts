@@ -285,29 +285,32 @@ export async function scanForPuuid(
 /**
  * Match-driven profile sync.
  *
- * Walks every player in every match, picks the freshest (latest-started match)
- * customization.card / name / tag per puuid, and UPDATEs any users we already
- * know (linked via riot_puuid). Last-known-good for each field — never overwrite
- * a real value with null. Updates only the fields that actually differ.
+ * Walks every player in every match, picks the freshest non-null `customization.card`
+ * / `name` / `tag` per puuid (each field tracked independently — Henrik sometimes
+ * omits `customization` for a player in a given match, so a strictly-latest-match
+ * approach would miss real card data sitting one match older). UPDATEs any users
+ * we already know (linked via riot_puuid). Last-known-good for each field — never
+ * overwrite a real value with null. Updates only the fields that actually differ.
  */
 async function syncProfilesFromMatches(db: AnyDb, matches: HenrikMatchV4[]): Promise<void> {
   if (matches.length === 0) return;
 
-  // 1. Build map: puuid → freshest observed { card, name, tag }
-  const freshest = new Map<string, { startedAt: number; card: string | null; name: string | null; tag: string | null }>();
-  for (const m of matches) {
-    const startedAt = m.metadata.started_at ? Date.parse(m.metadata.started_at) : 0;
+  // Iterate newest-first so the first non-null observation per field wins.
+  const sorted = [...matches].sort((a, b) => {
+    const aT = a.metadata.started_at ? Date.parse(a.metadata.started_at) : 0;
+    const bT = b.metadata.started_at ? Date.parse(b.metadata.started_at) : 0;
+    return bT - aT;
+  });
+
+  const freshest = new Map<string, { card: string | null; name: string | null; tag: string | null }>();
+  for (const m of sorted) {
     for (const p of m.players) {
       if (!p.puuid) continue;
-      const card = p.customization?.card ?? null;
-      const name = p.name ?? null;
-      const tag = p.tag ?? null;
-      // Skip players where match carries nothing useful at all.
-      if (card == null && name == null && tag == null) continue;
-      const cur = freshest.get(p.puuid);
-      if (!cur || startedAt > cur.startedAt) {
-        freshest.set(p.puuid, { startedAt, card, name, tag });
-      }
+      const cur = freshest.get(p.puuid) ?? { card: null, name: null, tag: null };
+      if (cur.card == null && p.customization?.card != null) cur.card = p.customization.card;
+      if (cur.name == null && p.name != null) cur.name = p.name;
+      if (cur.tag == null && p.tag != null) cur.tag = p.tag;
+      freshest.set(p.puuid, cur);
     }
   }
 
