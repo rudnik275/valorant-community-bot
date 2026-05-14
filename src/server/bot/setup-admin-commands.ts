@@ -25,7 +25,7 @@ export const ADMIN_COMMANDS: ReadonlyArray<{ command: string; description: strin
   { command: 'congrats', description: 'Поздравить игрока за сегодняшние матчи' },
   { command: 'test_digest', description: 'Превью еженедельного дайджеста' },
   { command: 'test_runtime_events', description: 'Переиграть realtime-события' },
-  { command: 'test_daily_ace', description: 'Превью ежедневного дайджеста ейсов' },
+  { command: 'test_daily_cron', description: 'Превью ежедневного крона: 0=сегодняшний, N=N дней назад' },
 ];
 
 export async function setupAdminCommandsForOwner(bot: Bot): Promise<void> {

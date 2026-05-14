@@ -7,10 +7,11 @@ import {
   isOwner,
   OWNER_TELEGRAM_ID,
   parseDaysArg,
+  parseDaysBackArg,
   makeTestDigestHandler,
   makeTestRuntimeEventsHandler,
-  makeTestDailyAceHandler,
-  resolveDailyAceWindow,
+  makeTestDailyCronHandler,
+  resolveDailyCronWindow,
 } from './test-commands.ts';
 
 describe('isOwner', () => {
@@ -111,7 +112,42 @@ describe('admin gate (non-owner is silently ignored)', () => {
   });
 });
 
-// ─── /test_daily_ace ─────────────────────────────────────────────────────────
+// ─── parseDaysBackArg ────────────────────────────────────────────────────────
+
+describe('parseDaysBackArg', () => {
+  it('returns 0 when text is undefined', () => {
+    expect(parseDaysBackArg(undefined)).toBe(0);
+  });
+
+  it('returns 0 when arg is missing (just the slash command)', () => {
+    expect(parseDaysBackArg('/test_daily_cron')).toBe(0);
+    expect(parseDaysBackArg('/test_daily_cron   ')).toBe(0);
+  });
+
+  it('returns 0 for non-numeric arg', () => {
+    expect(parseDaysBackArg('/test_daily_cron abc')).toBe(0);
+  });
+
+  it('returns 0 for negative numbers (clamps to 0)', () => {
+    expect(parseDaysBackArg('/test_daily_cron -3')).toBe(0);
+  });
+
+  it('returns N for valid 0..30', () => {
+    expect(parseDaysBackArg('/test_daily_cron 0')).toBe(0);
+    expect(parseDaysBackArg('/test_daily_cron 1')).toBe(1);
+    expect(parseDaysBackArg('/test_daily_cron 30')).toBe(30);
+  });
+
+  it('clamps values above 30 to 30', () => {
+    expect(parseDaysBackArg('/test_daily_cron 100')).toBe(30);
+  });
+
+  it('handles bot-name suffix in slash command', () => {
+    expect(parseDaysBackArg('/test_daily_cron@mybot 5')).toBe(5);
+  });
+});
+
+// ─── /test_daily_cron ────────────────────────────────────────────────────────
 
 vi.mock('../lib/log.ts', () => ({
   default: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -173,7 +209,7 @@ function seedDailyRun(sqlite: Database.Database, runDate: string, postedAt: numb
     .run(runDate, postedAt ?? Date.now() - 60_000, postedAt);
 }
 
-describe('resolveDailyAceWindow', () => {
+describe('resolveDailyCronWindow (daysBack=0)', () => {
   let db: ReturnType<typeof makeTestDb>['db'];
   let sqlite: Database.Database;
 
@@ -187,7 +223,7 @@ describe('resolveDailyAceWindow', () => {
 
   it('falls back to 24h when no daily_digest_runs rows exist', async () => {
     const before = Date.now();
-    const { windowStart, windowEnd } = await resolveDailyAceWindow(db);
+    const { windowStart, windowEnd } = await resolveDailyCronWindow(db, 0);
     const after = Date.now();
 
     expect(windowEnd).toBeGreaterThanOrEqual(before);
@@ -198,7 +234,7 @@ describe('resolveDailyAceWindow', () => {
   it('falls back to 24h when runs exist but all have posted_at=null', async () => {
     seedDailyRun(sqlite, '2025-01-01', null);
     const before = Date.now();
-    const { windowStart, windowEnd } = await resolveDailyAceWindow(db);
+    const { windowStart, windowEnd } = await resolveDailyCronWindow(db, 0);
     const after = Date.now();
 
     expect(windowEnd).toBeGreaterThanOrEqual(before);
@@ -212,12 +248,66 @@ describe('resolveDailyAceWindow', () => {
     seedDailyRun(sqlite, '2025-01-01', olderPostedAt);
     seedDailyRun(sqlite, '2025-01-02', recentPostedAt);
 
-    const { windowStart } = await resolveDailyAceWindow(db);
+    const { windowStart } = await resolveDailyCronWindow(db, 0);
     expect(windowStart).toBe(recentPostedAt);
   });
 });
 
-describe('makeTestDailyAceHandler', () => {
+describe('resolveDailyCronWindow (daysBack >= 1)', () => {
+  let db: ReturnType<typeof makeTestDb>['db'];
+  let sqlite: Database.Database;
+
+  beforeEach(() => {
+    ({ db, sqlite } = makeTestDb());
+  });
+
+  afterEach(() => {
+    sqlite.close();
+  });
+
+  // Pick a fixed nowMs well inside DST (Aug 1 2026 12:00 UTC) so we deterministically
+  // hit the +3 Kyiv offset and avoid DST-transition edge cases in test assertions.
+  const NOW_DST = Date.UTC(2026, 7, 1, 12, 0, 0);
+
+  function kyivDateOf(ms: number): string {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Kyiv',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(ms);
+  }
+
+  function kyivHourOf(ms: number): number {
+    return Number(new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Europe/Kyiv', hour: '2-digit', hour12: false,
+    }).formatToParts(ms).find((p) => p.type === 'hour')?.value ?? -1);
+  }
+
+  it('daysBack=1 → windowEnd is 23:00 Kyiv yesterday, windowStart is 23:00 Kyiv day before', async () => {
+    const { windowStart, windowEnd } = await resolveDailyCronWindow(db, 1, NOW_DST);
+    expect(kyivHourOf(windowStart)).toBe(23);
+    expect(kyivHourOf(windowEnd)).toBe(23);
+    expect(windowEnd - windowStart).toBe(24 * 3600 * 1000);
+    // windowEnd date = yesterday Kyiv relative to NOW_DST.
+    expect(kyivDateOf(windowEnd)).toBe('2026-07-31');
+    expect(kyivDateOf(windowStart)).toBe('2026-07-30');
+  });
+
+  it('daysBack=2 → window is 2 days before NOW_DST', async () => {
+    const { windowStart, windowEnd } = await resolveDailyCronWindow(db, 2, NOW_DST);
+    expect(kyivDateOf(windowEnd)).toBe('2026-07-30');
+    expect(kyivDateOf(windowStart)).toBe('2026-07-29');
+  });
+
+  it('does NOT consult daily_digest_runs for daysBack >= 1', async () => {
+    // Seed a recent posted_at — should be ignored when daysBack=1.
+    seedDailyRun(sqlite, '2026-07-31', Date.now() - 1000);
+    const { windowEnd } = await resolveDailyCronWindow(db, 1, NOW_DST);
+    expect(kyivDateOf(windowEnd)).toBe('2026-07-31');
+    expect(kyivHourOf(windowEnd)).toBe(23);
+  });
+});
+
+describe('makeTestDailyCronHandler', () => {
   let db: ReturnType<typeof makeTestDb>['db'];
   let sqlite: Database.Database;
 
@@ -237,8 +327,8 @@ describe('makeTestDailyAceHandler', () => {
 
   it('non-owner is silently ignored — no sendMessage', async () => {
     const bot = makeMockBot();
-    const handler = makeTestDailyAceHandler({ db, bot: bot as never });
-    const ctx = { from: { id: 99999 }, message: { text: '/test_daily_ace' } };
+    const handler = makeTestDailyCronHandler({ db, bot: bot as never });
+    const ctx = { from: { id: 99999 }, message: { text: '/test_daily_cron' } };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await handler(ctx as any, async () => {});
     expect(bot.api.sendMessage).not.toHaveBeenCalled();
@@ -246,8 +336,8 @@ describe('makeTestDailyAceHandler', () => {
 
   it('owner + empty daily_digest_runs + no aces → fallback 24h window + "Нет ейсов" reply', async () => {
     const bot = makeMockBot();
-    const handler = makeTestDailyAceHandler({ db, bot: bot as never });
-    const ctx = { from: { id: OWNER_TELEGRAM_ID }, message: { text: '/test_daily_ace' } };
+    const handler = makeTestDailyCronHandler({ db, bot: bot as never });
+    const ctx = { from: { id: OWNER_TELEGRAM_ID }, message: { text: '/test_daily_cron' } };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await handler(ctx as any, async () => {});
 
@@ -264,8 +354,8 @@ describe('makeTestDailyAceHandler', () => {
     seedDailyRun(sqlite, '2025-05-10', postedAt);
 
     const bot = makeMockBot();
-    const handler = makeTestDailyAceHandler({ db, bot: bot as never });
-    const ctx = { from: { id: OWNER_TELEGRAM_ID }, message: { text: '/test_daily_ace' } };
+    const handler = makeTestDailyCronHandler({ db, bot: bot as never });
+    const ctx = { from: { id: OWNER_TELEGRAM_ID }, message: { text: '/test_daily_cron' } };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await handler(ctx as any, async () => {});
 
@@ -288,8 +378,8 @@ describe('makeTestDailyAceHandler', () => {
     seedAceEvent(sqlite, 'p1', 'match-1', inWindow);
 
     const bot = makeMockBot();
-    const handler = makeTestDailyAceHandler({ db, bot: bot as never });
-    const ctx = { from: { id: OWNER_TELEGRAM_ID }, message: { text: '/test_daily_ace' } };
+    const handler = makeTestDailyCronHandler({ db, bot: bot as never });
+    const ctx = { from: { id: OWNER_TELEGRAM_ID }, message: { text: '/test_daily_cron' } };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await handler(ctx as any, async () => {});
 
@@ -308,8 +398,8 @@ describe('makeTestDailyAceHandler', () => {
     seedAceEvent(sqlite, 'p1', 'match-1', inWindow);
 
     const bot = makeMockBot();
-    const handler = makeTestDailyAceHandler({ db, bot: bot as never });
-    const ctx = { from: { id: OWNER_TELEGRAM_ID }, message: { text: '/test_daily_ace' } };
+    const handler = makeTestDailyCronHandler({ db, bot: bot as never });
+    const ctx = { from: { id: OWNER_TELEGRAM_ID }, message: { text: '/test_daily_cron' } };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await handler(ctx as any, async () => {});
 
