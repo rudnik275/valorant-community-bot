@@ -37,22 +37,3 @@ export async function safeSendMessage(
   return api.sendMessage(chatId, text, opts);
 }
 
-export async function safePromote(
-  api: Api,
-  chatId: number,
-  userId: number,
-  opts?: Parameters<Api['promoteChatMember']>[2],
-): ReturnType<Api['promoteChatMember']> {
-  assertAllowed(chatId);
-  return api.promoteChatMember(chatId, userId, opts);
-}
-
-export async function safeSetCustomTitle(
-  api: Api,
-  chatId: number,
-  userId: number,
-  title: string,
-): ReturnType<Api['setChatAdministratorCustomTitle']> {
-  assertAllowed(chatId);
-  return api.setChatAdministratorCustomTitle(chatId, userId, title);
-}
