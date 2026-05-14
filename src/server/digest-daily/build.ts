@@ -27,6 +27,13 @@ export interface BuildDailyDigestDeps {
   windowStart: number; // ms epoch, inclusive
   windowEnd: number; // ms epoch, exclusive
   excludeEventIds?: number[]; // IDs already posted in prior daily runs
+  /**
+   * If true, include events of ANY status. Default false (cron behavior):
+   * only `silent` / `digest-only` events are eligible. Set true from the
+   * admin /test_daily_cron handler so historical `posted` events stay visible
+   * in past-window previews.
+   */
+  includeAllStatuses?: boolean;
 }
 
 export interface BuildDailyDigestResult {
@@ -61,14 +68,17 @@ interface Line {
 export async function buildDailyAceDigest(
   deps: BuildDailyDigestDeps,
 ): Promise<BuildDailyDigestResult> {
-  const { db, windowStart, windowEnd, excludeEventIds } = deps;
+  const { db, windowStart, windowEnd, excludeEventIds, includeAllStatuses } = deps;
 
   const conditions = [
     eq(detectedEvents.event_type, 'ace'),
-    inArray(detectedEvents.status, ['silent', 'digest-only']),
     gte(detectedEvents.detected_at, windowStart),
     lt(detectedEvents.detected_at, windowEnd),
   ];
+
+  if (!includeAllStatuses) {
+    conditions.push(inArray(detectedEvents.status, ['silent', 'digest-only']));
+  }
 
   if (excludeEventIds && excludeEventIds.length > 0) {
     conditions.push(notInArray(detectedEvents.id, excludeEventIds));

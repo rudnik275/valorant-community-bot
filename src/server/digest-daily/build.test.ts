@@ -314,6 +314,21 @@ describe('buildDailyAceDigest', () => {
       expect(result.includedEventIds).toEqual([]);
     });
 
+    it('DOES include status=posted events when includeAllStatuses=true (diagnostic mode)', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'PostedAce', riotTag: 'PA' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'po-match', startedAt: IN_WINDOW, agent: 'Sage' });
+      const id = seedAceEvent(sqlite, { puuid: 'p1', matchId: 'po-match', detectedAt: IN_WINDOW, status: 'posted' });
+
+      const result = await buildDailyAceDigest({
+        db,
+        windowStart: WIN_START,
+        windowEnd: WIN_END,
+        includeAllStatuses: true,
+      });
+      expect(result.includedEventIds).toContain(id);
+      expect(result.text).toContain('PostedAce');
+    });
+
     it('does NOT include events with status=failed', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'FailedAce', riotTag: 'FA' });
       seedMatch(sqlite, { puuid: 'p1', matchId: 'fa-match', startedAt: IN_WINDOW });
