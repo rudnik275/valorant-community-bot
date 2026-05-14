@@ -20,17 +20,16 @@ import { verifyInitData } from './lib/init-data.ts';
 import { sql } from 'drizzle-orm';
 import { users } from './db/schema/users.ts';
 import { makeAvatarCache } from './lib/telegram-avatar.ts';
-import { validateAccount, getAccountByPuuid } from './lib/henrik.ts';
+import { validateAccount } from './lib/henrik.ts';
 import { loadAllowedChatIds } from './lib/scope.ts';
 import { scanForPuuid as scanForPuuidBase, startScanLoop } from './scanner/index.ts';
-import { startRiotIdTrackerLoop } from './scanner/riot-id-tracker.ts';
 import { startDetectionListener } from './publisher/detect.ts';
 import { startPublisherLoop } from './publisher/loop.ts';
 import { startDigestLoop } from './digest/loop.ts';
 import { startDailyDigestLoop } from './digest-daily/loop.ts';
 import { startRestrictGraceLoop } from './cron/restrict-grace.ts';
 import { startRetryPendingOnboardLoop } from './cron/retry-pending-onboard.ts';
-import { safeSendMessage, safeSetCustomTitle } from './lib/safe-telegram.ts';
+import { safeSendMessage } from './lib/safe-telegram.ts';
 import { isPublishingEnabled } from './lib/silent-period.ts';
 
 const PORT = Number(process.env['PORT'] ?? 3000);
@@ -176,14 +175,6 @@ if (process.env['SCANNER_DISABLED'] !== 'true') {
     } else {
       logger.warn({ module: 'publisher' }, 'TELEGRAM_PRIMARY_CHAT_ID not set — publisher disabled');
     }
-
-    startRiotIdTrackerLoop({
-      db,
-      getAccountByPuuid,
-      setCustomTitleInChat: (chatId, telegramId, title) =>
-        safeSetCustomTitle(bot!.api, chatId, telegramId, title).then(() => undefined),
-      getAllowedChatIds: loadAllowedChatIds,
-    });
 
     startRestrictGraceLoop({
       db,

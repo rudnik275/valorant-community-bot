@@ -292,7 +292,7 @@ describe('scanForPuuid', () => {
 
   it('returns gracefully on HenrikUpstreamError (5xx)', async () => {
     seedUser();
-    // getMmrByPuuid + getAccountByPuuid + getMatches each retry 2x on 5xx → up to 9 total calls
+    // getMmrByPuuid + getMatches each retry 2x on 5xx → up to 6 total calls
     // with random jitter (500–2000ms/retry). Bumped timeout to 30s so CI doesn't flake.
     fetchMock.mockImplementation(async () => new Response('Internal Error', { status: 500 }));
 
@@ -332,8 +332,8 @@ describe('scanForPuuid', () => {
 
     await scanForPuuid(db, TARGET_PUUID, { detection: false });
 
-    // 3 calls expected: MMR fetch + account card refresh + matches fetch
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    // 2 calls expected: MMR fetch + matches fetch (card/name/tag come from match data)
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     const matchesUrl = (fetchMock.mock.calls.find((c: unknown[]) =>
       typeof c[0] === 'string' && (c[0] as string).includes('/v4/by-puuid/matches/'),
     )?.[0] as string | undefined);
@@ -401,10 +401,7 @@ describe('scanForPuuid', () => {
     // Second call → getMmrByPuuid (will fail to parse as MMR — that's OK, scan continues)
     fetchMock.mockImplementationOnce(async () => new Response(JSON.stringify(makeFakeMatchResponse('mmr-noise')), { status: 200 }),
     );
-    // Third call → getAccountByPuuid (card refresh — will fail to parse account response, that's OK)
-    fetchMock.mockImplementationOnce(async () => new Response(JSON.stringify(makeAccountResponse()), { status: 200 }),
-    );
-    // Fourth call → getMatches
+    // Third call → getMatches
     fetchMock.mockImplementationOnce(async () => new Response(JSON.stringify(makeFakeMatchResponse('backfill-match-666')), { status: 200 }),
     );
 
@@ -465,14 +462,6 @@ describe('scanForPuuid', () => {
       current: { tier: { id: undefined as any, name: undefined as any }, rr: 0, last_change: 0 },
       peak: null,
     });
-    // getAccountByPuuid — return minimal valid account so card step doesn't throw
-    const accountSpy = vi.spyOn(henrik, 'getAccountByPuuid').mockResolvedValue({
-      puuid: TARGET_PUUID,
-      region: 'eu',
-      name: 'TestPlayer',
-      tag: 'EU1',
-      cardId: null,
-    });
     // getMatches — return empty list so scan continues cleanly
     const matchesSpy = vi.spyOn(henrik, 'getMatches').mockResolvedValueOnce([]);
 
@@ -495,7 +484,6 @@ describe('scanForPuuid', () => {
     expect(row.peak_season_short).toBe('e8a1');
 
     mmrSpy.mockRestore();
-    accountSpy.mockRestore();
     matchesSpy.mockRestore();
   });
 
@@ -507,13 +495,6 @@ describe('scanForPuuid', () => {
     const mmrSpy = vi.spyOn(henrik, 'getMmrByPuuid').mockResolvedValueOnce({
       current: { tier: { id: 21, name: 'Immortal 1' }, rr: 55, last_change: -10 },
       peak: { tier: { id: 24, name: 'Radiant' }, rr: 100, season: 'e8a1' },
-    });
-    const accountSpy = vi.spyOn(henrik, 'getAccountByPuuid').mockResolvedValue({
-      puuid: TARGET_PUUID,
-      region: 'eu',
-      name: 'TestPlayer',
-      tag: 'EU1',
-      cardId: null,
     });
     const matchesSpy = vi.spyOn(henrik, 'getMatches').mockResolvedValueOnce([]);
 
@@ -535,27 +516,17 @@ describe('scanForPuuid', () => {
     expect(row.peak_season_short).toBe('e8a1');
 
     mmrSpy.mockRestore();
-    accountSpy.mockRestore();
     matchesSpy.mockRestore();
   });
 
-  it('preserves existing riot_card_id when account returns cardId: null', async () => {
+  it('preserves existing riot_card_id when no match in the response carries customization', async () => {
     seedUser();
-    // Seed existing card id
     sqlite.exec(`UPDATE users SET riot_card_id = 'existing-card-abc' WHERE riot_puuid = '${TARGET_PUUID}'`);
 
-    const mmrSpy = vi.spyOn(henrik, 'getMmrByPuuid').mockResolvedValueOnce({
-      current: { tier: { id: 18, name: 'Diamond 1' }, rr: 40, last_change: 5 },
-      peak: null,
-    });
-    const accountSpy = vi.spyOn(henrik, 'getAccountByPuuid').mockResolvedValue({
-      puuid: TARGET_PUUID,
-      region: 'eu',
-      name: 'TestPlayer',
-      tag: 'EU1',
-      cardId: null, // Henrik returned no card — must NOT overwrite
-    });
-    const matchesSpy = vi.spyOn(henrik, 'getMatches').mockResolvedValueOnce([]);
+    // Default fixture's player has no `customization` field — so syncProfilesFromMatches
+    // must keep last-known-good and NOT clear riot_card_id.
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify(makeFakeMatchResponse('no-cust-001')), { status: 200 }),
+    );
 
     await scanForPuuid(db, TARGET_PUUID, { detection: false });
 
@@ -563,10 +534,6 @@ describe('scanForPuuid', () => {
       riot_card_id: string;
     };
     expect(row.riot_card_id).toBe('existing-card-abc');
-
-    mmrSpy.mockRestore();
-    accountSpy.mockRestore();
-    matchesSpy.mockRestore();
   });
 
   // ── peak_rank_up event ──────────────────────────────────────────────────────
@@ -578,9 +545,6 @@ describe('scanForPuuid', () => {
     const mmrSpy = vi.spyOn(henrik, 'getMmrByPuuid').mockResolvedValueOnce({
       current: { tier: { id: 20, name: 'Diamond 3' }, rr: 50, last_change: 25 },
       peak: { tier: { id: 21, name: 'Immortal 1' }, rr: 0, season: 'e8a1' },
-    });
-    const accountSpy = vi.spyOn(henrik, 'getAccountByPuuid').mockResolvedValue({
-      puuid: TARGET_PUUID, region: 'eu', name: 'TestPlayer', tag: 'EU1', cardId: null,
     });
     const matchesSpy = vi.spyOn(henrik, 'getMatches').mockResolvedValueOnce([]);
 
@@ -598,7 +562,6 @@ describe('scanForPuuid', () => {
     expect(payload['to_tier_name']).toBe('Immortal 1');
 
     mmrSpy.mockRestore();
-    accountSpy.mockRestore();
     matchesSpy.mockRestore();
   });
 
@@ -610,9 +573,6 @@ describe('scanForPuuid', () => {
       current: { tier: { id: 20, name: 'Diamond 3' }, rr: 50, last_change: 25 },
       peak: { tier: { id: 21, name: 'Immortal 1' }, rr: 0, season: 'e8a1' },
     });
-    const accountSpy = vi.spyOn(henrik, 'getAccountByPuuid').mockResolvedValue({
-      puuid: TARGET_PUUID, region: 'eu', name: 'TestPlayer', tag: 'EU1', cardId: null,
-    });
     const matchesSpy = vi.spyOn(henrik, 'getMatches').mockResolvedValueOnce([]);
 
     await scanForPuuid(db, TARGET_PUUID, { detection: false });
@@ -623,7 +583,6 @@ describe('scanForPuuid', () => {
     expect(rows).toHaveLength(0);
 
     mmrSpy.mockRestore();
-    accountSpy.mockRestore();
     matchesSpy.mockRestore();
   });
 
@@ -635,9 +594,6 @@ describe('scanForPuuid', () => {
       current: { tier: { id: 18, name: 'Diamond 1' }, rr: 50, last_change: 25 },
       peak: { tier: { id: 18, name: 'Diamond 1' }, rr: 100, season: 'e8a1' },
     });
-    const accountSpy = vi.spyOn(henrik, 'getAccountByPuuid').mockResolvedValue({
-      puuid: TARGET_PUUID, region: 'eu', name: 'TestPlayer', tag: 'EU1', cardId: null,
-    });
     const matchesSpy = vi.spyOn(henrik, 'getMatches').mockResolvedValueOnce([]);
 
     await scanForPuuid(db, TARGET_PUUID, { detection: true });
@@ -648,7 +604,6 @@ describe('scanForPuuid', () => {
     expect(rows).toHaveLength(0);
 
     mmrSpy.mockRestore();
-    accountSpy.mockRestore();
     matchesSpy.mockRestore();
   });
 
@@ -660,9 +615,6 @@ describe('scanForPuuid', () => {
       current: { tier: { id: 18, name: 'Diamond 1' }, rr: 50, last_change: 25 },
       peak: { tier: { id: 21, name: 'Immortal 1' }, rr: 0, season: 'e8a1' },
     });
-    const accountSpy = vi.spyOn(henrik, 'getAccountByPuuid').mockResolvedValue({
-      puuid: TARGET_PUUID, region: 'eu', name: 'TestPlayer', tag: 'EU1', cardId: null,
-    });
     const matchesSpy = vi.spyOn(henrik, 'getMatches').mockResolvedValueOnce([]);
 
     await scanForPuuid(db, TARGET_PUUID, { detection: true });
@@ -673,7 +625,6 @@ describe('scanForPuuid', () => {
     expect(rows).toHaveLength(0);
 
     mmrSpy.mockRestore();
-    accountSpy.mockRestore();
     matchesSpy.mockRestore();
   });
 
@@ -688,13 +639,6 @@ describe('scanForPuuid', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       current: { tier: { id: undefined as any, name: undefined as any }, rr: 0, last_change: 0 },
       peak: null,
-    });
-    const accountSpy = vi.spyOn(henrik, 'getAccountByPuuid').mockResolvedValue({
-      puuid: TARGET_PUUID,
-      region: 'eu',
-      name: 'TestPlayer',
-      tag: 'EU1',
-      cardId: null,
     });
     const matchesSpy = vi.spyOn(henrik, 'getMatches').mockResolvedValueOnce([]);
 
@@ -718,7 +662,6 @@ describe('scanForPuuid', () => {
     expect(row.riot_card_id).toBe('card-xyz');
 
     mmrSpy.mockRestore();
-    accountSpy.mockRestore();
     matchesSpy.mockRestore();
   });
 
@@ -764,5 +707,169 @@ describe('scanForPuuid', () => {
 
     const secondRosters = await db.select().from(matchRosters);
     expect(secondRosters).toHaveLength(10);
+  });
+
+  // ── Match-driven profile sync (card / name / tag) ───────────────────────────
+
+  /**
+   * Build a match where the target player has a custom name, tag, and customization.card.
+   * `startedAt` controls "freshness" so tests can verify latest-wins semantics.
+   */
+  function makeMatchWithCustomization(
+    matchId: string,
+    target: { puuid: string; name: string; tag: string; card: string | null },
+    startedAt = '2026-05-09T14:00:00.000Z',
+    extraPlayers: Array<{ puuid: string; name: string; tag: string; card: string | null }> = [],
+  ) {
+    const buildPlayer = (
+      p: { puuid: string; name: string; tag: string; card: string | null },
+      teamId: string,
+    ) => ({
+      puuid: p.puuid,
+      name: p.name,
+      tag: p.tag,
+      team_id: teamId,
+      platform: 'playstation',
+      agent: { id: 'jett-id', name: 'Jett' },
+      tier: { id: 18, name: 'Diamond 1' },
+      stats: { kills: 10, deaths: 10, assists: 2 },
+      ...(p.card != null ? { customization: { card: p.card } } : {}),
+    });
+    return {
+      status: 200,
+      data: [
+        {
+          metadata: {
+            match_id: matchId,
+            platform: 'console',
+            region: 'eu',
+            queue: { id: CONSOLE_COMPETITIVE_QUEUE, name: 'Competitive', mode_type: 'Standard' },
+            map: { id: 'map-id', name: 'Ascent' },
+            started_at: startedAt,
+            game_length_in_ms: 2000000,
+            is_completed: true,
+          },
+          players: [buildPlayer(target, 'Blue'), ...extraPlayers.map((p) => buildPlayer(p, 'Red'))],
+          teams: [
+            { team_id: 'Blue', won: true, rounds: { won: 14, lost: 11 } },
+            { team_id: 'Red', won: false, rounds: { won: 11, lost: 14 } },
+          ],
+          rounds: [],
+          kills: [],
+        },
+      ],
+    };
+  }
+
+  it('updates riot_card_id from latest match player customization', async () => {
+    seedUser();
+    sqlite.exec(`UPDATE users SET riot_card_id = 'old-card' WHERE riot_puuid = '${TARGET_PUUID}'`);
+
+    fetchMock.mockImplementation(async () => new Response(
+      JSON.stringify(makeMatchWithCustomization('m-card-001', {
+        puuid: TARGET_PUUID, name: 'TestPlayer', tag: 'EU1', card: 'new-card-uuid',
+      })),
+      { status: 200 },
+    ));
+
+    await scanForPuuid(db, TARGET_PUUID, { detection: false });
+
+    const row = sqlite.prepare('SELECT riot_card_id FROM users WHERE riot_puuid = ?').get(TARGET_PUUID) as {
+      riot_card_id: string;
+    };
+    expect(row.riot_card_id).toBe('new-card-uuid');
+  });
+
+  it('updates riot_name and riot_tag when match data shows a different riot id', async () => {
+    seedUser();
+    // DB has TestPlayer#EU1; match shows the player has renamed to NewName#NEW
+    fetchMock.mockImplementation(async () => new Response(
+      JSON.stringify(makeMatchWithCustomization('m-rename-001', {
+        puuid: TARGET_PUUID, name: 'NewName', tag: 'NEW', card: null,
+      })),
+      { status: 200 },
+    ));
+
+    await scanForPuuid(db, TARGET_PUUID, { detection: false });
+
+    const row = sqlite.prepare('SELECT riot_name, riot_tag FROM users WHERE riot_puuid = ?').get(TARGET_PUUID) as {
+      riot_name: string; riot_tag: string;
+    };
+    expect(row.riot_name).toBe('NewName');
+    expect(row.riot_tag).toBe('NEW');
+  });
+
+  it('also updates a different linked friend who happened to be in the same lobby', async () => {
+    seedUser();
+    // Seed a friend with stale card and old riot id
+    sqlite.exec(`INSERT INTO users (telegram_id, riot_puuid, riot_name, riot_tag, riot_region, riot_card_id, joined_at)
+      VALUES (222, 'friend-puuid-X', 'OldFriendName', 'OLD', 'eu', 'friend-old-card', ${Date.now()})`);
+
+    // The match has both target + friend, and friend has updated nick + card.
+    fetchMock.mockImplementation(async () => new Response(
+      JSON.stringify(makeMatchWithCustomization(
+        'm-friend-001',
+        { puuid: TARGET_PUUID, name: 'TestPlayer', tag: 'EU1', card: 'target-card' },
+        '2026-05-09T14:00:00.000Z',
+        [{ puuid: 'friend-puuid-X', name: 'NewFriendName', tag: 'NFR', card: 'friend-new-card' }],
+      )),
+      { status: 200 },
+    ));
+
+    await scanForPuuid(db, TARGET_PUUID, { detection: false });
+
+    const friendRow = sqlite.prepare('SELECT riot_name, riot_tag, riot_card_id FROM users WHERE riot_puuid = ?')
+      .get('friend-puuid-X') as { riot_name: string; riot_tag: string; riot_card_id: string };
+    expect(friendRow.riot_name).toBe('NewFriendName');
+    expect(friendRow.riot_tag).toBe('NFR');
+    expect(friendRow.riot_card_id).toBe('friend-new-card');
+  });
+
+  it('picks the freshest match when multiple are returned (latest started_at wins)', async () => {
+    seedUser();
+
+    // Two matches: older one carries 'card-old', newer one carries 'card-new'.
+    // Order in the response array intentionally puts the older one FIRST so the
+    // implementation can't get away with just taking [0].
+    fetchMock.mockImplementation(async () => {
+      const olderMatch = makeMatchWithCustomization(
+        'm-older',
+        { puuid: TARGET_PUUID, name: 'TestPlayer', tag: 'EU1', card: 'card-old' },
+        '2026-05-09T10:00:00.000Z',
+      ).data[0];
+      const newerMatch = makeMatchWithCustomization(
+        'm-newer',
+        { puuid: TARGET_PUUID, name: 'TestPlayer', tag: 'EU1', card: 'card-new' },
+        '2026-05-09T18:00:00.000Z',
+      ).data[0];
+      return new Response(JSON.stringify({ status: 200, data: [olderMatch, newerMatch] }), { status: 200 });
+    });
+
+    await scanForPuuid(db, TARGET_PUUID, { detection: false });
+
+    const row = sqlite.prepare('SELECT riot_card_id FROM users WHERE riot_puuid = ?').get(TARGET_PUUID) as {
+      riot_card_id: string;
+    };
+    expect(row.riot_card_id).toBe('card-new');
+  });
+
+  it('does not touch unknown puuids that appear in matches but are not in our users table', async () => {
+    seedUser();
+
+    fetchMock.mockImplementation(async () => new Response(
+      JSON.stringify(makeMatchWithCustomization(
+        'm-stranger-001',
+        { puuid: TARGET_PUUID, name: 'TestPlayer', tag: 'EU1', card: 'target-card' },
+        '2026-05-09T14:00:00.000Z',
+        [{ puuid: 'stranger-puuid', name: 'Random', tag: 'XYZ', card: 'random-card' }],
+      )),
+      { status: 200 },
+    ));
+
+    await scanForPuuid(db, TARGET_PUUID, { detection: false });
+
+    // No row for the stranger should have been inserted.
+    const strangerRows = sqlite.prepare('SELECT * FROM users WHERE riot_puuid = ?').all('stranger-puuid');
+    expect(strangerRows).toHaveLength(0);
   });
 });

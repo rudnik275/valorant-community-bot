@@ -340,6 +340,15 @@ const PlayerV4Schema = z.object({
     legshots: z.number().optional(),
     damage: z.object({ dealt: z.number().optional(), received: z.number().optional() }).passthrough().optional(),
   }).passthrough().optional(),
+  // Riot stores the player's loadout-at-match-time inside each match record.
+  // We use this as our source-of-truth for `riot_card_id` because the
+  // `account/by-puuid` endpoint's `card` field is lazily updated by Riot and
+  // can stay stale for days after the player picks a new card in-game.
+  customization: z.object({
+    card: z.string().nullish(),
+    title: z.string().nullish(),
+    preferred_level_border: z.string().nullish(),
+  }).passthrough().optional(),
 }).passthrough();
 
 const TeamV4Schema = z.object({
@@ -488,17 +497,12 @@ export async function validateAccount(
 /**
  * Look up a Riot account by PUUID.
  * Returns parsed account data or throws typed HenrikError.
- *
- * `force: true` appends `?force=true` to bypass Henrik's upstream cache —
- * needed for fields like `card` that change after a user updates their
- * in-game profile but don't refresh until Henrik re-scrapes.
  */
 export async function getAccountByPuuid(
   puuid: string,
-  opts?: { priority?: Priority; force?: boolean },
+  opts?: { priority?: Priority },
 ): Promise<RiotAccount> {
-  const base = `/valorant/v1/by-puuid/account/${encodeURIComponent(puuid)}`;
-  const endpoint = opts?.force ? `${base}?force=true` : base;
+  const endpoint = `/valorant/v1/by-puuid/account/${encodeURIComponent(puuid)}`;
   return henrikQueue.enqueue({
     key: endpoint,
     priority: opts?.priority ?? 'background',
