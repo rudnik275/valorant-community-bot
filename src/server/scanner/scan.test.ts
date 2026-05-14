@@ -853,6 +853,35 @@ describe('scanForPuuid', () => {
     expect(row.riot_card_id).toBe('card-new');
   });
 
+  it('falls back to an older match when the newest match has no customization for that player', async () => {
+    seedUser();
+    sqlite.exec(`UPDATE users SET riot_card_id = NULL WHERE riot_puuid = '${TARGET_PUUID}'`);
+
+    // Two matches: NEWER has no customization on TARGET (Henrik sometimes omits it
+    // for a given player in a given match), OLDER carries a real card. We must
+    // still pull the card from the older one — strictly-latest semantics would miss it.
+    fetchMock.mockImplementation(async () => {
+      const newerNoCust = makeMatchWithCustomization(
+        'm-newer-no-cust',
+        { puuid: TARGET_PUUID, name: 'TestPlayer', tag: 'EU1', card: null },
+        '2026-05-09T18:00:00.000Z',
+      ).data[0];
+      const olderWithCust = makeMatchWithCustomization(
+        'm-older-with-cust',
+        { puuid: TARGET_PUUID, name: 'TestPlayer', tag: 'EU1', card: 'real-card-from-older' },
+        '2026-05-09T10:00:00.000Z',
+      ).data[0];
+      return new Response(JSON.stringify({ status: 200, data: [newerNoCust, olderWithCust] }), { status: 200 });
+    });
+
+    await scanForPuuid(db, TARGET_PUUID, { detection: false });
+
+    const row = sqlite.prepare('SELECT riot_card_id FROM users WHERE riot_puuid = ?').get(TARGET_PUUID) as {
+      riot_card_id: string;
+    };
+    expect(row.riot_card_id).toBe('real-card-from-older');
+  });
+
   it('does not touch unknown puuids that appear in matches but are not in our users table', async () => {
     seedUser();
 
