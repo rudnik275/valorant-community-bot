@@ -157,8 +157,8 @@ describe('e2e: publisher loop', () => {
     const now = Date.now();
     const id1 = seedPendingEvent(sqlite, {
       puuid: 'e2e-puuid-pub-2',
-      eventType: 'knife_kill',
-      payload: { count: 1 },
+      eventType: 'teamkill',
+      payload: { round_numbers: [3] },
       detectedAt: now - 2000,
     });
     const id2 = seedPendingEvent(sqlite, {
@@ -214,7 +214,7 @@ describe('e2e: publisher loop', () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  it('all 7 realtime event types render without throwing (template coverage)', async () => {
+  it('all 6 realtime event types render without throwing (template coverage)', async () => {
     // One user for all event types
     seedUser(sqlite, 1004, 'e2e-puuid-pub-4', { riotName: 'MultiEvent', riotTag: 'ME1' });
 
@@ -223,7 +223,6 @@ describe('e2e: publisher loop', () => {
       ['giant_slayer',       { enemy_avg: 'Gold 1', own: 'Silver 3' }],
       ['teamkill',           { round_numbers: [2, 8], count: 2 }],
       ['fall_damage_death',  { count: 1 }],
-      ['knife_kill',         { count: 1 }],
       ['match_comeback',     { deficit_score_player: 3, deficit_score_opponent: 11, final_score_player: 13, final_score_opponent: 11 }],
       ['community_clash',    { teams: [], winner_team_id: null }],
       ['return_after_pause', { days_paused: 14 }],

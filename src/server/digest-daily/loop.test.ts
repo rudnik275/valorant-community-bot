@@ -12,7 +12,7 @@ vi.mock('../lib/log.ts', () => ({
 // Mock buildDailyAceDigest so loop tests don't depend on DB match/event data
 vi.mock('./build.ts', () => ({
   buildDailyAceDigest: vi.fn().mockResolvedValue({
-    text: '🎯 Daily Ace\n<i>💀 ace без победы в раунде</i>\n<i>🏆 ace с победой в раунде</i>\n\n<b>Player#TAG</b> (Jett) 🏆round 2 · 🗺<a href="https://tracker.gg/valorant/match/m1">Ascent</a>',
+    text: '🎯 Ace\n<i>💀 без победы в раунде</i>\n<i>🏆 с победой в раунде</i>\n\n<b>Player#TAG</b> (Jett) 🏆round 2 · 🗺<a href="https://tracker.gg/valorant/match/m1">Ascent</a>\n\n<i>Эйсы и ножи за предыдущие 24 часа</i>',
     includedEventIds: [42],
   }),
 }));
@@ -52,7 +52,7 @@ describe('runDailyDigestNow', () => {
 
     const { buildDailyAceDigest } = await import('./build.ts');
     (buildDailyAceDigest as ReturnType<typeof vi.fn>).mockResolvedValue({
-      text: '🎯 Daily Ace\n<i>💀 ace без победы в раунде</i>\n<i>🏆 ace с победой в раунде</i>\n\n<b>Player#TAG</b> (Jett) 🏆round 2 · 🗺<a href="https://tracker.gg/valorant/match/m1">Ascent</a>',
+      text: '🎯 Ace\n<i>💀 без победы в раунде</i>\n<i>🏆 с победой в раунде</i>\n\n<b>Player#TAG</b> (Jett) 🏆round 2 · 🗺<a href="https://tracker.gg/valorant/match/m1">Ascent</a>\n\n<i>Эйсы и ножи за предыдущие 24 часа</i>',
       includedEventIds: [42],
     });
   });
@@ -73,7 +73,7 @@ describe('runDailyDigestNow', () => {
       expect(sendMessage).toHaveBeenCalledOnce();
       expect(sendMessage).toHaveBeenCalledWith(
         -100123456789,
-        expect.stringContaining('Daily Ace'),
+        expect.stringContaining('🎯 Ace'),
         expect.objectContaining({ parse_mode: 'HTML', disable_web_page_preview: true }),
       );
 
@@ -82,7 +82,7 @@ describe('runDailyDigestNow', () => {
       expect(row).toBeDefined();
       expect(row?.posted_at).not.toBeNull();
       expect(row?.posted_message_id).toBe(7);
-      expect(row?.posted_text).toContain('Daily Ace');
+      expect(row?.posted_text).toContain('🎯 Ace');
       expect(JSON.parse(row?.included_event_ids ?? '[]')).toContain(42);
     });
   });

@@ -54,7 +54,7 @@ export const EVENT_CATEGORY: Record<EventType, EventCategory> = {
   giant_slayer: 'realtime',
   teamkill: 'realtime',
   fall_damage_death: 'realtime',
-  knife_kill: 'realtime',
+  knife_kill: 'digest',
   match_comeback: 'realtime',
   community_clash: 'realtime',
   return_after_pause: 'realtime',

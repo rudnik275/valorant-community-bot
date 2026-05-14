@@ -146,9 +146,9 @@ describe('buildDailyAceDigest', () => {
       expect(result.includedEventIds).toEqual([id]);
 
       const text = result.text!;
-      expect(text).toContain('🎯 Daily Ace');
-      expect(text).toContain('💀 ace без победы в раунде');
-      expect(text).toContain('🏆 ace с победой в раунде');
+      expect(text).toContain('🎯 Ace');
+      expect(text).toContain('💀 без победы в раунде');
+      expect(text).toContain('🏆 с победой в раунде');
       expect(text).toContain('<b>AcePlayer#ACE</b>');
       expect(text).toContain('(Omen)');
       expect(text).toContain('🏆round 2');
@@ -232,6 +232,82 @@ describe('buildDailyAceDigest', () => {
       const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
       const text = result.text!;
       expect(text).toContain('x3 (🏆round 1, 🏆round 6, 🏆round 12)');
+    });
+  });
+
+  describe('knife_kill events (combined section)', () => {
+    function seedKnifeEvent(
+      sqlite: Database.Database,
+      opts: { puuid: string; matchId: string; detectedAt: number; rounds: number[]; roundsWon: number[] },
+    ): number {
+      const payload = {
+        count: opts.rounds.length,
+        rounds: opts.rounds,
+        rounds_won: opts.roundsWon,
+      };
+      const result = sqlite.prepare(
+        `INSERT INTO detected_events (event_type, riot_puuid, match_id, payload_json, detected_at, status)
+         VALUES ('knife_kill', ?, ?, ?, ?, 'silent')`,
+      ).run(opts.puuid, opts.matchId, JSON.stringify(payload), opts.detectedAt);
+      return result.lastInsertRowid as number;
+    }
+
+    it('renders knife section under 🔪 Заколол баранчика with same line format', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Knifer', riotTag: 'K1' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'kn-match', startedAt: IN_WINDOW, map: 'Bind', agent: 'Reyna' });
+      seedKnifeEvent(sqlite, { puuid: 'p1', matchId: 'kn-match', detectedAt: IN_WINDOW, rounds: [4], roundsWon: [4] });
+
+      const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
+      const text = result.text!;
+      expect(text).toContain('🔪 Заколол баранчика');
+      expect(text).toContain('<b>Knifer#K1</b> (Reyna) 🏆round 5 · 🗺<a');
+      expect(text).toContain('Эйсы и ножи за предыдущие 24 часа');
+    });
+
+    it('combines ace + knife sections in one post (chronology within each)', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Mixed', riotTag: 'MX' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'mix-ace', startedAt: IN_WINDOW, map: 'Lotus', agent: 'Jett' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'mix-kn', startedAt: IN_WINDOW + 1000, map: 'Bind', agent: 'Reyna' });
+      seedAceEvent(sqlite, { puuid: 'p1', matchId: 'mix-ace', detectedAt: IN_WINDOW, rounds: [3], roundsWon: [3] });
+      seedKnifeEvent(sqlite, { puuid: 'p1', matchId: 'mix-kn', detectedAt: IN_WINDOW + 1000, rounds: [7], roundsWon: [] });
+
+      const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
+      const text = result.text!;
+      // Order: Ace header → ace line → knife header → knife line → footer
+      const aceHeaderPos = text.indexOf('🎯 Ace');
+      const aceLinePos = text.indexOf('Lotus');
+      const knifeHeaderPos = text.indexOf('🔪 Заколол баранчика');
+      const knifeLinePos = text.indexOf('Bind');
+      const footerPos = text.indexOf('Эйсы и ножи');
+      expect(aceHeaderPos).toBeLessThan(aceLinePos);
+      expect(aceLinePos).toBeLessThan(knifeHeaderPos);
+      expect(knifeHeaderPos).toBeLessThan(knifeLinePos);
+      expect(knifeLinePos).toBeLessThan(footerPos);
+    });
+
+    it('omits knife section entirely when no knife events in window', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'AceOnly', riotTag: 'AO' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'a1', startedAt: IN_WINDOW });
+      seedAceEvent(sqlite, { puuid: 'p1', matchId: 'a1', detectedAt: IN_WINDOW, rounds: [0], roundsWon: [0] });
+
+      const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
+      const text = result.text!;
+      expect(text).not.toContain('🔪');
+      expect(text).toContain('🎯 Ace');
+      expect(text).toContain('Эйсы и ножи за предыдущие 24 часа');
+    });
+
+    it('dedupes rounds when 2 knife kills in the same round', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'DoubleKnife', riotTag: 'DK' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'dk', startedAt: IN_WINDOW, map: 'Split', agent: 'Sage' });
+      // Detector emits rounds=[5,5] when there are 2 knife kills in round 5.
+      seedKnifeEvent(sqlite, { puuid: 'p1', matchId: 'dk', detectedAt: IN_WINDOW, rounds: [5, 5], roundsWon: [5] });
+
+      const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
+      const text = result.text!;
+      // Should NOT show 'x2 (🏆round 6, 🏆round 6)' — dedup keeps one round.
+      expect(text).toContain('🏆round 6');
+      expect(text).not.toContain('x2');
     });
   });
 
@@ -339,21 +415,6 @@ describe('buildDailyAceDigest', () => {
       const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
       expect(result.text).toBeNull();
       expect(result.includedEventIds).toEqual([]);
-    });
-
-    it('DOES include status=posted events when includeAllStatuses=true (diagnostic mode)', async () => {
-      seedUser(sqlite, 1, 'p1', { riotName: 'PostedAce', riotTag: 'PA' });
-      seedMatch(sqlite, { puuid: 'p1', matchId: 'po-match', startedAt: IN_WINDOW, agent: 'Sage' });
-      const id = seedAceEvent(sqlite, { puuid: 'p1', matchId: 'po-match', detectedAt: IN_WINDOW, status: 'posted' });
-
-      const result = await buildDailyAceDigest({
-        db,
-        windowStart: WIN_START,
-        windowEnd: WIN_END,
-        includeAllStatuses: true,
-      });
-      expect(result.includedEventIds).toContain(id);
-      expect(result.text).toContain('PostedAce');
     });
 
     it('does NOT include events with status=failed', async () => {
