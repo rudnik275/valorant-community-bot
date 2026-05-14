@@ -247,22 +247,30 @@ const templates: Record<EventType, TemplateFn> = {
     const dop = payload['deficit_score_opponent'] ?? '?';
     const fp = payload['final_score_player'] ?? '?';
     const fop = payload['final_score_opponent'] ?? '?';
-    // Group all community members on the winning team into one message instead
-    // of spamming N copies. Each player on its own line. Falls back to the
-    // single triggering user when community_players is absent (older events,
-    // tests with minimal payloads) — that path stays inline with the dash.
+    // Layout: title (plain), summary (italic verb + bold scores), blank line,
+    // one community player per line with the 🏅 prefix, blank line, map line
+    // where the map name is the tracker link. Falls back to the single
+    // triggering user when community_players is absent (older events, tests
+    // with minimal payloads).
     const players = Array.isArray(payload['community_players'])
       ? payload['community_players'] as Array<{ puuid: string; name: string; tag: string }>
       : [];
     const playerLines = players
-      .map((p) => p.name ? `<b>${esc(p.name)}#${esc(p.tag ?? '')}</b>` : '')
+      .map((p) => p.name ? `🏅<b>${esc(p.name)}#${esc(p.tag ?? '')}</b>` : '')
       .filter((s) => s);
-    const action = `отыгрались с ${dp}:${dop} до ${fp}:${fop}${mapSuffix(match?.map)}`;
-    const desc = playerLines.length > 0
-      ? `${playerLines.join('\n')}\n— ${action}`
-      : `${playerTag(user)} — ${action}`;
-    const link = match?.match_id ? matchLine(match.match_id) : '';
-    return `👏 <u>Мы вами гордимся</u>\n\n${desc}${link}`;
+    const playersBlock = playerLines.length > 0
+      ? playerLines.join('\n')
+      : `🏅${playerTag(user)}`;
+    const summary = `<i>отыгрались</i> с <b>${esc(String(dp))}:${esc(String(dop))}</b> до <b>${esc(String(fp))}:${esc(String(fop))}</b>`;
+    let bottom = '';
+    if (match?.map && match?.match_id) {
+      bottom = `\n\n🗺️ <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">${esc(match.map)}</a>`;
+    } else if (match?.map) {
+      bottom = `\n\n🗺️ ${esc(match.map)}`;
+    } else if (match?.match_id) {
+      bottom = matchLine(match.match_id);
+    }
+    return `👏 Мы вами гордимся\n${summary}\n\n${playersBlock}${bottom}`;
   },
 
   record_kills_per_weapon: (payload, user, _match) => {

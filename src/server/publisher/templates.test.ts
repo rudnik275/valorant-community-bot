@@ -192,17 +192,28 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('tracker.gg/valorant/match/xyz789');
   });
 
-  it('match_comeback: minimal payload (no community_players) falls back to single user inline with dash', () => {
+  it('match_comeback: header is plain (no underline)', () => {
+    const output = renderTemplate('match_comeback', {}, safeUser);
+    expect(output).toContain('👏 Мы вами гордимся');
+    expect(output).not.toContain('<u>');
+    expect(output).not.toContain('</u>');
+  });
+
+  it('match_comeback: minimal payload falls back to single user with medal prefix', () => {
     const output = renderTemplate(
       'match_comeback',
       { deficit_score_player: 0, deficit_score_opponent: 9, final_score_player: 16, final_score_opponent: 14 },
       safeUser,
       { map: 'Breeze', match_id: 'abc' },
     );
-    expect(output).toContain('<b>Player#TAG</b> — отыгрались с 0:9 до 16:14 на карте Breeze');
+    expect(output).toContain('🏅<b>Player#TAG</b>');
+    expect(output).toContain('<i>отыгрались</i> с <b>0:9</b> до <b>16:14</b>');
+    expect(output).toContain('🗺️ <a href="https://tracker.gg/valorant/match/abc">Breeze</a>');
+    // No legacy "матч" link when map is present.
+    expect(output).not.toContain('>матч<');
   });
 
-  it('match_comeback: multiple community_players renders one per line with dash on action line', () => {
+  it('match_comeback: multiple community_players renders one per line with medal prefix and map-link', () => {
     const output = renderTemplate(
       'match_comeback',
       {
@@ -217,11 +228,24 @@ describe('renderTemplate — payload-specific behavior', () => {
         ],
       },
       safeUser,
-      { map: 'Breeze' },
+      { map: 'Breeze', match_id: 'm-1' },
     );
-    expect(output).toContain('<b>Alpha#A</b>\n<b>Bravo#B</b>\n<b>Charlie#C</b>\n— отыгрались с 0:9 до 16:14 на карте Breeze');
+    expect(output).toContain('🏅<b>Alpha#A</b>\n🏅<b>Bravo#B</b>\n🏅<b>Charlie#C</b>');
+    expect(output).toContain('<i>отыгрались</i> с <b>0:9</b> до <b>16:14</b>');
+    expect(output).toContain('🗺️ <a href="https://tracker.gg/valorant/match/m-1">Breeze</a>');
     // The triggering safeUser must not leak when community_players is set.
     expect(output).not.toContain('<b>Player#TAG</b>');
+  });
+
+  it('match_comeback: falls back to "матч" link when map is missing but match_id present', () => {
+    const output = renderTemplate(
+      'match_comeback',
+      { deficit_score_player: 0, deficit_score_opponent: 9, final_score_player: 13, final_score_opponent: 11 },
+      safeUser,
+      { match_id: 'no-map' },
+    );
+    expect(output).toContain('<a href="https://tracker.gg/valorant/match/no-map">матч</a>');
+    expect(output).not.toContain('🗺️');
   });
 
   it('return_after_pause: shows days_paused and С возвращением text', () => {
