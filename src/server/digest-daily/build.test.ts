@@ -236,10 +236,9 @@ describe('buildDailyAceDigest', () => {
   });
 
   describe('legacy payload without rounds_won field', () => {
-    it('renders round number without 💀/🏆 emoji', async () => {
+    it('renders round number without 💀/🏆 emoji when no match_records data', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'Legacy', riotTag: 'L' });
-      seedMatch(sqlite, { puuid: 'p1', matchId: 'leg', startedAt: IN_WINDOW, map: 'Bind' });
-      // Write payload directly without rounds_won field.
+      // No match_records row → cannot derive won/lost.
       sqlite.prepare(
         `INSERT INTO detected_events (event_type, riot_puuid, match_id, payload_json, detected_at, status)
          VALUES ('ace', 'p1', 'leg', ?, ?, 'silent')`,
@@ -250,6 +249,34 @@ describe('buildDailyAceDigest', () => {
       expect(text).toContain('round 5');
       expect(text).not.toContain('💀round 5');
       expect(text).not.toContain('🏆round 5');
+    });
+
+    it('derives 🏆/💀 from match_records.rounds_compact + kill_events_compact when payload lacks rounds_won', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Legacy', riotTag: 'L' });
+      // Seed a match_record with rounds_compact and kill_events_compact so the
+      // builder can derive whether the player's team won round 4.
+      const killEvents = [
+        { round: 4, attacker_team: 'Blue', victim_team: 'Red', weapon: 'Vandal', attacker_puuid: 'p1', victim_puuid: 'e1' },
+      ];
+      const roundsCompact = [
+        { r: 4, w: 'Blue' }, // p1 is Blue → won round 4
+        { r: 7, w: 'Red' }, // p1 is Blue → lost round 7
+      ];
+      sqlite.prepare(
+        `INSERT INTO match_records
+         (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result, rounds_played, kill_events_compact, rounds_compact)
+         VALUES ('p1', 'derive-match', ?, 'Bind', 'Sage', 5, 5, 5, 'win', 21, ?, ?)`,
+      ).run(IN_WINDOW, JSON.stringify(killEvents), JSON.stringify(roundsCompact));
+
+      // Legacy payload has rounds but no rounds_won.
+      sqlite.prepare(
+        `INSERT INTO detected_events (event_type, riot_puuid, match_id, payload_json, detected_at, status)
+         VALUES ('ace', 'p1', 'derive-match', ?, ?, 'silent')`,
+      ).run(JSON.stringify({ rounds: [4, 7], weapons_per_round: [['Vandal'], ['Vandal']] }), IN_WINDOW);
+
+      const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
+      const text = result.text!;
+      expect(text).toContain('x2 (🏆round 5, 💀round 8)');
     });
   });
 
