@@ -341,7 +341,14 @@ export function makeTestDailyCronHandler(deps: TestCommandsDeps): MiddlewareFn<C
     try {
       const { windowStart, windowEnd } = await resolveDailyCronWindow(deps.db, daysBack);
 
-      const result = await buildDailyAceDigest({ db: deps.db, windowStart, windowEnd });
+      const result = await buildDailyAceDigest({
+        db: deps.db,
+        windowStart,
+        windowEnd,
+        // Test command is a diagnostic — show aces of any status so historical
+        // (status='posted', pre-digest-rollout) events remain visible.
+        includeAllStatuses: true,
+      });
 
       if (result.text) {
         await deps.bot.api.sendMessage(fromId!, result.text, HTML_OPTS);
