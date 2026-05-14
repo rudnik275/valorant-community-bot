@@ -799,19 +799,23 @@ describe('scanForPuuid', () => {
     expect(row.riot_tag).toBe('NEW');
   });
 
-  it('also updates a different linked friend who happened to be in the same lobby', async () => {
+  it('does NOT touch other linked friends seen in the same lobby (regression: cross-friend updates downgraded data)', async () => {
     seedUser();
-    // Seed a friend with stale card and old riot id
+    // Seed a friend whose card is already up-to-date. If the scan target's
+    // matches contain a *stale* observation of that friend (from an older joint
+    // match), we used to overwrite the friend's correct card. We must not —
+    // each user's profile is sourced from their OWN scan only.
     sqlite.exec(`INSERT INTO users (telegram_id, riot_puuid, riot_name, riot_tag, riot_region, riot_card_id, joined_at)
-      VALUES (222, 'friend-puuid-X', 'OldFriendName', 'OLD', 'eu', 'friend-old-card', ${Date.now()})`);
+      VALUES (222, 'friend-puuid-X', 'CurrentFriendName', 'NEW', 'eu', 'friend-CURRENT-card', ${Date.now()})`);
 
-    // The match has both target + friend, and friend has updated nick + card.
+    // The scan target's matches include an old joint match where the friend
+    // had an OLD card / OLD nick. We must NOT propagate that into the friend's row.
     fetchMock.mockImplementation(async () => new Response(
       JSON.stringify(makeMatchWithCustomization(
         'm-friend-001',
         { puuid: TARGET_PUUID, name: 'TestPlayer', tag: 'EU1', card: 'target-card' },
         '2026-05-09T14:00:00.000Z',
-        [{ puuid: 'friend-puuid-X', name: 'NewFriendName', tag: 'NFR', card: 'friend-new-card' }],
+        [{ puuid: 'friend-puuid-X', name: 'OldFriendName', tag: 'OLD', card: 'friend-OLD-card' }],
       )),
       { status: 200 },
     ));
@@ -820,9 +824,9 @@ describe('scanForPuuid', () => {
 
     const friendRow = sqlite.prepare('SELECT riot_name, riot_tag, riot_card_id FROM users WHERE riot_puuid = ?')
       .get('friend-puuid-X') as { riot_name: string; riot_tag: string; riot_card_id: string };
-    expect(friendRow.riot_name).toBe('NewFriendName');
-    expect(friendRow.riot_tag).toBe('NFR');
-    expect(friendRow.riot_card_id).toBe('friend-new-card');
+    expect(friendRow.riot_name).toBe('CurrentFriendName');
+    expect(friendRow.riot_tag).toBe('NEW');
+    expect(friendRow.riot_card_id).toBe('friend-CURRENT-card');
   });
 
   it('picks the freshest match when multiple are returned (latest started_at wins)', async () => {

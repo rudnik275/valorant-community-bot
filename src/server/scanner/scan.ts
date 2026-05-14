@@ -197,13 +197,18 @@ export async function scanForPuuid(
     .set({ riot_lookup_failed_since: null })
     .where(eq(users.riot_puuid, puuid));
 
-  // 3c. Match-driven profile sync: every match's `players[]` carries the
-  // loadout-at-match-time (card, name, tag) for every participant. We use this
-  // as our source-of-truth instead of the `account/by-puuid` endpoint, whose
-  // `card`/`name`/`tag` are lazily updated by Riot and can stay stale for days.
-  // Bonus: we also pick up updates for OTHER linked friends who happened to be
-  // in the same lobby — no need to wait for their own scan tick.
-  await syncProfilesFromMatches(db, rawMatches);
+  // 3c. Match-driven profile sync for the scan target only.
+  // Every match's `players[]` carries the loadout-at-match-time (card, name, tag)
+  // for the player. We use this as source-of-truth instead of `account/by-puuid`
+  // whose `card`/`name`/`tag` are lazily updated by Riot and can stay stale for days.
+  //
+  // ONLY the scan target's row is touched — earlier versions also refreshed
+  // friends seen in the same lobby, but that regressed data: a friend who
+  // recently changed their card could be downgraded back to their card from
+  // some week-old joint match if the friend's own scan happened to run later
+  // in the same tick. Each user's own matches are their absolute-freshest
+  // source; cross-friend updates are not.
+  await syncProfileFromMatches(db, puuid, rawMatches);
 
   // 4. Filter: only console_competitive queue
   const competitiveMatches = rawMatches.filter(
@@ -283,16 +288,17 @@ export async function scanForPuuid(
 }
 
 /**
- * Match-driven profile sync.
+ * Match-driven profile sync for one specific puuid (the scan target).
  *
- * Walks every player in every match, picks the freshest non-null `customization.card`
- * / `name` / `tag` per puuid (each field tracked independently — Henrik sometimes
- * omits `customization` for a player in a given match, so a strictly-latest-match
- * approach would miss real card data sitting one match older). UPDATEs any users
- * we already know (linked via riot_puuid). Last-known-good for each field — never
- * overwrite a real value with null. Updates only the fields that actually differ.
+ * Walks the scan target's player entry across all matches newest→oldest and
+ * picks the first non-null `customization.card` / `name` / `tag` (each field
+ * tracked independently — Henrik sometimes omits `customization` for a player
+ * in a given match, so a strictly-latest-match approach would miss real card
+ * data sitting one match older). UPDATEs the target's row. Last-known-good
+ * for each field — never overwrite a real value with null. Writes only fields
+ * that actually differ.
  */
-async function syncProfilesFromMatches(db: AnyDb, matches: HenrikMatchV4[]): Promise<void> {
+async function syncProfileFromMatches(db: AnyDb, puuid: string, matches: HenrikMatchV4[]): Promise<void> {
   if (matches.length === 0) return;
 
   // Iterate newest-first so the first non-null observation per field wins.
@@ -302,46 +308,38 @@ async function syncProfilesFromMatches(db: AnyDb, matches: HenrikMatchV4[]): Pro
     return bT - aT;
   });
 
-  const freshest = new Map<string, { card: string | null; name: string | null; tag: string | null }>();
+  const obs: { card: string | null; name: string | null; tag: string | null } = { card: null, name: null, tag: null };
   for (const m of sorted) {
-    for (const p of m.players) {
-      if (!p.puuid) continue;
-      const cur = freshest.get(p.puuid) ?? { card: null, name: null, tag: null };
-      if (cur.card == null && p.customization?.card != null) cur.card = p.customization.card;
-      if (cur.name == null && p.name != null) cur.name = p.name;
-      if (cur.tag == null && p.tag != null) cur.tag = p.tag;
-      freshest.set(p.puuid, cur);
-    }
+    const p = m.players.find((pl) => pl.puuid === puuid);
+    if (!p) continue;
+    if (obs.card == null && p.customization?.card != null) obs.card = p.customization.card;
+    if (obs.name == null && p.name != null) obs.name = p.name;
+    if (obs.tag == null && p.tag != null) obs.tag = p.tag;
+    if (obs.card != null && obs.name != null && obs.tag != null) break;
   }
 
-  if (freshest.size === 0) return;
+  if (obs.card == null && obs.name == null && obs.tag == null) return;
 
-  // 2. Load current DB state for any of those puuids that we actually track.
-  const puuids = Array.from(freshest.keys());
-  const rows: Array<{ riot_puuid: string; riot_card_id: string | null; riot_name: string | null; riot_tag: string | null }> = await db
+  const [row]: Array<{ riot_card_id: string | null; riot_name: string | null; riot_tag: string | null }> = await db
     .select({
-      riot_puuid: users.riot_puuid,
       riot_card_id: users.riot_card_id,
       riot_name: users.riot_name,
       riot_tag: users.riot_tag,
     })
     .from(users)
-    .where(inArray(users.riot_puuid, puuids));
+    .where(eq(users.riot_puuid, puuid))
+    .limit(1);
+  if (!row) return;
 
-  // 3. Diff and UPDATE per user. Only fields that differ AND have a non-null
-  // observed value get written — last-known-good wins on null.
-  for (const row of rows) {
-    const obs = freshest.get(row.riot_puuid);
-    if (!obs) continue;
-    const patch: Partial<typeof users.$inferInsert> = {};
-    if (obs.card != null && obs.card !== row.riot_card_id) patch.riot_card_id = obs.card;
-    if (obs.name != null && obs.name !== row.riot_name) patch.riot_name = obs.name;
-    if (obs.tag != null && obs.tag !== row.riot_tag) patch.riot_tag = obs.tag;
-    if (Object.keys(patch).length === 0) continue;
-    await db.update(users).set(patch).where(eq(users.riot_puuid, row.riot_puuid));
-    logger.info(
-      { module: 'scanner', puuid: row.riot_puuid, fields: Object.keys(patch) },
-      'profile updated from match data',
-    );
-  }
+  const patch: Partial<typeof users.$inferInsert> = {};
+  if (obs.card != null && obs.card !== row.riot_card_id) patch.riot_card_id = obs.card;
+  if (obs.name != null && obs.name !== row.riot_name) patch.riot_name = obs.name;
+  if (obs.tag != null && obs.tag !== row.riot_tag) patch.riot_tag = obs.tag;
+  if (Object.keys(patch).length === 0) return;
+
+  await db.update(users).set(patch).where(eq(users.riot_puuid, puuid));
+  logger.info(
+    { module: 'scanner', puuid, fields: Object.keys(patch) },
+    'profile updated from match data',
+  );
 }
