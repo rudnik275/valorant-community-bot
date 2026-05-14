@@ -7,15 +7,6 @@
  *                               (default 2) as separate messages to the owner's
  *                               DM. Pure read from detected_events — no
  *                               detector re-runs, no DB writes.
- *   /test_daily_cron [N]      — preview what the daily 23:00 Kyiv cron would
- *                               post. N=0 (default): aces since the last
- *                               successful daily run, up to now (i.e. what
- *                               TODAY's cron will publish). N>=1: the window
- *                               of the cron N days ago, anchored to
- *                               [23:00 Kyiv (N+1) days ago, 23:00 Kyiv N days
- *                               ago]. Read-only — does not write to
- *                               daily_digest_runs.
- *
  * All commands are gated by the hardcoded `OWNER_TELEGRAM_ID` below.
  * Non-owners are silently ignored (the bot does not reply at all).
  *
@@ -28,14 +19,11 @@
  */
 
 import { type Context, type MiddlewareFn, type Bot } from 'grammy';
-import { and, gte, lt, asc, eq, isNotNull, desc } from 'drizzle-orm';
+import { and, gte, lt, asc, eq } from 'drizzle-orm';
 import { detectedEvents } from '../db/schema/detected_events.ts';
 import { users } from '../db/schema/users.ts';
 import { matchRecords } from '../db/schema/match_records.ts';
-import { dailyDigestRuns } from '../db/schema/daily_digest_runs.ts';
 import { buildDigest } from '../digest/build.ts';
-import { buildDailyAceDigest } from '../digest-daily/build.ts';
-import { getKyivDate } from '../digest-daily/loop.ts';
 import { renderTemplate, type TemplateMatch, type TemplateUser } from '../publisher/templates.ts';
 import { isRealtimeEvent, type EventType } from '../publisher/types.ts';
 import logger from '../lib/log.ts';
@@ -52,7 +40,6 @@ const DEFAULT_DIGEST_DAYS = 7;
 const DEFAULT_EVENTS_DAYS = 2;
 const MIN_DAYS = 1;
 const MAX_DAYS = 30;
-const MAX_DAILY_CRON_DAYS_BACK = 30;
 const RUNTIME_EVENT_SEND_DELAY_MS = 350;
 
 /** Hardcoded owner — admin commands work only for this telegram_id. */
@@ -77,22 +64,6 @@ export function parseDaysArg(text: string | undefined, fallback: number): number
   if (!Number.isFinite(n) || !Number.isInteger(n)) return fallback;
   if (n < MIN_DAYS) return MIN_DAYS;
   if (n > MAX_DAYS) return MAX_DAYS;
-  return n;
-}
-
-/**
- * Parse the positional `<daysBack>` argument for /test_daily_cron.
- * 0 = default (today's cron preview), N>=1 = the cron window N days ago.
- * Clamps to [0, MAX_DAILY_CRON_DAYS_BACK].
- */
-export function parseDaysBackArg(text: string | undefined): number {
-  if (!text) return 0;
-  const stripped = text.replace(/^\/\S+\s*/, '').trim();
-  if (!stripped) return 0;
-  const n = Number(stripped.split(/\s+/)[0]);
-  if (!Number.isFinite(n) || !Number.isInteger(n)) return 0;
-  if (n < 0) return 0;
-  if (n > MAX_DAILY_CRON_DAYS_BACK) return MAX_DAILY_CRON_DAYS_BACK;
   return n;
 }
 
@@ -252,120 +223,3 @@ export function makeTestRuntimeEventsHandler(deps: TestCommandsDeps): Middleware
   };
 }
 
-/**
- * Find the ms epoch corresponding to 23:00 Kyiv on the given Kyiv calendar date.
- * Handles DST (EET/EEST) by trying both +2 and +3 offsets and picking the one
- * whose Kyiv-formatted time is exactly (kyivDate, 23:00).
- */
-function get23KyivMsForKyivDate(kyivDate: string): number {
-  const [y, mo, d] = kyivDate.split('-').map(Number);
-  // Two candidates: +3 (EEST DST, late Mar → late Oct) and +2 (EET standard).
-  const candidates = [
-    Date.UTC(y!, mo! - 1, d!, 23 - 3, 0, 0),
-    Date.UTC(y!, mo! - 1, d!, 23 - 2, 0, 0),
-  ];
-  for (const cand of candidates) {
-    const fmtDate = getKyivDate(cand);
-    const fmtHour = Number(
-      new Intl.DateTimeFormat('en-US', {
-        timeZone: 'Europe/Kyiv',
-        hour: '2-digit',
-        hour12: false,
-      })
-        .formatToParts(cand)
-        .find((p) => p.type === 'hour')?.value ?? -1,
-    );
-    if (fmtDate === kyivDate && fmtHour === 23) return cand;
-  }
-  // Fallback: DST candidate (correct for May–October period).
-  return candidates[0]!;
-}
-
-/**
- * Resolve the window for /test_daily_cron:
- *   daysBack = 0: windowStart = most recent daily_digest_runs.posted_at
- *              (fallback now - 24h); windowEnd = now. Previews the upcoming
- *              cron tick's output.
- *   daysBack >= 1: anchored to 23:00 Kyiv. windowEnd = 23:00 Kyiv of the
- *              calendar day `daysBack` days ago; windowStart = 23:00 Kyiv of
- *              the day before that. Previews what the cron that ran `daysBack`
- *              days ago would post under current logic.
- */
-export async function resolveDailyCronWindow(
-  db: AnyDb,
-  daysBack: number,
-  nowMs: number = Date.now(),
-): Promise<{ windowStart: number; windowEnd: number }> {
-  if (daysBack === 0) {
-    const windowEnd = nowMs;
-    const [lastRun] = await db
-      .select({ posted_at: dailyDigestRuns.posted_at })
-      .from(dailyDigestRuns)
-      .where(isNotNull(dailyDigestRuns.posted_at))
-      .orderBy(desc(dailyDigestRuns.posted_at))
-      .limit(1);
-
-    const windowStart =
-      lastRun?.posted_at != null
-        ? (lastRun.posted_at as number)
-        : windowEnd - 24 * 3600 * 1000;
-
-    return { windowStart, windowEnd };
-  }
-
-  // Anchor: 23:00 Kyiv on the Kyiv calendar date `daysBack` days ago.
-  const endKyivDate = getKyivDate(nowMs - daysBack * 24 * 3600 * 1000);
-  const [y, mo, d] = endKyivDate.split('-').map(Number);
-  const startDateObj = new Date(Date.UTC(y!, mo! - 1, d!));
-  startDateObj.setUTCDate(startDateObj.getUTCDate() - 1);
-  const startKyivDate = `${startDateObj.getUTCFullYear()}-${String(startDateObj.getUTCMonth() + 1).padStart(2, '0')}-${String(startDateObj.getUTCDate()).padStart(2, '0')}`;
-
-  return {
-    windowStart: get23KyivMsForKyivDate(startKyivDate),
-    windowEnd: get23KyivMsForKyivDate(endKyivDate),
-  };
-}
-
-export function makeTestDailyCronHandler(deps: TestCommandsDeps): MiddlewareFn<Context> {
-  return async (ctx: Context): Promise<void> => {
-    const fromId = ctx.from?.id;
-    if (!isOwner(fromId)) return; // silent ignore
-
-    const daysBack = parseDaysBackArg(ctx.message?.text);
-
-    logger.info(
-      { module: 'test_commands', cmd: 'test_daily_cron', owner_id: fromId, days_back: daysBack },
-      'Building daily cron preview',
-    );
-
-    try {
-      const { windowStart, windowEnd } = await resolveDailyCronWindow(deps.db, daysBack);
-
-      const result = await buildDailyAceDigest({
-        db: deps.db,
-        windowStart,
-        windowEnd,
-        // Test command is a diagnostic — show aces of any status so historical
-        // (status='posted', pre-digest-rollout) events remain visible.
-        includeAllStatuses: true,
-      });
-
-      if (result.text) {
-        await deps.bot.api.sendMessage(fromId!, result.text, HTML_OPTS);
-      } else {
-        const noun = daysBack === 0 ? 'с прошлого тика' : `за окно ${daysBack} дн. назад`;
-        const msg =
-          `Нет ейсов ${noun}.\n` +
-          `Окно: ${new Date(windowStart).toISOString()} → ${new Date(windowEnd).toISOString()}`;
-        await deps.bot.api.sendMessage(fromId!, msg, HTML_OPTS);
-      }
-    } catch (err) {
-      logger.error({ module: 'test_commands', cmd: 'test_daily_cron', err }, 'Daily cron preview failed');
-      try {
-        await deps.bot.api.sendMessage(fromId!, `<i>Ошибка: ${(err as Error).message ?? 'unknown'}</i>`, HTML_OPTS);
-      } catch {
-        // swallow
-      }
-    }
-  };
-}

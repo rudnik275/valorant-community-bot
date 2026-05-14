@@ -165,4 +165,33 @@ describe('knifeKillDetector', () => {
     expect(events[0]!.match_id).toBe('match-xyz');
     expect(events[0]!.riot_puuid).toBe('puuid-abc');
   });
+
+  it('emits rounds_won subset based on rounds_compact', () => {
+    const record: MatchRecord = {
+      ...BASE_RECORD,
+      kill_events_compact: JSON.stringify([
+        makeKill(3, 'Knife', 'puuid-1', 'enemy-1'),
+        makeKill(7, 'Knife', 'puuid-1', 'enemy-2'),
+      ]),
+      // attacker_team='Blue'; round 3 won by Blue, round 7 won by Red.
+      rounds_compact: JSON.stringify([
+        { r: 3, w: 'Blue' },
+        { r: 7, w: 'Red' },
+      ]),
+    };
+    const events = knifeKillDetector.detect(record, []);
+    expect(events[0]!.payload.rounds_won).toEqual([3]);
+  });
+
+  it('rounds_won is empty array when rounds_compact is null', () => {
+    const record: MatchRecord = {
+      ...BASE_RECORD,
+      kill_events_compact: JSON.stringify([
+        makeKill(3, 'Knife', 'puuid-1', 'enemy-1'),
+      ]),
+      rounds_compact: null,
+    };
+    const events = knifeKillDetector.detect(record, []);
+    expect(events[0]!.payload.rounds_won).toEqual([]);
+  });
 });

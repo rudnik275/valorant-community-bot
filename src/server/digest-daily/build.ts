@@ -1,13 +1,26 @@
 /**
- * build.ts — Pure builder for the daily ace digest.
+ * build.ts — Pure builder for the daily digest.
  *
- * Selects ace events from detected_events where:
- *   - event_type = 'ace'
+ * Selects ace + knife_kill events from detected_events where:
+ *   - event_type IN ('ace', 'knife_kill')
  *   - status IN ('silent', 'digest-only')
  *   - detected_at in [windowStart, windowEnd)
  *   - id NOT IN excludeEventIds
  *
- * Renders a flat chronological list (one line per ace event = one (player, match)).
+ * Renders one combined Telegram HTML post:
+ *
+ *   🎯 Ace
+ *   💀 без победы в раунде
+ *   🏆 с победой в раунде
+ *
+ *   <ace lines>
+ *
+ *   🔪 Заколол баранчика
+ *   <knife lines>
+ *
+ *   <i>Эйсы и ножи за предыдущие 24 часа</i>
+ *
+ * Sections are omitted when empty. Returns null when both are empty.
  * Format and rationale: see ADR 0003.
  */
 
@@ -27,22 +40,16 @@ export interface BuildDailyDigestDeps {
   windowStart: number; // ms epoch, inclusive
   windowEnd: number; // ms epoch, exclusive
   excludeEventIds?: number[]; // IDs already posted in prior daily runs
-  /**
-   * If true, include events of ANY status. Default false (cron behavior):
-   * only `silent` / `digest-only` events are eligible. Set true from the
-   * admin /test_daily_cron handler so historical `posted` events stay visible
-   * in past-window previews.
-   */
-  includeAllStatuses?: boolean;
 }
 
 export interface BuildDailyDigestResult {
-  text: string | null; // null when zero aces
-  includedEventIds: number[]; // empty when zero aces
+  text: string | null; // null when zero qualifying events
+  includedEventIds: number[];
 }
 
-interface AceRow {
+interface Row {
   id: number;
+  eventType: 'ace' | 'knife_kill';
   puuid: string;
   matchId: string;
   detectedAt: number;
@@ -62,16 +69,15 @@ export interface Line {
   agent: string;
   map: string | null;
   matchId: string;
-  rounds: number[]; // 0-indexed round ids
-  roundsWon: number[] | null; // null = unknown (no match_records data); [] = all lost
+  rounds: number[]; // 0-indexed, deduped, ascending
+  roundsWon: number[] | null; // null = unknown; [] = all lost
   detectedAt: number;
 }
 
 /**
- * Derive the set of "won" round IDs for the player on the fly from match_records,
- * used when the event's payload lacks `rounds_won` (legacy pre-ADR-0003 events).
- * Returns null if we can't determine (no match_records row, malformed JSON, or
- * the player's team can't be inferred from kill_events).
+ * Derive the set of "won" round IDs for the player on the fly when the event
+ * payload lacks `rounds_won` (legacy pre-ADR-0003 events). Returns null when
+ * we can't determine.
  */
 function deriveRoundsWon(
   rounds: number[],
@@ -101,28 +107,53 @@ function deriveRoundsWon(
   return rounds.filter((r) => winnerByRound.get(r) === playerTeam);
 }
 
-/** Pure renderer: text from a list of Line objects. Used by both the cron and ad-hoc preview paths. */
-export function renderDailyAceText(lines: Line[], headerNote?: string): string {
-  const header = `🎯 Daily Ace${headerNote ? ` ${headerNote}` : ''}`;
-  const legend = `<i>💀 ace без победы в раунде</i>\n<i>🏆 ace с победой в раунде</i>`;
-  const lineTexts = lines.map((l) => renderLine(l));
-  return `${header}\n${legend}\n\n${lineTexts.join('\n')}`;
+function rowToLine(row: Row): Line {
+  let rounds: number[] = [];
+  let roundsWonFromPayload: number[] | null = null;
+  try {
+    const payload = JSON.parse(row.payloadJson) as Record<string, unknown>;
+    if (Array.isArray(payload['rounds'])) {
+      rounds = (payload['rounds'] as unknown[]).filter((r): r is number => typeof r === 'number');
+    }
+    if (Array.isArray(payload['rounds_won'])) {
+      roundsWonFromPayload = (payload['rounds_won'] as unknown[]).filter((r): r is number => typeof r === 'number');
+    }
+  } catch {
+    // ignore bad json
+  }
+  // Dedup rounds (knife events can repeat the same round when ≥2 knife kills landed in it).
+  const sortedRounds = [...new Set(rounds)].sort((a, b) => a - b);
+  const roundsWon = roundsWonFromPayload ?? deriveRoundsWon(
+    sortedRounds,
+    row.roundsCompactJson,
+    row.killEventsCompactJson,
+    row.puuid,
+  );
+
+  return {
+    eventId: row.id,
+    riotName: row.riotName ?? row.puuid,
+    riotTag: row.riotTag ?? '',
+    agent: row.agent ?? '',
+    map: row.map,
+    matchId: row.matchId,
+    rounds: sortedRounds,
+    roundsWon,
+    detectedAt: row.detectedAt,
+  };
 }
 
 export async function buildDailyAceDigest(
   deps: BuildDailyDigestDeps,
 ): Promise<BuildDailyDigestResult> {
-  const { db, windowStart, windowEnd, excludeEventIds, includeAllStatuses } = deps;
+  const { db, windowStart, windowEnd, excludeEventIds } = deps;
 
   const conditions = [
-    eq(detectedEvents.event_type, 'ace'),
+    inArray(detectedEvents.event_type, ['ace', 'knife_kill']),
+    inArray(detectedEvents.status, ['silent', 'digest-only']),
     gte(detectedEvents.detected_at, windowStart),
     lt(detectedEvents.detected_at, windowEnd),
   ];
-
-  if (!includeAllStatuses) {
-    conditions.push(inArray(detectedEvents.status, ['silent', 'digest-only']));
-  }
 
   if (excludeEventIds && excludeEventIds.length > 0) {
     conditions.push(notInArray(detectedEvents.id, excludeEventIds));
@@ -131,6 +162,7 @@ export async function buildDailyAceDigest(
   const rows = await db
     .select({
       id: detectedEvents.id,
+      eventType: detectedEvents.event_type,
       puuid: detectedEvents.riot_puuid,
       matchId: detectedEvents.match_id,
       detectedAt: detectedEvents.detected_at,
@@ -158,49 +190,38 @@ export async function buildDailyAceDigest(
     return { text: null, includedEventIds: [] };
   }
 
-  const typedRows = rows as AceRow[];
-  const includedEventIds: number[] = typedRows.map((r) => r.id);
+  const typedRows = rows as Row[];
+  const aceLines: Line[] = [];
+  const knifeLines: Line[] = [];
+  for (const row of typedRows) {
+    const line = rowToLine(row);
+    if (row.eventType === 'ace') aceLines.push(line);
+    else knifeLines.push(line);
+  }
+  aceLines.sort((a, b) => a.detectedAt - b.detectedAt);
+  knifeLines.sort((a, b) => a.detectedAt - b.detectedAt);
 
-  // One line per row (UNIQUE(match_id, event_type, riot_puuid) gives at most one row per (player, match)).
-  const lines: Line[] = typedRows.map((row) => {
-    let rounds: number[] = [];
-    let roundsWonFromPayload: number[] | null = null;
-    try {
-      const payload = JSON.parse(row.payloadJson) as Record<string, unknown>;
-      if (Array.isArray(payload['rounds'])) {
-        rounds = (payload['rounds'] as unknown[]).filter((r): r is number => typeof r === 'number');
-      }
-      if (Array.isArray(payload['rounds_won'])) {
-        roundsWonFromPayload = (payload['rounds_won'] as unknown[]).filter((r): r is number => typeof r === 'number');
-      }
-    } catch {
-      // ignore bad json
-    }
-    const sortedRounds = [...rounds].sort((a, b) => a - b);
-    const roundsWon = roundsWonFromPayload ?? deriveRoundsWon(
-      sortedRounds,
-      row.roundsCompactJson,
-      row.killEventsCompactJson,
-      row.puuid,
-    );
+  return {
+    text: renderDailyDigestText(aceLines, knifeLines),
+    includedEventIds: typedRows.map((r) => r.id),
+  };
+}
 
-    return {
-      eventId: row.id,
-      riotName: row.riotName ?? row.puuid,
-      riotTag: row.riotTag ?? '',
-      agent: row.agent ?? '',
-      map: row.map,
-      matchId: row.matchId,
-      rounds: sortedRounds,
-      roundsWon,
-      detectedAt: row.detectedAt,
-    };
-  });
+/** Pure renderer — emits the combined daily post. Exported for unit tests. */
+export function renderDailyDigestText(aceLines: Line[], knifeLines: Line[]): string {
+  const header = `🎯 Ace`;
+  const legend = `<i>💀 без победы в раунде</i>\n<i>🏆 с победой в раунде</i>`;
+  const parts: string[] = [`${header}\n${legend}`];
 
-  // Chronology — earliest first.
-  lines.sort((a, b) => a.detectedAt - b.detectedAt);
+  if (aceLines.length > 0) {
+    parts.push(aceLines.map(renderLine).join('\n'));
+  }
+  if (knifeLines.length > 0) {
+    parts.push(`🔪 Заколол баранчика\n${knifeLines.map(renderLine).join('\n')}`);
+  }
+  parts.push(`<i>Эйсы и ножи за предыдущие 24 часа</i>`);
 
-  return { text: renderDailyAceText(lines), includedEventIds };
+  return parts.join('\n\n');
 }
 
 function renderLine(l: Line): string {
@@ -221,11 +242,8 @@ function renderLine(l: Line): string {
 }
 
 function roundLabel(round0: number, roundsWon: number[] | null): string {
-  const display = round0 + 1; // 1-indexed for chat (Valorant scoreboard convention)
-  if (roundsWon === null) {
-    // Legacy event without rounds_won field — no win/loss emoji available.
-    return `round ${display}`;
-  }
+  const display = round0 + 1;
+  if (roundsWon === null) return `round ${display}`;
   const emoji = roundsWon.includes(round0) ? '🏆' : '💀';
   return `${emoji}round ${display}`;
 }

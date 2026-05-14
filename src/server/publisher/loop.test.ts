@@ -148,7 +148,7 @@ describe('startPublisherLoop', () => {
 
     it('does NOT silence events when publishing is enabled (past threshold)', async () => {
       seedUser(sqlite, 1, 'puuid-1');
-      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'knife_kill' });
+      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'teamkill' });
 
       const past = new Date(Date.now() - 1000).toISOString(); // already in the past
       vi.stubEnv('EVENTS_PUBLISHING_ENABLED_AFTER', past);
@@ -167,7 +167,7 @@ describe('startPublisherLoop', () => {
   describe('posts events at any hour', () => {
     it('posts events before noon (no quiet hours gate)', async () => {
       seedUser(sqlite, 1, 'puuid-1');
-      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'knife_kill' });
+      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'teamkill' });
 
       const { stop } = makeLoop(db, sendMessage, {
         kyivTime: { hour: 10, today_start_ms: Date.now() - 86400000 },
@@ -181,7 +181,7 @@ describe('startPublisherLoop', () => {
 
     it('posts events after noon', async () => {
       seedUser(sqlite, 1, 'puuid-1');
-      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'knife_kill' });
+      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'teamkill' });
 
       const { stop } = makeLoop(db, sendMessage, {
         kyivTime: { hour: 14, today_start_ms: Date.now() - 86400000 },
@@ -197,7 +197,7 @@ describe('startPublisherLoop', () => {
     it('marks event as opted-out when user has disabled realtime notifications', async () => {
       seedUser(sqlite, 1, 'puuid-1');
       seedOptOut(sqlite, 1, 1);
-      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'knife_kill' });
+      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'teamkill' });
 
       const { stop } = makeLoop(db, sendMessage, {
         kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
@@ -212,7 +212,7 @@ describe('startPublisherLoop', () => {
     it('posts event when user has chat_realtime_disabled=0', async () => {
       seedUser(sqlite, 1, 'puuid-1');
       seedOptOut(sqlite, 1, 0);
-      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'knife_kill' });
+      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'teamkill' });
 
       const { stop } = makeLoop(db, sendMessage, {
         kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
@@ -242,7 +242,7 @@ describe('startPublisherLoop', () => {
       seedUser(sqlite, 2, 'puuid-2');
 
       const now = Date.now();
-      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'knife_kill', detectedAt: now - 5000 });
+      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'teamkill', detectedAt: now - 5000 });
       const id2 = seedPendingEvent(sqlite, { puuid: 'puuid-2', eventType: 'winstreak_10plus', detectedAt: now - 1000 });
 
       const { stop } = makeLoop(db, sendMessage, {
@@ -260,7 +260,7 @@ describe('startPublisherLoop', () => {
   describe('Telegram 429 retry', () => {
     it('retries once on 429 and succeeds', async () => {
       seedUser(sqlite, 1, 'puuid-1');
-      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'knife_kill' });
+      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'teamkill' });
 
       const retryAfterError = Object.assign(new Error('429 Too Many Requests: retry after 2'), {
         error_code: 429,
@@ -315,7 +315,7 @@ describe('startPublisherLoop', () => {
 
     it('leaves event as pending + bumps failed_attempts on durable Telegram 4xx', async () => {
       seedUser(sqlite, 1, 'puuid-1');
-      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'knife_kill' });
+      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'teamkill' });
 
       // Durable 400 (e.g. "chat not found"): no error_code retry, no transient kind.
       const durable400 = Object.assign(new Error('Bad Request: chat not found'), {
@@ -344,7 +344,7 @@ describe('startPublisherLoop', () => {
     it('parks event as failed after MAX_FAILED_ATTEMPTS=3 so queue stops blocking', async () => {
       seedUser(sqlite, 1, 'puuid-1');
       // Two pending events; first is poison, second should still get a chance later.
-      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'knife_kill' });
+      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'teamkill' });
 
       // Pretend this poison event has already failed twice — next failure should park it.
       sqlite.prepare('UPDATE detected_events SET failed_attempts = 2 WHERE id = ?').run(id1);
@@ -370,7 +370,7 @@ describe('startPublisherLoop', () => {
 
     it('retries on transient Telegram 5xx error before giving up', async () => {
       seedUser(sqlite, 1, 'puuid-1');
-      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'knife_kill' });
+      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'teamkill' });
 
       const transient500 = Object.assign(new Error('Internal Server Error'), { error_code: 500 });
       sendMessage
@@ -399,7 +399,7 @@ describe('startPublisherLoop', () => {
 
     it('leaves event as pending if both 429 retry attempts fail', async () => {
       seedUser(sqlite, 1, 'puuid-1');
-      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'knife_kill' });
+      const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'teamkill' });
 
       const retryAfterError = Object.assign(new Error('429 Too Many Requests'), {
         error_code: 429,
@@ -426,7 +426,7 @@ describe('startPublisherLoop', () => {
   describe('message content', () => {
     it('calls sendMessage with HTML parse_mode', async () => {
       seedUser(sqlite, 1, 'puuid-1', { riotName: 'TestPlayer', riotTag: '1234' });
-      seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'knife_kill' });
+      seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'teamkill' });
 
       const { stop } = makeLoop(db, sendMessage, {
         kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
@@ -447,7 +447,7 @@ describe('startPublisherLoop', () => {
       // even though /test_runtime_events (which passes both) did.
       seedUser(sqlite, 1, 'puuid-1', { riotName: 'Linker', riotTag: '0001' });
       const matchId = 'abc-match-id-with-link-001';
-      seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'knife_kill', matchId });
+      seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'teamkill', matchId });
 
       const { stop } = makeLoop(db, sendMessage, {
         kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
@@ -462,7 +462,7 @@ describe('startPublisherLoop', () => {
 
     it('sends to the primary chat ID', async () => {
       seedUser(sqlite, 1, 'puuid-1');
-      seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'knife_kill' });
+      seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'teamkill' });
 
       const primaryChatId = -9998887776665;
       const { stop } = makeLoop(db, sendMessage, {
@@ -519,7 +519,7 @@ describe('startPublisherLoop', () => {
       stop(); // stop before any tick
 
       // Add event after stopping
-      seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'knife_kill' });
+      seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'teamkill' });
 
       await vi.advanceTimersByTimeAsync(5000);
       for (let i = 0; i < 5; i++) await Promise.resolve();
