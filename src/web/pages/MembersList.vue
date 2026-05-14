@@ -29,21 +29,25 @@
         >
           <!-- Avatar -->
           <div class="member-avatar">
-            <!-- Primary: Valorant card or ? placeholder -->
+            <!-- Primary: Valorant card or ? placeholder.
+                 valorant-api.com lags behind Riot when new bundles ship —
+                 if its CDN 404s the card UUID, fall through to the placeholder. -->
             <img
-              v-if="m.riotCardId"
+              v-if="m.riotCardId && !failedCards.has(m.riotCardId)"
               :src="valorantCardUrl(m.riotCardId)"
               :alt="m.riotName ?? ''"
               class="avatar-img avatar-img--card"
+              @error="onCardError(m.riotCardId)"
             />
             <div v-else class="avatar-placeholder avatar-placeholder--unlinked">?</div>
 
             <!-- Corner: always rendered. TG avatar or initial-letter circle. -->
             <img
-              v-if="m.telegramAvatarUrl"
+              v-if="m.telegramAvatarUrl && !failedTgAvatars.has(m.telegramId)"
               :src="m.telegramAvatarUrl"
               :alt="m.telegramUsername ?? ''"
               class="tg-avatar-overlay"
+              @error="onTgAvatarError(m.telegramId)"
             />
             <div v-else class="tg-avatar-overlay tg-avatar-overlay--placeholder">
               {{ avatarInitial(m) }}
@@ -120,6 +124,20 @@ const loading = ref(true);
 const error = ref<string | null>(null);
 const toastMsg = ref<string | null>(null);
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Track image-load failures so we can fall back to the `?` placeholder instead
+// of letting the WebView render its broken-image glyph. Keyed by the source
+// identity (cardId / telegramId) so the same failure dedupes across renders.
+const failedCards = ref(new Set<string>());
+const failedTgAvatars = ref(new Set<number>());
+
+function onCardError(cardId: string | null) {
+  if (cardId) failedCards.value.add(cardId);
+}
+
+function onTgAvatarError(telegramId: number) {
+  failedTgAvatars.value.add(telegramId);
+}
 
 onMounted(async () => {
   try {

@@ -372,6 +372,73 @@ describe('MembersList.vue', () => {
     expect(wrapper.find('.tg-avatar-overlay--placeholder').exists()).toBe(true);
   });
 
+  it('falls back to ? placeholder when card image 404s (e.g. new bundle valorant-api.com has not scraped)', async () => {
+    const member: Member = {
+      telegramId: 99,
+      telegramUsername: 'newbundle',
+      telegramAvatarUrl: null,
+      riotName: 'NewBundle',
+      riotTag: '1111',
+      riotCardId: 'fca03251-4672-df99-e0cb-b59746877174',
+      currentTierId: null,
+      currentTierName: null,
+      peakTierId: null,
+      peakTierName: null,
+      peakSeasonShort: null,
+      lastMessageAt: null,
+    };
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue([member]);
+
+    const wrapper = mount(MembersList, { global: { plugins: [makeRouter()] } });
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    // Initially the card <img> is rendered (no error yet).
+    expect(wrapper.find('img.avatar-img--card').exists()).toBe(true);
+    expect(wrapper.find('.avatar-placeholder--unlinked').exists()).toBe(false);
+
+    // Trigger image load error.
+    await wrapper.find('img.avatar-img--card').trigger('error');
+    await wrapper.vm.$nextTick();
+
+    // <img> is removed, ? placeholder takes its place.
+    expect(wrapper.find('img.avatar-img--card').exists()).toBe(false);
+    expect(wrapper.find('.avatar-placeholder--unlinked').exists()).toBe(true);
+    expect(wrapper.find('.avatar-placeholder--unlinked').text()).toBe('?');
+  });
+
+  it('falls back to initial-letter corner when telegram avatar 404s', async () => {
+    const member: Member = {
+      telegramId: 100,
+      telegramUsername: 'broken_tg_avatar',
+      telegramAvatarUrl: 'https://example.com/missing.jpg',
+      riotName: 'Player',
+      riotTag: '0001',
+      riotCardId: 'some-card',
+      currentTierId: null,
+      currentTierName: null,
+      peakTierId: null,
+      peakTierName: null,
+      peakSeasonShort: null,
+      lastMessageAt: null,
+    };
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue([member]);
+
+    const wrapper = mount(MembersList, { global: { plugins: [makeRouter()] } });
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('img.tg-avatar-overlay').exists()).toBe(true);
+    expect(wrapper.find('.tg-avatar-overlay--placeholder').exists()).toBe(false);
+
+    await wrapper.find('img.tg-avatar-overlay').trigger('error');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('img.tg-avatar-overlay').exists()).toBe(false);
+    expect(wrapper.find('.tg-avatar-overlay--placeholder').exists()).toBe(true);
+    expect(wrapper.find('.tg-avatar-overlay--placeholder').text()).toBe('P');
+  });
+
   it('renders both current and peak icons when currentTierId === peakTierId', async () => {
     const member: Member = {
       telegramId: 50,
