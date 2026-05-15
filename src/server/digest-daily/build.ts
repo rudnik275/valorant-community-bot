@@ -7,20 +7,23 @@
  *   - detected_at in [windowStart, windowEnd)
  *   - id NOT IN excludeEventIds
  *
- * Renders one combined Telegram HTML post:
+ * Renders one combined Telegram HTML post (single chronological list,
+ * one row per round; multi-round events fan out into multiple rows):
  *
- *   🎯 Ace
- *   💀 без победы в раунде
- *   🏆 с победой в раунде
+ *   🍿 Эйсы и ножи за предыдущие 24 часа
  *
- *   <ace lines>
+ *   <blockquote>
+ *   💀 - без победы в раунде
+ *   🏆 - с победой в раунде
+ *   🎯 - Ace
+ *   🔪 - Заколол баранчика
+ *   </blockquote>
  *
- *   🔪 Заколол баранчика
- *   <knife lines>
+ *   🎯 22:00 <b>Name#TAG</b> · Agent · 🏆round 3 · 🗺<a href="…">Map</a>
  *
- *   <i>Эйсы и ножи за предыдущие 24 часа</i>
+ *   🔪 22:21 <b>Name#TAG</b> · Agent · 💀round 13 · 🗺<a href="…">Map</a>
  *
- * Sections are omitted when empty. Returns null when both are empty.
+ * Returns null when no qualifying events exist.
  * Format and rationale: see ADR 0003.
  */
 
@@ -34,6 +37,17 @@ import { esc } from '../publisher/templates.ts';
 type AnyDb = any;
 
 const MAP_EMOJI = '🗺';
+
+const KYIV_TIME_FMT = new Intl.DateTimeFormat('ru-RU', {
+  timeZone: 'Europe/Kyiv',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
+function formatKyivHHMM(tsMs: number): string {
+  return KYIV_TIME_FMT.format(new Date(tsMs));
+}
 
 export interface BuildDailyDigestDeps {
   db: AnyDb;
@@ -62,8 +76,7 @@ interface Row {
   killEventsCompactJson: string | null;
 }
 
-export interface Line {
-  eventId: number;
+interface Line {
   riotName: string;
   riotTag: string;
   agent: string;
@@ -72,6 +85,19 @@ export interface Line {
   rounds: number[]; // 0-indexed, deduped, ascending
   roundsWon: number[] | null; // null = unknown; [] = all lost
   detectedAt: number;
+  eventType: 'ace' | 'knife_kill';
+}
+
+interface Entry {
+  type: 'ace' | 'knife_kill';
+  detectedAt: number;
+  round0: number;
+  won: boolean | null;
+  riotName: string;
+  riotTag: string;
+  agent: string;
+  map: string | null;
+  matchId: string;
 }
 
 /**
@@ -131,7 +157,6 @@ function rowToLine(row: Row): Line {
   );
 
   return {
-    eventId: row.id,
     riotName: row.riotName ?? row.puuid,
     riotTag: row.riotTag ?? '',
     agent: row.agent ?? '',
@@ -140,7 +165,22 @@ function rowToLine(row: Row): Line {
     rounds: sortedRounds,
     roundsWon,
     detectedAt: row.detectedAt,
+    eventType: row.eventType,
   };
+}
+
+function lineToEntries(line: Line): Entry[] {
+  return line.rounds.map((round0) => ({
+    type: line.eventType,
+    detectedAt: line.detectedAt,
+    round0,
+    won: line.roundsWon === null ? null : line.roundsWon.includes(round0),
+    riotName: line.riotName,
+    riotTag: line.riotTag,
+    agent: line.agent,
+    map: line.map,
+    matchId: line.matchId,
+  }));
 }
 
 export async function buildDailyAceDigest(
@@ -191,59 +231,52 @@ export async function buildDailyAceDigest(
   }
 
   const typedRows = rows as Row[];
-  const aceLines: Line[] = [];
-  const knifeLines: Line[] = [];
+  const entries: Entry[] = [];
   for (const row of typedRows) {
-    const line = rowToLine(row);
-    if (row.eventType === 'ace') aceLines.push(line);
-    else knifeLines.push(line);
+    entries.push(...lineToEntries(rowToLine(row)));
   }
-  aceLines.sort((a, b) => a.detectedAt - b.detectedAt);
-  knifeLines.sort((a, b) => a.detectedAt - b.detectedAt);
+
+  if (entries.length === 0) {
+    return { text: null, includedEventIds: [] };
+  }
+
+  entries.sort((a, b) => {
+    if (a.detectedAt !== b.detectedAt) return a.detectedAt - b.detectedAt;
+    if (a.round0 !== b.round0) return a.round0 - b.round0;
+    if (a.type !== b.type) return a.type === 'ace' ? -1 : 1;
+    return 0;
+  });
 
   return {
-    text: renderDailyDigestText(aceLines, knifeLines),
+    text: renderDailyDigestText(entries),
     includedEventIds: typedRows.map((r) => r.id),
   };
 }
 
+const HEADER = `🍿 Эйсы и ножи за предыдущие 24 часа`;
+const LEGEND =
+  `<blockquote>` +
+  `💀 - без победы в раунде\n` +
+  `🏆 - с победой в раунде\n` +
+  `🎯 - Ace\n` +
+  `🔪 - Заколол баранчика` +
+  `</blockquote>`;
+
 /** Pure renderer — emits the combined daily post. Exported for unit tests. */
-export function renderDailyDigestText(aceLines: Line[], knifeLines: Line[]): string {
-  const header = `🎯 Ace`;
-  const legend = `<i>💀 без победы в раунде</i>\n<i>🏆 с победой в раунде</i>`;
-  const parts: string[] = [`${header}\n${legend}`];
-
-  if (aceLines.length > 0) {
-    parts.push(aceLines.map(renderLine).join('\n'));
-  }
-  if (knifeLines.length > 0) {
-    parts.push(`🔪 Заколол баранчика\n${knifeLines.map(renderLine).join('\n')}`);
-  }
-  parts.push(`<i>Эйсы и ножи за предыдущие 24 часа</i>`);
-
-  return parts.join('\n\n');
+export function renderDailyDigestText(entries: Entry[]): string {
+  return `${HEADER}\n\n${LEGEND}\n\n${entries.map(renderEntry).join('\n\n')}`;
 }
 
-function renderLine(l: Line): string {
-  const playerPart = `<b>${esc(l.riotName)}#${esc(l.riotTag)}</b>`;
-  const agentPart = l.agent ? ` (${esc(l.agent)})` : '';
-  const mapPart = l.map
-    ? ` · ${MAP_EMOJI}<a href="https://tracker.gg/valorant/match/${esc(l.matchId)}">${esc(l.map)}</a>`
+function renderEntry(e: Entry): string {
+  const typeEmoji = e.type === 'ace' ? '🎯' : '🔪';
+  const time = formatKyivHHMM(e.detectedAt);
+  const player = `<b>${esc(e.riotName)}#${esc(e.riotTag)}</b>`;
+  const agentPart = e.agent ? ` · ${esc(e.agent)}` : '';
+  const resultEmoji = e.won === null ? '' : e.won ? '🏆' : '💀';
+  const roundPart = ` · ${resultEmoji}round ${e.round0 + 1}`;
+  const mapPart = e.map
+    ? ` · ${MAP_EMOJI}<a href="https://tracker.gg/valorant/match/${esc(e.matchId)}">${esc(e.map)}</a>`
     : '';
 
-  const aceCount = l.rounds.length;
-  const roundsPart = aceCount === 0
-    ? ''
-    : aceCount === 1
-      ? ` ${roundLabel(l.rounds[0]!, l.roundsWon)}`
-      : ` x${aceCount} (${l.rounds.map((r) => roundLabel(r, l.roundsWon)).join(', ')})`;
-
-  return `${playerPart}${agentPart}${roundsPart}${mapPart}`;
-}
-
-function roundLabel(round0: number, roundsWon: number[] | null): string {
-  const display = round0 + 1;
-  if (roundsWon === null) return `round ${display}`;
-  const emoji = roundsWon.includes(round0) ? '🏆' : '💀';
-  return `${emoji}round ${display}`;
+  return `${typeEmoji} ${time} ${player}${agentPart}${roundPart}${mapPart}`;
 }
