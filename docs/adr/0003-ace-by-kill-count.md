@@ -37,3 +37,7 @@ Daily Ace digest format also changes to surface per-round outcome (💀 round lo
 - **Reverses `3e45e7f`.** Reading old code comments / commits about "ceremony as ground truth" requires this ADR for context.
 - **`rounds_compact[].c` becomes unused for ace.** Other detectors may still use it; if nothing else does, the scanner can stop emitting it later (out of scope here).
 - **Going-forward only.** No backfill of `match_records` already scanned with the old logic — we accept that historic missed aces stay missed.
+
+## 2026-05-15 — single-list message format
+
+The daily digest layout is reorganised into a single chronological list (`src/server/digest-daily/build.ts`). Aces and knife kills are no longer grouped into two separate sections; each row carries a leading type emoji (`🎯` for ace, `🔪` for knife) and Europe/Kyiv `HH:MM`. Multi-round events fan out into one row per round (sorted ascending), so a Sage-revive 6-kill round and a same-match second ace each get their own line. The header (`🍿 Эйсы и ножи за предыдущие 24 часа`) is plain text at the top, and the legend now lives in a Telegram `<blockquote>` with one row per emoji (4 rows total). Selection rules, status filtering, dedupe by `daily_digest_runs.run_date` and the 23:00 Europe/Kyiv schedule are unchanged.
