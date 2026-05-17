@@ -1,5 +1,6 @@
 import type { matchRecords } from '../db/schema/match_records.ts';
 import type { InferSelectModel } from 'drizzle-orm';
+import type { SqliteDb } from '../db/queries.ts';
 
 export type MatchRecord = InferSelectModel<typeof matchRecords>;
 
@@ -32,15 +33,57 @@ export interface DetectedEvent {
 }
 
 export interface DetectorDeps {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  db: any;
+  /** Typed Drizzle handle. Detectors read via `db/queries.ts` named queries. */
+  db: SqliteDb;
+}
+
+/**
+ * Optional context passed to a detector's {@link Detector.enrich} step.
+ * Mirrors the orchestrator's injectable deps so tests can stub Henrik /
+ * region lookups without module-level mocks.
+ */
+export interface EnrichContext {
+  db: SqliteDb;
+  riot_puuid: string;
+  match_id: string;
+  /** Player region, resolved once by the orchestrator (null when unknown). */
+  region: string | null;
+  /**
+   * Injectable opponent-peak fetcher. The orchestrator passes the real
+   * `getOpponentPeakRanks` (or a test stub). Typed loosely so `types.ts`
+   * doesn't import the Henrik/opponent-context layer.
+   */
+  getOpponentPeakRanksFn: (
+    victims: Array<{ puuid: string; name: string; tag: string }>,
+    region: string,
+  ) => Promise<Map<string, { tier_id: number; tier_name: string; season_short: string }>>;
 }
 
 export interface Detector {
   type: EventType;
-  detect: (record: MatchRecord, prevRecords: MatchRecord[]) => DetectedEvent[];
-  /** Optional async alternative — used by detectors that need DB access (e.g. record detectors). */
-  detectAsync?: (record: MatchRecord, prevRecords: MatchRecord[], deps: DetectorDeps) => Promise<DetectedEvent[]>;
+  /**
+   * Single async detection method. The orchestrator ALWAYS supplies `deps`;
+   * it is optional in the signature only so the formerly-sync detectors (and
+   * their pure, db-less unit tests) can keep calling `detect(record, prev)`
+   * with no `{ db }` ceremony. DB-backed detectors require it at runtime.
+   * There is no longer a sync/async fork in the contract.
+   */
+  detect: (
+    record: MatchRecord,
+    prevRecords: MatchRecord[],
+    deps?: DetectorDeps,
+  ) => Promise<DetectedEvent[]>;
+  /**
+   * Optional post-detection enrichment, run by the orchestrator AFTER all
+   * detectors produce events and BEFORE insert. The detector receives only
+   * its OWN events and returns them (mutated/replaced). Keeps cross-cutting
+   * augmentation (e.g. opponent-peak ranks for aces) behind the detector
+   * seam instead of the orchestrator special-casing event types / payloads.
+   */
+  enrich?: (
+    events: DetectedEvent[],
+    ctx: EnrichContext,
+  ) => Promise<DetectedEvent[]>;
 }
 
 export type EventCategory = 'realtime' | 'digest';

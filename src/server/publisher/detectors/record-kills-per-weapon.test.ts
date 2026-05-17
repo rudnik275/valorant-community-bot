@@ -79,7 +79,7 @@ describe('recordKillsPerWeaponDetector', () => {
 
   it('no kills in match → no events', async () => {
     const record = makeRecord({ killEvents: [] });
-    const events = await recordKillsPerWeaponDetector.detectAsync!(record, [], { db });
+    const events = await recordKillsPerWeaponDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
@@ -88,14 +88,14 @@ describe('recordKillsPerWeaponDetector', () => {
       riot_puuid: null as unknown as string,
       killEvents: [makeKillEvent({ attacker_puuid: 'null', weapon: 'Operator' })],
     });
-    const events = await recordKillsPerWeaponDetector.detectAsync!(record, [], { db });
+    const events = await recordKillsPerWeaponDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
   it('invalid kill_events_compact JSON → no events', async () => {
     const record = makeRecord();
     (record as { kill_events_compact: string }).kill_events_compact = 'NOT_JSON';
-    const events = await recordKillsPerWeaponDetector.detectAsync!(record, [], { db });
+    const events = await recordKillsPerWeaponDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
@@ -109,7 +109,7 @@ describe('recordKillsPerWeaponDetector', () => {
         makeKillEvent({ weapon: '9c82e19d-4575-0200-1a81-3eacf00cf872' }), // Vandal UUID
       ],
     });
-    const events = await recordKillsPerWeaponDetector.detectAsync!(record, [], { db });
+    const events = await recordKillsPerWeaponDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
@@ -121,7 +121,7 @@ describe('recordKillsPerWeaponDetector', () => {
         makeKillEvent({ weapon: 'Operator' }),
       ],
     });
-    const events = await recordKillsPerWeaponDetector.detectAsync!(record, [], { db });
+    const events = await recordKillsPerWeaponDetector.detect(record, [], { db });
     // First-time record: beaten=true but prev is null → no event
     expect(events).toHaveLength(0);
   });
@@ -138,7 +138,7 @@ describe('recordKillsPerWeaponDetector', () => {
         makeKillEvent({ weapon: 'Operator', attacker_puuid: 'puuid-other' }),
       ],
     });
-    await recordKillsPerWeaponDetector.detectAsync!(firstRecord, [], { db });
+    await recordKillsPerWeaponDetector.detect(firstRecord, [], { db });
 
     // Now beat it with our player
     const beatRecord = makeRecord({
@@ -150,7 +150,7 @@ describe('recordKillsPerWeaponDetector', () => {
         makeKillEvent({ weapon: 'Operator', attacker_puuid: puuid }),
       ],
     });
-    const events = await recordKillsPerWeaponDetector.detectAsync!(beatRecord, [], { db });
+    const events = await recordKillsPerWeaponDetector.detect(beatRecord, [], { db });
 
     expect(events).toHaveLength(1);
     const ev = events[0]!;
@@ -176,7 +176,7 @@ describe('recordKillsPerWeaponDetector', () => {
         makeKillEvent({ weapon: 'Marshal', attacker_puuid: 'puuid-seed' }),
       ],
     });
-    await recordKillsPerWeaponDetector.detectAsync!(seedRecord, [], { db });
+    await recordKillsPerWeaponDetector.detect(seedRecord, [], { db });
 
     // Now beat both with our player
     const beatRecord = makeRecord({
@@ -190,7 +190,7 @@ describe('recordKillsPerWeaponDetector', () => {
         makeKillEvent({ weapon: 'Marshal', attacker_puuid: puuid }),
       ],
     });
-    const events = await recordKillsPerWeaponDetector.detectAsync!(beatRecord, [], { db });
+    const events = await recordKillsPerWeaponDetector.detect(beatRecord, [], { db });
 
     expect(events).toHaveLength(2);
     const matchIds = events.map((e) => e.match_id);
@@ -207,7 +207,7 @@ describe('recordKillsPerWeaponDetector', () => {
     const record = makeRecord({
       killEvents: [makeKillEvent({ weapon: 'Vandal' })],
     });
-    const events = await recordKillsPerWeaponDetector.detectAsync!(record, [], { db });
+    const events = await recordKillsPerWeaponDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
@@ -215,7 +215,7 @@ describe('recordKillsPerWeaponDetector', () => {
     const record = makeRecord({
       killEvents: [makeKillEvent({ weapon: 'Phantom' })],
     });
-    const events = await recordKillsPerWeaponDetector.detectAsync!(record, [], { db });
+    const events = await recordKillsPerWeaponDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
@@ -223,7 +223,7 @@ describe('recordKillsPerWeaponDetector', () => {
     const record = makeRecord({
       killEvents: [makeKillEvent({ weapon: '' }), makeKillEvent({ weapon: '' })],
     });
-    const events = await recordKillsPerWeaponDetector.detectAsync!(record, [], { db });
+    const events = await recordKillsPerWeaponDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
@@ -234,7 +234,7 @@ describe('recordKillsPerWeaponDetector', () => {
         makeKillEvent({ weapon: '39099fb5-4293-def4-1e09-2e9080ce7456' }),
       ],
     });
-    const events = await recordKillsPerWeaponDetector.detectAsync!(record, [], { db });
+    const events = await recordKillsPerWeaponDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
@@ -247,7 +247,7 @@ describe('recordKillsPerWeaponDetector', () => {
         match_id: `m-${ability}`,
         killEvents: [makeKillEvent({ weapon: ability })],
       });
-      const events = await recordKillsPerWeaponDetector.detectAsync!(record, [], { db });
+      const events = await recordKillsPerWeaponDetector.detect(record, [], { db });
       expect(events, `${ability} should be filtered out`).toHaveLength(0);
     }
   });
@@ -262,7 +262,7 @@ describe('recordKillsPerWeaponDetector', () => {
       riot_puuid: seedPuuid,
       killEvents: [makeKillEvent({ weapon: 'Operator', attacker_puuid: seedPuuid })],
     });
-    await recordKillsPerWeaponDetector.detectAsync!(seedRecord, [], { db });
+    await recordKillsPerWeaponDetector.detect(seedRecord, [], { db });
 
     // Our player gets 0 Operator kills (all kills are by an enemy puuid)
     const record = makeRecord({
@@ -273,7 +273,7 @@ describe('recordKillsPerWeaponDetector', () => {
         makeKillEvent({ weapon: 'Operator', attacker_puuid: 'enemy-puuid' }),
       ],
     });
-    const events = await recordKillsPerWeaponDetector.detectAsync!(record, [], { db });
+    const events = await recordKillsPerWeaponDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 });

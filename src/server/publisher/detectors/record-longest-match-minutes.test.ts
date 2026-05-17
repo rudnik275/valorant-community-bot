@@ -75,7 +75,7 @@ describe('recordLongestMatchMinutesDetector', () => {
 
   it('new record (no previous) → emits event with prev_value=null', async () => {
     const record = makeRecord({ game_length_ms: 2700000 }); // 45 min
-    const events = await recordLongestMatchMinutesDetector.detectAsync!(record, [], { db });
+    const events = await recordLongestMatchMinutesDetector.detect(record, [], { db });
 
     expect(events).toHaveLength(1);
     expect(events[0]!.type).toBe('record_longest_match_minutes');
@@ -87,10 +87,10 @@ describe('recordLongestMatchMinutesDetector', () => {
 
   it('new record beats existing → emits with prev_value', async () => {
     const firstRecord = makeRecord({ game_length_ms: 2400000, match_id: 'match-first', riot_puuid: 'puuid-first' }); // 40 min
-    await recordLongestMatchMinutesDetector.detectAsync!(firstRecord, [], { db });
+    await recordLongestMatchMinutesDetector.detect(firstRecord, [], { db });
 
     const newRecord = makeRecord({ game_length_ms: 3000000, match_id: 'match-new', riot_puuid: 'puuid-new' }); // 50 min
-    const events = await recordLongestMatchMinutesDetector.detectAsync!(newRecord, [], { db });
+    const events = await recordLongestMatchMinutesDetector.detect(newRecord, [], { db });
 
     expect(events).toHaveLength(1);
     expect(events[0]!.payload.value).toBe(50);
@@ -100,10 +100,10 @@ describe('recordLongestMatchMinutesDetector', () => {
 
   it('value lower than existing → no event', async () => {
     const firstRecord = makeRecord({ game_length_ms: 3600000, match_id: 'match-first' }); // 60 min
-    await recordLongestMatchMinutesDetector.detectAsync!(firstRecord, [], { db });
+    await recordLongestMatchMinutesDetector.detect(firstRecord, [], { db });
 
     const lowerRecord = makeRecord({ game_length_ms: 2700000, match_id: 'match-lower' }); // 45 min
-    const events = await recordLongestMatchMinutesDetector.detectAsync!(lowerRecord, [], { db });
+    const events = await recordLongestMatchMinutesDetector.detect(lowerRecord, [], { db });
 
     expect(events).toHaveLength(0);
   });
@@ -111,10 +111,10 @@ describe('recordLongestMatchMinutesDetector', () => {
   it('same player beats own record → prev_puuid === current puuid', async () => {
     const puuid = 'puuid-same';
     const firstRecord = makeRecord({ game_length_ms: 2400000, match_id: 'match-first', riot_puuid: puuid });
-    await recordLongestMatchMinutesDetector.detectAsync!(firstRecord, [], { db });
+    await recordLongestMatchMinutesDetector.detect(firstRecord, [], { db });
 
     const betterRecord = makeRecord({ game_length_ms: 3000000, match_id: 'match-better', riot_puuid: puuid });
-    const events = await recordLongestMatchMinutesDetector.detectAsync!(betterRecord, [], { db });
+    const events = await recordLongestMatchMinutesDetector.detect(betterRecord, [], { db });
 
     expect(events).toHaveLength(1);
     expect(events[0]!.payload.prev_puuid).toBe(puuid);
@@ -122,19 +122,19 @@ describe('recordLongestMatchMinutesDetector', () => {
 
   it('null riot_puuid → no event', async () => {
     const record = makeRecord({ riot_puuid: null as unknown as string });
-    const events = await recordLongestMatchMinutesDetector.detectAsync!(record, [], { db });
+    const events = await recordLongestMatchMinutesDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
   it('null game_length_ms → no event', async () => {
     const record = makeRecord({ game_length_ms: null });
-    const events = await recordLongestMatchMinutesDetector.detectAsync!(record, [], { db });
+    const events = await recordLongestMatchMinutesDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
   it('zero game_length_ms → no event', async () => {
     const record = makeRecord({ game_length_ms: 0 });
-    const events = await recordLongestMatchMinutesDetector.detectAsync!(record, [], { db });
+    const events = await recordLongestMatchMinutesDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
@@ -147,7 +147,7 @@ describe('recordLongestMatchMinutesDetector', () => {
     // puuid-test is the recorder but NOT in rosters (only community known players are listed)
 
     const record = makeRecord({ game_length_ms: 2700000, match_id: matchId, riot_puuid: 'puuid-test' });
-    const events = await recordLongestMatchMinutesDetector.detectAsync!(record, [], { db });
+    const events = await recordLongestMatchMinutesDetector.detect(record, [], { db });
 
     expect(events).toHaveLength(1);
     const players = events[0]!.payload.community_players as Array<{ puuid: string; name: string; tag: string }>;
@@ -159,7 +159,7 @@ describe('recordLongestMatchMinutesDetector', () => {
 
   it('no match_rosters → community_players is empty array', async () => {
     const record = makeRecord({ game_length_ms: 2700000 });
-    const events = await recordLongestMatchMinutesDetector.detectAsync!(record, [], { db });
+    const events = await recordLongestMatchMinutesDetector.detect(record, [], { db });
 
     expect(events).toHaveLength(1);
     const players = events[0]!.payload.community_players as Array<unknown>;
@@ -171,10 +171,10 @@ describe('recordLongestMatchMinutesDetector', () => {
     seedUser(sqlite, prevPuuid, 'OldChamp', 'OCC');
 
     const firstRecord = makeRecord({ game_length_ms: 2400000, match_id: 'match-first', riot_puuid: prevPuuid });
-    await recordLongestMatchMinutesDetector.detectAsync!(firstRecord, [], { db });
+    await recordLongestMatchMinutesDetector.detect(firstRecord, [], { db });
 
     const betterRecord = makeRecord({ game_length_ms: 3000000, match_id: 'match-better', riot_puuid: 'puuid-new' });
-    const events = await recordLongestMatchMinutesDetector.detectAsync!(betterRecord, [], { db });
+    const events = await recordLongestMatchMinutesDetector.detect(betterRecord, [], { db });
 
     expect(events).toHaveLength(1);
     expect(events[0]!.payload.prev_name).toBe('OldChamp');

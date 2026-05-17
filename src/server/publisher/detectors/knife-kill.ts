@@ -1,19 +1,5 @@
 import type { Detector, DetectedEvent, MatchRecord } from '../types.ts';
-
-interface KillEvent {
-  round: number;
-  attacker_team: string;
-  victim_team: string;
-  weapon: string;
-  attacker_puuid: string;
-  victim_puuid: string;
-}
-
-interface RoundsCompactEntry {
-  r: number;
-  w?: string;
-  c?: string;
-}
+import { decodeKillEvents, decodeRounds } from '../../lib/match-codec.ts';
 
 // Henrik may return weapon.name='Knife' or its canonical ID.
 const KNIFE_TOKENS = new Set([
@@ -23,23 +9,6 @@ const KNIFE_TOKENS = new Set([
 
 function isKnife(weapon: string): boolean {
   return KNIFE_TOKENS.has(weapon);
-}
-
-function parseKills(record: MatchRecord): KillEvent[] {
-  try {
-    return JSON.parse(record.kill_events_compact) as KillEvent[];
-  } catch {
-    return [];
-  }
-}
-
-function parseRoundsCompact(record: MatchRecord): RoundsCompactEntry[] {
-  if (!record.rounds_compact) return [];
-  try {
-    return JSON.parse(record.rounds_compact) as RoundsCompactEntry[];
-  } catch {
-    return [];
-  }
 }
 
 /**
@@ -53,10 +22,10 @@ function parseRoundsCompact(record: MatchRecord): RoundsCompactEntry[] {
  */
 export const knifeKillDetector: Detector = {
   type: 'knife_kill',
-  detect(record: MatchRecord, _prev: MatchRecord[]): DetectedEvent[] {
+  async detect(record: MatchRecord, _prev: MatchRecord[]): Promise<DetectedEvent[]> {
     const puuid = record.riot_puuid ?? '';
     if (!puuid) return [];
-    const kills = parseKills(record);
+    const kills = decodeKillEvents(record.kill_events_compact);
     const myKnifeKills = kills.filter(
       (k) => k.attacker_puuid === puuid && isKnife(k.weapon),
     );
@@ -65,7 +34,7 @@ export const knifeKillDetector: Detector = {
     const rounds = myKnifeKills.map((k) => k.round);
     const playerTeam = kills.find((k) => k.attacker_puuid === puuid)?.attacker_team ?? '';
     const winnerByRound = new Map<number, string>();
-    for (const r of parseRoundsCompact(record)) {
+    for (const r of decodeRounds(record.rounds_compact)) {
       if (r.w) winnerByRound.set(r.r, r.w);
     }
     const roundsWon = playerTeam

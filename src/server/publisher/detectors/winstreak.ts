@@ -1,6 +1,5 @@
-import { eq, and, gte } from 'drizzle-orm';
-import { detectedEvents } from '../../db/schema/detected_events.ts';
 import type { Detector, DetectedEvent, MatchRecord, DetectorDeps } from '../types.ts';
+import { hasEventSince } from '../../db/queries.ts';
 
 /**
  * Returns the timestamp (ms) of Monday 00:00 UTC of the ISO week containing `ms`.
@@ -30,12 +29,7 @@ function startOfIsoWeekMs(ms: number): number {
 export const winstreakDetector: Detector = {
   type: 'winstreak_10plus',
 
-  detect(): DetectedEvent[] {
-    // Not used — detectAsync is used instead. Required to satisfy the interface.
-    return [];
-  },
-
-  async detectAsync(record: MatchRecord, prevRecords: MatchRecord[], deps: DetectorDeps): Promise<DetectedEvent[]> {
+  async detect(record: MatchRecord, prevRecords: MatchRecord[], deps?: DetectorDeps): Promise<DetectedEvent[]> {
     const allRecords = [record, ...prevRecords].sort(
       (a, b) => b.started_at - a.started_at,
     );
@@ -56,17 +50,13 @@ export const winstreakDetector: Detector = {
 
     // Weekly dedup: check if this puuid already had a winstreak_10plus event this week
     const weekStartMs = startOfIsoWeekMs(record.started_at);
-    const existing = await deps.db
-      .select({ id: detectedEvents.id })
-      .from(detectedEvents)
-      .where(and(
-        eq(detectedEvents.event_type, 'winstreak_10plus'),
-        eq(detectedEvents.riot_puuid, record.riot_puuid ?? ''),
-        gte(detectedEvents.detected_at, weekStartMs),
-      ))
-      .limit(1);
-
-    if (existing.length > 0) return [];
+    const alreadyEmitted = await hasEventSince(
+      deps!.db,
+      'winstreak_10plus',
+      record.riot_puuid ?? '',
+      weekStartMs,
+    );
+    if (alreadyEmitted) return [];
 
     return [
       {

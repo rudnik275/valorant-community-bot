@@ -55,22 +55,22 @@ function makeAceRound(round: number, weapon = 'Vandal') {
 }
 
 describe('aceDetector', () => {
-  it('returns empty when no aces', () => {
+  it('returns empty when no aces', async () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
         makeKill(1), makeKill(1), makeKill(2), makeKill(2), makeKill(3),
       ]),
     };
-    expect(aceDetector.detect(record, [])).toHaveLength(0);
+    expect(await aceDetector.detect(record, [])).toHaveLength(0);
   });
 
-  it('detects a single ace (5 unique-victim kills in one round)', () => {
+  it('detects a single ace (5 unique-victim kills in one round)', async () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify(makeAceRound(3)),
     };
-    const events = aceDetector.detect(record, []);
+    const events = await aceDetector.detect(record, []);
     expect(events).toHaveLength(1);
     expect(events[0]!.type).toBe('ace');
     expect(events[0]!.payload.rounds).toEqual([3]);
@@ -79,7 +79,7 @@ describe('aceDetector', () => {
     expect(events[0]!.payload.rounds_won).toEqual([3]);
   });
 
-  it('detects an ace when 5 kill events with only 4 unique victims (Sage-revived enemy re-killed)', () => {
+  it('detects an ace when 5 kill events with only 4 unique victims (Sage-revived enemy re-killed)', async () => {
     // Per ADR 0003: we deliberately count the revived re-kill toward the 5.
     const record: MatchRecord = {
       ...BASE_RECORD,
@@ -92,7 +92,7 @@ describe('aceDetector', () => {
         makeKill(1, 'Vandal', 'puuid-1', 'enemy-1'),
       ]),
     };
-    const events = aceDetector.detect(record, []);
+    const events = await aceDetector.detect(record, []);
     expect(events).toHaveLength(1);
     const wpr = events[0]!.payload.weapons_per_round as string[][];
     expect(wpr[0]).toHaveLength(5); // 5 kill events recorded, no dedup
@@ -100,7 +100,7 @@ describe('aceDetector', () => {
     expect((events[0]!.payload.victims as unknown[])).toHaveLength(4);
   });
 
-  it('detects ace even when CeremonyAce never fired (spike-explosion case)', () => {
+  it('detects ace even when CeremonyAce never fired (spike-explosion case)', async () => {
     // Player aced but died to spike before round end → Riot did not fire CeremonyAce.
     // rounds_compact carries CeremonyCloser, not CeremonyAce. Must still emit.
     const record: MatchRecord = {
@@ -108,13 +108,13 @@ describe('aceDetector', () => {
       rounds_compact: JSON.stringify([{ r: 4, w: 'Red', c: 'CeremonyCloser' }]),
       kill_events_compact: JSON.stringify(makeAceRound(4)),
     };
-    const events = aceDetector.detect(record, []);
+    const events = await aceDetector.detect(record, []);
     expect(events).toHaveLength(1);
     // Round 4 won by Red, player is Blue → rounds_won is empty.
     expect(events[0]!.payload.rounds_won).toEqual([]);
   });
 
-  it('excludes self-kills (spike suicide) — attacker == victim does not count toward ace', () => {
+  it('excludes self-kills (spike suicide) — attacker == victim does not count toward ace', async () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
@@ -126,10 +126,10 @@ describe('aceDetector', () => {
         makeKill(1, 'Fall', 'puuid-1', 'puuid-1'),
       ]),
     };
-    expect(aceDetector.detect(record, [])).toHaveLength(0);
+    expect(await aceDetector.detect(record, [])).toHaveLength(0);
   });
 
-  it('excludes friendly fire — same team kills do not count toward ace', () => {
+  it('excludes friendly fire — same team kills do not count toward ace', async () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
@@ -141,10 +141,10 @@ describe('aceDetector', () => {
         { round: 1, attacker_team: 'Blue', victim_team: 'Blue', weapon: 'Vandal', attacker_puuid: 'puuid-1', victim_puuid: 'teammate-1' },
       ]),
     };
-    expect(aceDetector.detect(record, [])).toHaveLength(0);
+    expect(await aceDetector.detect(record, [])).toHaveLength(0);
   });
 
-  it('emits one event with both rounds when two aces in same match', () => {
+  it('emits one event with both rounds when two aces in same match', async () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
@@ -152,7 +152,7 @@ describe('aceDetector', () => {
         ...makeAceRound(5),
       ]),
     };
-    const events = aceDetector.detect(record, []);
+    const events = await aceDetector.detect(record, []);
     expect(events).toHaveLength(1);
     expect(events[0]!.payload.total_aces).toBe(2);
     expect(events[0]!.payload.rounds).toContain(1);
@@ -161,7 +161,7 @@ describe('aceDetector', () => {
     expect(events[0]!.payload.rounds_won).toEqual([1]);
   });
 
-  it('only counts kills by the target player', () => {
+  it('only counts kills by the target player', async () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
@@ -169,12 +169,77 @@ describe('aceDetector', () => {
         makeKill(1, 'Phantom', 'enemy-1', 'puuid-1'), // kill by enemy
       ]),
     };
-    expect(aceDetector.detect(record, [])).toHaveLength(0);
+    expect(await aceDetector.detect(record, [])).toHaveLength(0);
   });
 
-  it('handles malformed kill_events_compact gracefully', () => {
+  it('handles malformed kill_events_compact gracefully', async () => {
     const record: MatchRecord = { ...BASE_RECORD, kill_events_compact: 'invalid json' };
-    expect(aceDetector.detect(record, [])).toHaveLength(0);
+    expect(await aceDetector.detect(record, [])).toHaveLength(0);
+  });
+});
+
+describe('aceDetector.enrich (relocated opponent-peak seam)', () => {
+  const ctxBase = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    db: {} as any,
+    riot_puuid: 'puuid-1',
+    match_id: 'match-1',
+  };
+
+  function aceEvent() {
+    return {
+      type: 'ace' as const,
+      riot_puuid: 'puuid-1',
+      match_id: 'match-1',
+      payload: {
+        rounds: [1],
+        victims: [
+          { puuid: 'enemy-1', name: 'E1', tag: 'T1' },
+          { puuid: 'enemy-2', name: 'E2', tag: 'T2' },
+        ],
+      } as Record<string, unknown>,
+    };
+  }
+
+  it('merges opponents_peak into every ace event payload', async () => {
+    const peakMap = new Map([
+      ['enemy-1', { tier_id: 21, tier_name: 'Diamond 2', season_short: 'e9a1' }],
+      ['enemy-2', { tier_id: 24, tier_name: 'Ascendant 1', season_short: 'e9a1' }],
+    ]);
+    const getOpponentPeakRanksFn = async () => peakMap;
+    const events = [aceEvent()];
+    const out = await aceDetector.enrich!(events, {
+      ...ctxBase,
+      region: 'eu',
+      getOpponentPeakRanksFn,
+    });
+    const peak = out[0]!.payload['opponents_peak'] as Record<string, { tier_name: string }>;
+    expect(peak['enemy-1']).toMatchObject({ tier_name: 'Diamond 2' });
+    expect(peak['enemy-2']).toMatchObject({ tier_name: 'Ascendant 1' });
+  });
+
+  it('no region → events returned unchanged, peak fn not called', async () => {
+    let called = false;
+    const events = [aceEvent()];
+    const out = await aceDetector.enrich!(events, {
+      ...ctxBase,
+      region: null,
+      getOpponentPeakRanksFn: async () => {
+        called = true;
+        return new Map();
+      },
+    });
+    expect(called).toBe(false);
+    expect(out[0]!.payload['opponents_peak']).toBeUndefined();
+  });
+
+  it('no events → returned unchanged', async () => {
+    const out = await aceDetector.enrich!([], {
+      ...ctxBase,
+      region: 'eu',
+      getOpponentPeakRanksFn: async () => new Map(),
+    });
+    expect(out).toEqual([]);
   });
 });
 

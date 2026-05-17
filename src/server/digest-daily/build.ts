@@ -32,6 +32,7 @@ import { detectedEvents } from '../db/schema/detected_events.ts';
 import { users } from '../db/schema/users.ts';
 import { matchRecords } from '../db/schema/match_records.ts';
 import { esc } from '../publisher/templates.ts';
+import { decodeKillEvents, decodeRounds } from '../lib/match-codec.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
@@ -112,18 +113,11 @@ function deriveRoundsWon(
   riotPuuid: string,
 ): number[] | null {
   if (!roundsCompactJson || !killEventsCompactJson) return null;
-  let roundsCompact: Array<{ r: number; w?: string }> = [];
-  try {
-    roundsCompact = JSON.parse(roundsCompactJson);
-  } catch {
-    return null;
-  }
-  let killEvents: Array<{ attacker_puuid: string; attacker_team: string }> = [];
-  try {
-    killEvents = JSON.parse(killEventsCompactJson);
-  } catch {
-    return null;
-  }
+  // decode* collapses null/malformed → []. The original code returned null on
+  // a parse error; here a [] decode lands on the `!playerTeam` guard below and
+  // also returns null, so the observable result is identical.
+  const roundsCompact = decodeRounds(roundsCompactJson);
+  const killEvents = decodeKillEvents(killEventsCompactJson);
   const playerTeam = killEvents.find((k) => k.attacker_puuid === riotPuuid)?.attacker_team;
   if (!playerTeam) return null;
   const winnerByRound = new Map<number, string>();

@@ -73,7 +73,7 @@ describe('winstreakDetector', () => {
   it('detects a 10-win streak', async () => {
     const record = makeRecord('current', 'win', NOW);
     const prev = makeWinStreak(9, NOW); // 9 previous wins + current = 10
-    const events = await winstreakDetector.detectAsync!(record, prev, { db });
+    const events = await winstreakDetector.detect(record, prev, { db });
     expect(events).toHaveLength(1);
     expect(events[0]!.type).toBe('winstreak_10plus');
     expect(events[0]!.payload.streak).toBe(10);
@@ -82,7 +82,7 @@ describe('winstreakDetector', () => {
   it('detects a streak of 11', async () => {
     const record = makeRecord('current', 'win', NOW);
     const prev = makeWinStreak(10, NOW); // 10 previous wins + current = 11
-    const events = await winstreakDetector.detectAsync!(record, prev, { db });
+    const events = await winstreakDetector.detect(record, prev, { db });
     expect(events).toHaveLength(1);
     expect(events[0]!.type).toBe('winstreak_10plus');
     expect(events[0]!.payload.streak).toBe(11);
@@ -91,7 +91,7 @@ describe('winstreakDetector', () => {
   it('detects a streak of 12', async () => {
     const record = makeRecord('current', 'win', NOW);
     const prev = makeWinStreak(11, NOW); // 11 previous wins + current = 12
-    const events = await winstreakDetector.detectAsync!(record, prev, { db });
+    const events = await winstreakDetector.detect(record, prev, { db });
     expect(events).toHaveLength(1);
     expect(events[0]!.payload.streak).toBe(12);
   });
@@ -99,21 +99,21 @@ describe('winstreakDetector', () => {
   it('does NOT emit for streak of 9', async () => {
     const record = makeRecord('current', 'win', NOW);
     const prev = makeWinStreak(8, NOW); // 8 previous wins + current = 9
-    const events = await winstreakDetector.detectAsync!(record, prev, { db });
+    const events = await winstreakDetector.detect(record, prev, { db });
     expect(events).toHaveLength(0);
   });
 
   it('does NOT emit for streak of 8', async () => {
     const record = makeRecord('current', 'win', NOW);
     const prev = makeWinStreak(7, NOW); // 7 previous wins + current = 8
-    const events = await winstreakDetector.detectAsync!(record, prev, { db });
+    const events = await winstreakDetector.detect(record, prev, { db });
     expect(events).toHaveLength(0);
   });
 
   it('does NOT emit when current match is a loss', async () => {
     const record = makeRecord('current', 'loss', NOW);
     const prev = makeWinStreak(10, NOW);
-    const events = await winstreakDetector.detectAsync!(record, prev, { db });
+    const events = await winstreakDetector.detect(record, prev, { db });
     expect(events).toHaveLength(0);
   });
 
@@ -126,14 +126,14 @@ describe('winstreakDetector', () => {
       ...makeWinStreak(8, NOW - 4 * 3600_000),
     ];
     // streak is only 3 (current + p1 + p2)
-    const events = await winstreakDetector.detectAsync!(record, prev, { db });
+    const events = await winstreakDetector.detect(record, prev, { db });
     expect(events).toHaveLength(0);
   });
 
   it('includes started_match_id in payload', async () => {
     const record = makeRecord('current', 'win', NOW);
     const prev = makeWinStreak(9, NOW);
-    const events = await winstreakDetector.detectAsync!(record, prev, { db });
+    const events = await winstreakDetector.detect(record, prev, { db });
     expect(events[0]!.payload.started_match_id).toBeTruthy();
   });
 
@@ -142,7 +142,7 @@ describe('winstreakDetector', () => {
     const prev = makeWinStreak(9, NOW);
 
     // First call — should emit
-    const events1 = await winstreakDetector.detectAsync!(record, prev, { db });
+    const events1 = await winstreakDetector.detect(record, prev, { db });
     expect(events1).toHaveLength(1);
 
     // Simulate the event being persisted (as detect.ts would do it)
@@ -154,7 +154,7 @@ describe('winstreakDetector', () => {
     // Second call — same week, same puuid → should be suppressed
     const record2 = makeRecord('current2', 'win', NOW + 3600_000);
     const prev2 = makeWinStreak(9, NOW + 3600_000);
-    const events2 = await winstreakDetector.detectAsync!(record2, prev2, { db });
+    const events2 = await winstreakDetector.detect(record2, prev2, { db });
     expect(events2).toHaveLength(0);
   });
 
@@ -170,13 +170,12 @@ describe('winstreakDetector', () => {
     ).run(lastWeekMs);
 
     // This week — should still emit
-    const events = await winstreakDetector.detectAsync!(record, prev, { db });
+    const events = await winstreakDetector.detect(record, prev, { db });
     expect(events).toHaveLength(1);
   });
 
-  it('sync detect() returns empty (not used but satisfies interface)', () => {
-    const record = makeRecord('current', 'win', NOW);
-    const events = winstreakDetector.detect(record, makeWinStreak(9, NOW));
-    expect(events).toHaveLength(0);
-  });
+  // (Removed: the legacy "sync detect() returns empty" test asserted the
+  //  no-op sync stub that issue #254 explicitly removes — the detector now
+  //  has a single async detect. Behaviour is covered by the async tests
+  //  above.)
 });

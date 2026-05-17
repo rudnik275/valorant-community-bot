@@ -33,22 +33,22 @@ const BASE_RECORD: MatchRecord = {
 };
 
 describe('fallDamageDeathDetector', () => {
-  it('detects fall damage kill', () => {
+  it('detects fall damage kill', async () => {
     const record: MatchRecord = { ...BASE_RECORD, fall_damage_kills: 1 };
-    const events = fallDamageDeathDetector.detect(record, []);
+    const events = await fallDamageDeathDetector.detect(record, []);
     expect(events).toHaveLength(1);
     expect(events[0]!.type).toBe('fall_damage_death');
     expect(events[0]!.payload.count).toBe(1);
   });
 
-  it('detects multiple fall damage kills as one event', () => {
+  it('detects multiple fall damage kills as one event', async () => {
     const record: MatchRecord = { ...BASE_RECORD, fall_damage_kills: 3 };
-    const events = fallDamageDeathDetector.detect(record, []);
+    const events = await fallDamageDeathDetector.detect(record, []);
     expect(events).toHaveLength(1);
     expect(events[0]!.payload.count).toBe(3);
   });
 
-  it('does NOT emit when fall_damage_kills is 0', () => {
-    expect(fallDamageDeathDetector.detect(BASE_RECORD, [])).toHaveLength(0);
+  it('does NOT emit when fall_damage_kills is 0', async () => {
+    expect(await fallDamageDeathDetector.detect(BASE_RECORD, [])).toHaveLength(0);
   });
 });

@@ -104,7 +104,7 @@ describe('matchComebackDetector', () => {
       team_rounds_won: 13,
       team_rounds_lost: 11,
     };
-    const events = await matchComebackDetector.detectAsync!(record, [], { db });
+    const events = await matchComebackDetector.detect(record, [], { db });
     expect(events).toHaveLength(1);
     expect(events[0]!.type).toBe('match_comeback');
     expect(events[0]!.payload.max_deficit).toBe(8);
@@ -127,7 +127,7 @@ describe('matchComebackDetector', () => {
       team_rounds_won: 13,
       team_rounds_lost: 11,
     };
-    const events = await matchComebackDetector.detectAsync!(record, [], { db });
+    const events = await matchComebackDetector.detect(record, [], { db });
     expect(events).toHaveLength(1);
     expect(events[0]!.payload.max_deficit).toBe(10);
     expect(events[0]!.payload.deficit_score_player).toBe(0);
@@ -156,7 +156,7 @@ describe('matchComebackDetector', () => {
       team_rounds_won: 16,
       team_rounds_lost: 14,
     };
-    const events = await matchComebackDetector.detectAsync!(record, [], { db });
+    const events = await matchComebackDetector.detect(record, [], { db });
     expect(events).toHaveLength(1);
     expect(events[0]!.payload.max_deficit).toBe(9);
     expect(events[0]!.payload.deficit_score_player).toBe(0);
@@ -177,7 +177,7 @@ describe('matchComebackDetector', () => {
       team_rounds_won: 13,
       team_rounds_lost: 8,
     };
-    const events = await matchComebackDetector.detectAsync!(record, [], { db });
+    const events = await matchComebackDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
@@ -194,7 +194,7 @@ describe('matchComebackDetector', () => {
       team_rounds_won: 11,
       team_rounds_lost: 13,
     };
-    const events = await matchComebackDetector.detectAsync!(record, [], { db });
+    const events = await matchComebackDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
@@ -203,7 +203,7 @@ describe('matchComebackDetector', () => {
       ...BASE_RECORD,
       rounds_compact: null,
     };
-    const events = await matchComebackDetector.detectAsync!(record, [], { db });
+    const events = await matchComebackDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
@@ -212,7 +212,7 @@ describe('matchComebackDetector', () => {
       ...BASE_RECORD,
       rounds_compact: '[]',
     };
-    const events = await matchComebackDetector.detectAsync!(record, [], { db });
+    const events = await matchComebackDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
@@ -224,7 +224,7 @@ describe('matchComebackDetector', () => {
       rounds_compact: makeRoundsCompact(blueWins, redWins),
       team_rounds_won: 99,
     };
-    const events = await matchComebackDetector.detectAsync!(record, [], { db });
+    const events = await matchComebackDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
@@ -233,7 +233,7 @@ describe('matchComebackDetector', () => {
       ...BASE_RECORD,
       rounds_compact: 'not-valid-json',
     };
-    const events = await matchComebackDetector.detectAsync!(record, [], { db });
+    const events = await matchComebackDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
@@ -250,7 +250,7 @@ describe('matchComebackDetector', () => {
       team_rounds_lost: 11,
     };
 
-    const firstEvents = await matchComebackDetector.detectAsync!(record, [], { db });
+    const firstEvents = await matchComebackDetector.detect(record, [], { db });
     expect(firstEvents).toHaveLength(1);
 
     await db.insert(detectedEvents).values({
@@ -260,7 +260,7 @@ describe('matchComebackDetector', () => {
       payload_json: JSON.stringify(firstEvents[0]!.payload),
     });
 
-    const secondEvents = await matchComebackDetector.detectAsync!(record, [], { db });
+    const secondEvents = await matchComebackDetector.detect(record, [], { db });
     expect(secondEvents).toHaveLength(0);
   });
 
@@ -281,7 +281,7 @@ describe('matchComebackDetector', () => {
       team_rounds_lost: 11,
     };
 
-    const events = await matchComebackDetector.detectAsync!(record, [], { db });
+    const events = await matchComebackDetector.detect(record, [], { db });
     expect(events).toHaveLength(1);
     const players = events[0]!.payload['community_players'] as Array<{ puuid: string; name: string; tag: string }>;
     expect(players).toHaveLength(3);
@@ -308,7 +308,7 @@ describe('matchComebackDetector', () => {
       team_rounds_lost: 11,
     };
 
-    const events = await matchComebackDetector.detectAsync!(record, [], { db });
+    const events = await matchComebackDetector.detect(record, [], { db });
     expect(events).toHaveLength(1);
     const players = events[0]!.payload['community_players'] as Array<{ puuid: string; name: string; tag: string }>;
     expect(players).toHaveLength(2);

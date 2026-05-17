@@ -63,7 +63,7 @@ describe('recordKillsMatchDetector', () => {
 
   it('new record kills > nothing → emits event with prev_value=null', async () => {
     const record = makeRecord({ kills: 30 });
-    const events = await recordKillsMatchDetector.detectAsync!(record, [], { db });
+    const events = await recordKillsMatchDetector.detect(record, [], { db });
 
     expect(events).toHaveLength(1);
     expect(events[0]!.type).toBe('record_kills_match');
@@ -76,11 +76,11 @@ describe('recordKillsMatchDetector', () => {
   it('new record kills > existing → emits with prev_value', async () => {
     // Insert initial record
     const firstRecord = makeRecord({ kills: 20, match_id: 'match-first', riot_puuid: 'puuid-first' });
-    await recordKillsMatchDetector.detectAsync!(firstRecord, [], { db });
+    await recordKillsMatchDetector.detect(firstRecord, [], { db });
 
     // Beat it
     const newRecord = makeRecord({ kills: 35, match_id: 'match-new', riot_puuid: 'puuid-new' });
-    const events = await recordKillsMatchDetector.detectAsync!(newRecord, [], { db });
+    const events = await recordKillsMatchDetector.detect(newRecord, [], { db });
 
     expect(events).toHaveLength(1);
     expect(events[0]!.payload.value).toBe(35);
@@ -91,11 +91,11 @@ describe('recordKillsMatchDetector', () => {
   it('new record kills < existing → no event', async () => {
     // Insert initial record with high kills
     const firstRecord = makeRecord({ kills: 40, match_id: 'match-first' });
-    await recordKillsMatchDetector.detectAsync!(firstRecord, [], { db });
+    await recordKillsMatchDetector.detect(firstRecord, [], { db });
 
     // Try to beat with lower value
     const lowerRecord = makeRecord({ kills: 25, match_id: 'match-lower' });
-    const events = await recordKillsMatchDetector.detectAsync!(lowerRecord, [], { db });
+    const events = await recordKillsMatchDetector.detect(lowerRecord, [], { db });
 
     expect(events).toHaveLength(0);
   });
@@ -105,11 +105,11 @@ describe('recordKillsMatchDetector', () => {
 
     // Player sets initial record
     const firstRecord = makeRecord({ kills: 20, match_id: 'match-first', riot_puuid: puuid });
-    await recordKillsMatchDetector.detectAsync!(firstRecord, [], { db });
+    await recordKillsMatchDetector.detect(firstRecord, [], { db });
 
     // Same player beats own record
     const betterRecord = makeRecord({ kills: 30, match_id: 'match-better', riot_puuid: puuid });
-    const events = await recordKillsMatchDetector.detectAsync!(betterRecord, [], { db });
+    const events = await recordKillsMatchDetector.detect(betterRecord, [], { db });
 
     expect(events).toHaveLength(1);
     expect(events[0]!.payload.value).toBe(30);
@@ -119,7 +119,7 @@ describe('recordKillsMatchDetector', () => {
 
   it('null riot_puuid → no event emitted', async () => {
     const record = makeRecord({ riot_puuid: null as unknown as string, kills: 30 });
-    const events = await recordKillsMatchDetector.detectAsync!(record, [], { db });
+    const events = await recordKillsMatchDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 });

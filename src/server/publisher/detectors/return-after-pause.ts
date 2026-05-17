@@ -10,7 +10,7 @@ const PAUSE_THRESHOLD_DAYS = 14;
  */
 export const returnAfterPauseDetector: Detector = {
   type: 'return_after_pause',
-  detect(record: MatchRecord, prevRecords: MatchRecord[]): DetectedEvent[] {
+  async detect(record: MatchRecord, prevRecords: MatchRecord[]): Promise<DetectedEvent[]> {
     const prev = prevRecords[0];
     if (!prev) return [];
 

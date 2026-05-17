@@ -11,24 +11,23 @@
  * trigger detection because scanner never emits newRecord in that path.
  */
 
-import { eq, and, lt, desc } from 'drizzle-orm';
 import { scannerEvents } from '../scanner/events.ts';
 import { ALL_DETECTORS } from './detectors/index.ts';
 import { detectedEvents } from '../db/schema/detected_events.ts';
-import { matchRecords } from '../db/schema/match_records.ts';
-import { users } from '../db/schema/users.ts';
 import type { MatchRecord } from './types.ts';
 import logger from '../lib/log.ts';
 import { getOpponentPeakRanks } from '../lib/opponent-context.ts';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyDb = any;
+import {
+  getPrevRecords as getPrevRecordsQuery,
+  getRegionForPuuid as getRegionForPuuidQuery,
+  type SqliteDb,
+} from '../db/queries.ts';
 
 export interface DetectionDeps {
-  db: AnyDb;
-  /** Injectable for testing; defaults to querying matchRecords table. */
+  db: SqliteDb;
+  /** Injectable for testing; defaults to the typed `getPrevRecords` query. */
   getPrevRecords?: (puuid: string, beforeStartedAt: number) => Promise<MatchRecord[]>;
-  /** Injectable for testing; defaults to querying users table for riot_region. */
+  /** Injectable for testing; defaults to the typed `getRegionForPuuid` query. */
   getRegionForPuuid?: (puuid: string) => Promise<string | null>;
   /**
    * Injectable for testing; defaults to the real getOpponentPeakRanks from opponent-context.ts.
@@ -47,108 +46,75 @@ export function startDetectionListener(deps: DetectionDeps): () => void {
     try {
       const puuid = record.riot_puuid ?? '';
 
-      // Fetch last 30 previous match records for streak/comeback/promo logic
+      // Fetch the last N previous match records for streak/comeback/promo
+      // logic. Ordering / limit contract is documented in db/queries.ts.
       const prev: MatchRecord[] = deps.getPrevRecords
         ? await deps.getPrevRecords(puuid, record.started_at)
-        : await db
-            .select()
-            .from(matchRecords)
-            .where(
-              and(
-                eq(matchRecords.riot_puuid, puuid),
-                lt(matchRecords.started_at, record.started_at),
-              ),
-            )
-            .orderBy(desc(matchRecords.started_at))
-            .limit(30);
+        : await getPrevRecordsQuery(db, puuid, record.started_at);
 
-      // Run sync detectors — each is wrapped so one throw doesn't drop the rest.
-      const allEventsSync = ALL_DETECTORS.flatMap((detector) => {
-        try {
-          return detector.detect(record, prev);
-        } catch (err) {
-          logger.warn(
-            { module: 'detect', match_id: record.match_id, detector_type: detector.type, err: (err as Error).message },
-            'Sync detector threw — skipping this detector for this record',
-          );
-          return [];
-        }
-      });
-      // Run async detectors with allSettled so one rejection (e.g. opponent_peak
-      // Henrik failure) doesn't lose every other event for the same record.
-      const asyncDetectors = ALL_DETECTORS.filter((d) => d.detectAsync);
-      const asyncResults = await Promise.allSettled(
-        asyncDetectors.map((d) => d.detectAsync!(record, prev, { db })),
+      // Single async detector contract. Each detector is run with allSettled
+      // so one rejection (e.g. an opponent_peak Henrik failure or a thrown
+      // sync detector) doesn't lose every other event for the same record.
+      const detectorResults = await Promise.allSettled(
+        ALL_DETECTORS.map((d) => d.detect(record, prev, { db })),
       );
-      const allEventsAsync = asyncResults.flatMap((r, i) => {
+      const eventsByDetector = detectorResults.map((r, i) => {
         if (r.status === 'fulfilled') return r.value;
         logger.warn(
           {
             module: 'detect',
             match_id: record.match_id,
-            detector_type: asyncDetectors[i]!.type,
+            detector_type: ALL_DETECTORS[i]!.type,
             err: (r.reason as Error)?.message,
           },
-          'Async detector rejected — skipping this detector for this record',
+          'Detector rejected — skipping this detector for this record',
         );
         return [];
       });
-      const allEvents = [...allEventsSync, ...allEventsAsync];
 
-      // Augment ace/clutch events with opponents' peak ranks before insert
-      const aceLikeEvents = allEvents.filter(
-        (ev) => ev.type === 'ace',
+      // Per-detector enrichment (e.g. ace opponent-peak ranks). The
+      // orchestrator no longer special-cases any event type or reaches into
+      // payload internals — it resolves the region once, then lets each
+      // detector enrich its OWN events behind the detector seam. allSettled
+      // again so an enrichment failure can't drop other detectors' events.
+      let region: string | null | undefined;
+      const resolveRegion = async (): Promise<string | null> => {
+        if (region === undefined) {
+          region = deps.getRegionForPuuid
+            ? await deps.getRegionForPuuid(puuid)
+            : await getRegionForPuuidQuery(db, puuid);
+        }
+        return region;
+      };
+      const peakFn = deps.getOpponentPeakRanksFn ?? getOpponentPeakRanks;
+
+      const enrichResults = await Promise.allSettled(
+        ALL_DETECTORS.map(async (detector, i) => {
+          const events = eventsByDetector[i]!;
+          if (!detector.enrich || events.length === 0) return events;
+          return detector.enrich(events, {
+            db,
+            riot_puuid: puuid,
+            match_id: record.match_id,
+            region: await resolveRegion(),
+            getOpponentPeakRanksFn: peakFn,
+          });
+        }),
       );
 
-      if (aceLikeEvents.length > 0) {
-        // Look up the region for this player
-        const region: string | null = deps.getRegionForPuuid
-          ? await deps.getRegionForPuuid(puuid)
-          : await (async () => {
-              const rows = await db
-                .select({ riot_region: users.riot_region })
-                .from(users)
-                .where(eq(users.riot_puuid, puuid))
-                .limit(1);
-              return (rows[0]?.riot_region as string | null | undefined) ?? null;
-            })();
-
-        if (region) {
-          // Collect all unique victims across ace/clutch events
-          const seenPuuids = new Set<string>();
-          const allVictims: Array<{ puuid: string; name: string; tag: string }> = [];
-          for (const ev of aceLikeEvents) {
-            const victims = ev.payload['victims'] as Array<{ puuid: string; name: string; tag: string }> | undefined;
-            if (Array.isArray(victims)) {
-              for (const v of victims) {
-                if (!seenPuuids.has(v.puuid)) {
-                  seenPuuids.add(v.puuid);
-                  allVictims.push(v);
-                }
-              }
-            }
-          }
-
-          if (allVictims.length > 0) {
-            const peakFn = deps.getOpponentPeakRanksFn ?? getOpponentPeakRanks;
-            const peakMap = await peakFn(allVictims, region);
-
-            // Merge opponents_peak into each ace/clutch event payload
-            for (const ev of aceLikeEvents) {
-              const opponents_peak: Record<string, { tier_id: number; tier_name: string; season_short: string }> = {};
-              for (const [victimPuuid, peak] of peakMap) {
-                opponents_peak[victimPuuid] = peak;
-              }
-              ev.payload = { ...ev.payload, opponents_peak };
-            }
-          }
-        } else {
-          logger.warn(
-            { module: 'detect', puuid, match_id: record.match_id },
-            'No region found for player — skipping opponent peak augmentation',
-          );
-        }
-      }
+      const allEvents = enrichResults.flatMap((r, i) => {
+        if (r.status === 'fulfilled') return r.value;
+        logger.warn(
+          {
+            module: 'detect',
+            match_id: record.match_id,
+            detector_type: ALL_DETECTORS[i]!.type,
+            err: (r.reason as Error)?.message,
+          },
+          'Detector enrichment rejected — falling back to un-enriched events',
+        );
+        return eventsByDetector[i]!;
+      });
 
       // Map of event_type → initial status. Default is 'pending' (realtime).
       const INITIAL_STATUS: Partial<Record<string, 'pending' | 'digest-only'>> = {
