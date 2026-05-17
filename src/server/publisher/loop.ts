@@ -19,9 +19,12 @@ import { renderTemplate } from './templates.ts';
 import { isRealtimeEvent, type EventType } from './types.ts';
 import logger from '../lib/log.ts';
 import { isPublishingEnabled } from '../lib/silent-period.ts';
+import { sendWithRetryFn } from '../lib/telegram-send.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
+
+export type { InjectedSendFn } from '../lib/telegram-send.ts';
 
 export interface KyivTime {
   /** Current hour in Kyiv (0–23). */
@@ -44,10 +47,6 @@ export interface PublisherLoopDeps {
   getNowKyiv?: () => KyivTime;
   /** Override cron expression for tests. */
   intervalCron?: string;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
@@ -227,6 +226,7 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
       );
 
       // Send message with retry on 429 + Telegram 5xx + transient network errors.
+      // Retry policy is owned by telegram-send.ts (sendWithRetryFn).
       // A purely-durable failure (4xx other than 429: "chat not found", "message
       // too long", "chat archived") cannot succeed by retrying — to avoid
       // head-of-line blocking the whole queue, we increment failed_attempts and
@@ -234,46 +234,17 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
       let messageId: number | undefined;
       let lastErr: unknown;
 
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          const result = await deps.sendMessage(chatId, text, {
-            parse_mode: 'HTML',
-            disable_web_page_preview: true,
-          });
-          messageId = result.message_id;
-          lastErr = undefined;
-          break;
-        } catch (err: unknown) {
-          lastErr = err;
-
-          const errCode = (err && typeof err === 'object' && 'error_code' in err)
-            ? (err as { error_code?: number }).error_code
-            : undefined;
-          const errMsg = err instanceof Error ? err.message : String(err);
-
-          const is429 = errCode === 429 || (errMsg ?? '').includes('429');
-          const is5xx = typeof errCode === 'number' && errCode >= 500 && errCode < 600;
-          // gramJS / grammY wrap fetch errors with no error_code; treat as transient.
-          const isNetwork = errCode === undefined && !is429 && /network|timeout|fetch|ECONN|EAI_AGAIN|ETIMEDOUT/i.test(errMsg);
-          const isTransient = is429 || is5xx || isNetwork;
-
-          if (isTransient && attempt === 0) {
-            const retryAfter = is429
-              ? (('parameters' in (err as object))
-                ? ((err as { parameters?: { retry_after?: number } }).parameters?.retry_after ?? 5)
-                : 5)
-              : 2;
-            logger.warn(
-              { module: 'publisher', event_id: eventId, retry_after: retryAfter, kind: is429 ? '429' : is5xx ? '5xx' : 'network' },
-              'Transient Telegram error — retrying',
-            );
-            await sleep(retryAfter * 1000);
-            continue;
-          }
-
-          // Durable error on any attempt, OR transient error after retry — stop.
-          break;
-        }
+      try {
+        const result = await sendWithRetryFn(
+          deps.sendMessage,
+          chatId,
+          text,
+          { parse_mode: 'HTML', disable_web_page_preview: true },
+          { module: 'publisher', event_id: eventId },
+        );
+        messageId = result.message_id;
+      } catch (err: unknown) {
+        lastErr = err;
       }
 
       if (lastErr !== undefined) {

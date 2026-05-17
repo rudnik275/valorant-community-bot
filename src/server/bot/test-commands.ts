@@ -10,12 +10,11 @@
  * All commands are gated by the hardcoded `OWNER_TELEGRAM_ID` below.
  * Non-owners are silently ignored (the bot does not reply at all).
  *
- * Why bot.api.sendMessage directly (bypassing safe-telegram.ts):
- *   The safe-telegram wrappers exist to prevent leaks into unauthorised group
- *   chats (where community data could escape). The risk model does not apply
- *   here: target = ctx.from.id = the owner who issued the command. isOwner()
- *   above validates that, and the reply lands in the owner's own DM. There is
- *   no path for data to leak elsewhere.
+ * Why sendExempt (guard-bypass path in telegram-send.ts):
+ *   The allowlist guard exists to prevent leaks into unauthorised group chats.
+ *   The risk model does not apply here: target = ctx.from.id = the owner who
+ *   issued the command, verified by isOwner() above. The reply lands in the
+ *   owner's own DM. There is no path for data to leak elsewhere.
  */
 
 import { type Context, type MiddlewareFn, type Bot } from 'grammy';
@@ -28,6 +27,7 @@ import { buildDigest } from '../digest/build.ts';
 import { renderTemplate, type TemplateMatch, type TemplateUser } from '../publisher/templates.ts';
 import { isRealtimeEvent, type EventType } from '../publisher/types.ts';
 import logger from '../lib/log.ts';
+import { sendExempt } from '../lib/telegram-send.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
@@ -88,12 +88,14 @@ export function makeTestDigestHandler(deps: TestCommandsDeps): MiddlewareFn<Cont
       const result = await buildDigest({ db: deps.db, weekStart, weekEnd });
 
       const header = `<i>--- Preview: дайджест за последние ${days} дн. ---</i>`;
-      await deps.bot.api.sendMessage(fromId!, header, HTML_OPTS);
+      // sendExempt: destination is the owner's own DM, verified by isOwner() above.
+      await sendExempt(deps.bot.api, fromId!, header, HTML_OPTS);
 
       if (result.text) {
-        await deps.bot.api.sendMessage(fromId!, result.text, HTML_OPTS);
+        await sendExempt(deps.bot.api, fromId!, result.text, HTML_OPTS);
       } else {
-        await deps.bot.api.sendMessage(
+        await sendExempt(
+          deps.bot.api,
           fromId!,
           '<i>(дайджест пустой — нет квалифицирующих событий за это окно)</i>',
           HTML_OPTS,
@@ -102,7 +104,7 @@ export function makeTestDigestHandler(deps: TestCommandsDeps): MiddlewareFn<Cont
     } catch (err) {
       logger.error({ module: 'test_commands', cmd: 'test_digest', err }, 'Preview digest failed');
       try {
-        await deps.bot.api.sendMessage(fromId!, `<i>Ошибка: ${(err as Error).message ?? 'unknown'}</i>`, HTML_OPTS);
+        await sendExempt(deps.bot.api, fromId!, `<i>Ошибка: ${(err as Error).message ?? 'unknown'}</i>`, HTML_OPTS);
       } catch {
         // swallow — already in error path
       }
@@ -149,10 +151,12 @@ export function makeTestRuntimeEventsHandler(deps: TestCommandsDeps): Middleware
       const collapsed = collapseGroupableEvents(realtimeOnly);
 
       const header = `<i>--- Preview: realtime-события за последние ${days} дн. (${collapsed.length} шт.) ---</i>`;
-      await deps.bot.api.sendMessage(fromId!, header, HTML_OPTS);
+      // sendExempt: destination is the owner's own DM, verified by isOwner() above.
+      await sendExempt(deps.bot.api, fromId!, header, HTML_OPTS);
 
       if (collapsed.length === 0) {
-        await deps.bot.api.sendMessage(
+        await sendExempt(
+          deps.bot.api,
           fromId!,
           '<i>(нет realtime-событий в этом окне)</i>',
           HTML_OPTS,
@@ -218,7 +222,8 @@ export function makeTestRuntimeEventsHandler(deps: TestCommandsDeps): Middleware
         );
 
         try {
-          await deps.bot.api.sendMessage(fromId!, text, HTML_OPTS);
+          // sendExempt: destination is the owner's own DM, verified by isOwner() above.
+          await sendExempt(deps.bot.api, fromId!, text, HTML_OPTS);
         } catch (err) {
           logger.warn(
             { module: 'test_commands', event_type: ev.event_type, err },
@@ -231,11 +236,12 @@ export function makeTestRuntimeEventsHandler(deps: TestCommandsDeps): Middleware
         await new Promise((r) => setTimeout(r, RUNTIME_EVENT_SEND_DELAY_MS));
       }
 
-      await deps.bot.api.sendMessage(fromId!, `<i>--- Preview complete (${collapsed.length} событий отправлено) ---</i>`, HTML_OPTS);
+      // sendExempt: destination is the owner's own DM, verified by isOwner() above.
+      await sendExempt(deps.bot.api, fromId!, `<i>--- Preview complete (${collapsed.length} событий отправлено) ---</i>`, HTML_OPTS);
     } catch (err) {
       logger.error({ module: 'test_commands', cmd: 'test_runtime_events', err }, 'Preview events failed');
       try {
-        await deps.bot.api.sendMessage(fromId!, `<i>Ошибка: ${(err as Error).message ?? 'unknown'}</i>`, HTML_OPTS);
+        await sendExempt(deps.bot.api, fromId!, `<i>Ошибка: ${(err as Error).message ?? 'unknown'}</i>`, HTML_OPTS);
       } catch {
         // swallow
       }

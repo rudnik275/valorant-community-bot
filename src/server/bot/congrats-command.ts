@@ -15,10 +15,11 @@
  * Single-process bot so an in-memory Map is sufficient; the worst case on
  * restart is the user has to /congrats again.
  *
- * Why bot.api directly bypassing safe-telegram (same reasoning as
+ * Why sendExempt (guard-bypass path in telegram-send.ts — same reasoning as
  * test-commands.ts:14-20): the destinations are either the owner's DM
- * (gated by isOwner) or TELEGRAM_PRIMARY_CHAT_ID (the authorised group),
- * so the unauthorised-leak risk model does not apply.
+ * (gated by isOwner) or TELEGRAM_PRIMARY_CHAT_ID (the already-authorised
+ * group chat confirmed by explicit owner action), so the unauthorised-leak
+ * risk model does not apply.
  */
 
 import { type Context, type MiddlewareFn, type Bot, InlineKeyboard } from 'grammy';
@@ -27,6 +28,7 @@ import { users } from '../db/schema/users.ts';
 import { matchRecords } from '../db/schema/match_records.ts';
 import { isOwner } from './test-commands.ts';
 import logger from '../lib/log.ts';
+import { sendExempt } from '../lib/telegram-send.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
@@ -190,7 +192,9 @@ export function makeCongratsHandler(deps: CongratsDeps): MiddlewareFn<Context> {
     const text = ctx.message?.text ?? '';
     const arg = text.replace(/^\/\S+\s*/, '').trim();
     if (!arg) {
-      await deps.bot.api.sendMessage(
+      // sendExempt: destination is the owner's own DM, verified by isOwner() above.
+      await sendExempt(
+        deps.bot.api,
         fromId!,
         'Использование: <code>/congrats никнейм</code>\nИщет по частичному совпадению в riot_name.',
         HTML_OPTS,
@@ -202,7 +206,9 @@ export function makeCongratsHandler(deps: CongratsDeps): MiddlewareFn<Context> {
       const candidates = await findPlayerCandidates(deps.db, arg);
 
       if (candidates.length === 0) {
-        await deps.bot.api.sendMessage(
+        // sendExempt: destination is the owner's own DM, verified by isOwner() above.
+        await sendExempt(
+          deps.bot.api,
           fromId!,
           `❌ Игроков с ником содержащим <b>${escHtml(arg)}</b> не найдено.`,
           HTML_OPTS,
@@ -214,7 +220,9 @@ export function makeCongratsHandler(deps: CongratsDeps): MiddlewareFn<Context> {
         const list = candidates
           .map((c) => `• ${escHtml(c.riot_name)}#${escHtml(c.riot_tag ?? '')}`)
           .join('\n');
-        await deps.bot.api.sendMessage(
+        // sendExempt: destination is the owner's own DM, verified by isOwner() above.
+        await sendExempt(
+          deps.bot.api,
           fromId!,
           `❌ Найдено несколько игроков:\n${list}\n\nУточни ник или укажи целиком.`,
           HTML_OPTS,
@@ -232,7 +240,9 @@ export function makeCongratsHandler(deps: CongratsDeps): MiddlewareFn<Context> {
       const congrats = buildCongratsText(player, matches);
 
       if (!congrats) {
-        await deps.bot.api.sendMessage(
+        // sendExempt: destination is the owner's own DM, verified by isOwner() above.
+        await sendExempt(
+          deps.bot.api,
           fromId!,
           `<b>${escHtml(player.riot_name)}</b> сегодня не играл(а) competitive — нечего отправлять.`,
           HTML_OPTS,
@@ -248,7 +258,9 @@ export function makeCongratsHandler(deps: CongratsDeps): MiddlewareFn<Context> {
         .text('✅ В группу', `${CALLBACK_PREFIX}send:${previewId}`)
         .text('❌ Отмена', `${CALLBACK_PREFIX}cancel:${previewId}`);
 
-      await deps.bot.api.sendMessage(
+      // sendExempt: destination is the owner's own DM, verified by isOwner() above.
+      await sendExempt(
+        deps.bot.api,
         fromId!,
         `<i>Превью (живёт 30 мин):</i>\n\n${congrats}`,
         { ...HTML_OPTS, reply_markup: keyboard },
@@ -256,7 +268,9 @@ export function makeCongratsHandler(deps: CongratsDeps): MiddlewareFn<Context> {
     } catch (err) {
       logger.error({ module: 'congrats', cmd: '/congrats', err }, 'Command failed');
       try {
-        await deps.bot.api.sendMessage(
+        // sendExempt: destination is the owner's own DM, verified by isOwner() above.
+        await sendExempt(
+          deps.bot.api,
           fromId!,
           `<i>Ошибка: ${escHtml((err as Error).message ?? 'unknown')}</i>`,
           HTML_OPTS,
@@ -321,7 +335,9 @@ export function makeCongratsCallbackHandler(deps: CongratsDeps): MiddlewareFn<Co
     }
 
     try {
-      await deps.bot.api.sendMessage(chatId, preview.text, HTML_OPTS);
+      // sendExempt: destination is TELEGRAM_PRIMARY_CHAT_ID (the already-authorised
+      // group), confirmed by explicit owner action (pressing ✅ in the callback).
+      await sendExempt(deps.bot.api, chatId, preview.text, HTML_OPTS);
       previewStore.delete(previewId);
       try {
         await ctx.editMessageReplyMarkup();
