@@ -1,34 +1,42 @@
 /**
- * loop.ts — Digest scheduler: posts weekly aggregate to primary chat.
+ * loop.ts — Weekly digest adapter over the shared scheduled-digest module.
  *
- * Croner '0 19 * * 5' (Friday 19:00) with timezone Europe/Kyiv.
+ * Thin adapter: supplies only what differs for the weekly digest — the
+ * cron expression (`0 19 * * 5`, Fri 19:00 Europe/Kyiv), the rolling
+ * 7-day window + ISO-week dedup key, the `buildDigest` call, and the
+ * `digest_runs` persistence. Cron registration, the Silent-period gate,
+ * the Healthchecks.io ping, and the idempotency ordering all live in
+ * `../lib/scheduled-digest.ts` (see its doc-comment for the
+ * no-dup-on-crash contract — applied identically to weekly + daily).
  *
  * Idempotency: dedup via digest_runs.week_iso UNIQUE — safe against
- * container restarts that land exactly on the cron minute.
+ * container restarts that land exactly on the cron minute. The run row
+ * is recorded only AFTER a fully successful send (no-dup-on-crash).
  *
- * Silent-period gate: if EVENTS_PUBLISHING_ENABLED_AFTER > now → insert
+ * Silent-period gate: if EVENTS_PUBLISHING_ENABLED_AFTER > now → record a
  * digest_runs row with marker '[silent-period]' and return (no post).
  *
  * Healthchecks.io: fire-and-forget fetch to HEALTHCHECK_DIGEST_URL if set.
  */
 
-import { Cron } from 'croner';
 import { eq, sql } from 'drizzle-orm';
 import { digestRuns } from '../db/schema/digest_runs.ts';
 import { buildDigest } from './build.ts';
 import logger from '../lib/log.ts';
-import { isPublishingEnabled } from '../lib/silent-period.ts';
+import {
+  runScheduledDigest,
+  startScheduledDigest,
+  type DigestSpec,
+  type DigestWindow,
+  type SendMessage,
+} from '../lib/scheduled-digest.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
 
 export interface DigestLoopDeps {
   db: AnyDb;
-  sendMessage: (
-    chatId: number,
-    text: string,
-    opts?: { parse_mode?: string; disable_web_page_preview?: boolean },
-  ) => Promise<{ message_id: number }>;
+  sendMessage: SendMessage;
   getPrimaryChatId: () => number;
   /** Healthchecks.io URL. Defaults to HEALTHCHECK_DIGEST_URL env var. */
   healthcheckUrl?: string;
@@ -109,115 +117,79 @@ export function getDigestNowKyiv(nowMs?: number): DigestNowKyiv {
   return { nowMs: ms, weekIso, weekStart: weekStartMs, weekEnd: weekEndMs };
 }
 
-export async function runDigestNow(deps: DigestLoopDeps): Promise<void> {
-  const { db, sendMessage, getPrimaryChatId } = deps;
-
+/**
+ * Build the weekly `DigestSpec` — the only weekly-specific knowledge:
+ * cron, window/dedup-key, the `buildDigest` call, and `digest_runs`
+ * persistence. The Silent-period gate + Healthchecks ping apply to weekly.
+ */
+function makeWeeklySpec(deps: DigestLoopDeps): DigestSpec {
   const getNowKyiv = deps.getNowKyiv ?? getDigestNowKyiv;
-
   const healthcheckUrl = deps.healthcheckUrl ?? process.env['HEALTHCHECK_DIGEST_URL'];
 
-  try {
-    const { nowMs, weekIso, weekStart, weekEnd } = getNowKyiv();
-
-    // Check silent period
-    if (!isPublishingEnabled(new Date(nowMs))) {
-      // Insert a row so we don't retry in the same week
-      try {
-        await db.insert(digestRuns).values({
-          week_iso: weekIso,
-          started_at: nowMs,
-          posted_text: '[silent-period]',
-        });
-      } catch {
-        // UNIQUE constraint violation → row already exists, that's fine
-      }
-      logger.info({ module: 'digest', week_iso: weekIso }, 'Digest skipped — silent period active');
-      return;
-    }
-
-    // Dedup: check if already ran this week
-    const [existing] = await db
-      .select({ id: digestRuns.id })
-      .from(digestRuns)
-      .where(eq(digestRuns.week_iso, weekIso))
-      .limit(1);
-
-    if (existing) {
-      logger.info({ module: 'digest', week_iso: weekIso }, 'Digest already posted this week — skipping (idempotent)');
-      return;
-    }
-
-    // Build digest content BEFORE writing digest_runs — a build/send failure
-    // must not poison the week. The "already posted" dedup check above sees
-    // a row only after a fully successful send.
-    const { text, sectionsIncluded } = await buildDigest({ db, weekStart, weekEnd });
-
-    if (text === null) {
-      logger.info({ module: 'digest', week_iso: weekIso, skipped: 'no_content' }, 'Digest has no content — not posting');
-      // Mark the week as "no content" so we don't recompute every tick.
+  return {
+    module: 'digest',
+    cron: '0 19 * * 5',
+    silentPeriodGate: true,
+    healthcheckUrl,
+    resolveWindow: (): DigestWindow => {
+      const { nowMs, weekIso, weekStart, weekEnd } = getNowKyiv();
+      return { nowMs, windowStart: weekStart, windowEnd: weekEnd, dedupKey: weekIso };
+    },
+    build: async (db, w) => {
+      const { text, sectionsIncluded } = await buildDigest({
+        db,
+        weekStart: w.windowStart,
+        weekEnd: w.windowEnd,
+      });
+      return { text, meta: sectionsIncluded };
+    },
+    findExisting: async (db, weekIso) => {
+      const [existing] = await db
+        .select({ id: digestRuns.id })
+        .from(digestRuns)
+        .where(eq(digestRuns.week_iso, weekIso))
+        .limit(1);
+      return existing;
+    },
+    recordMarker: async (db, w, marker) => {
       await db
         .insert(digestRuns)
-        .values({ week_iso: weekIso, started_at: nowMs, posted_text: '[no_content]' })
+        .values({ week_iso: w.dedupKey, started_at: w.nowMs, posted_text: marker })
         .onConflictDoNothing();
-      return;
-    }
+    },
+    recordSuccess: async (db, w, sent, meta) => {
+      await db
+        .insert(digestRuns)
+        .values({
+          week_iso: w.dedupKey,
+          started_at: w.nowMs,
+          posted_at: sent.postedAt,
+          posted_message_id: sent.messageId,
+          posted_text: sent.text,
+        })
+        .onConflictDoNothing();
+      logger.info(
+        { module: 'digest', week_iso: w.dedupKey, sections: meta as string[] },
+        'Weekly digest sections recorded',
+      );
+    },
+  };
+}
 
-    // Post to primary chat. If this throws, the outer catch logs and the next
-    // cron tick (re-)attempts — no digest_runs row exists yet, so the dedup
-    // check at line 145 will not mistake it for "already posted".
-    const chatId = getPrimaryChatId();
-    const { message_id: messageId } = await sendMessage(chatId, text, {
-      parse_mode: 'HTML',
-      disable_web_page_preview: true,
-    });
-
-    // Send succeeded — now durably record the run. onConflictDoNothing covers
-    // the (extremely unlikely) race where two ticks raced past the dedup check
-    // and both managed to send: the second insert is a no-op, the duplicate
-    // Telegram post is the lesser harm vs. a permanently-lost weekly digest.
-    const postedAt = Date.now();
-    await db
-      .insert(digestRuns)
-      .values({
-        week_iso: weekIso,
-        started_at: nowMs,
-        posted_at: postedAt,
-        posted_message_id: messageId,
-        posted_text: text,
-      })
-      .onConflictDoNothing();
-
-    logger.info(
-      { module: 'digest', week_iso: weekIso, chat_id: chatId, message_id: messageId, sections: sectionsIncluded },
-      'Weekly digest posted successfully',
-    );
-
-    // Healthchecks.io ping (fire-and-forget)
-    if (healthcheckUrl) {
-      fetch(healthcheckUrl).catch((err) => {
-        logger.warn({ module: 'digest', err }, 'Healthchecks.io ping failed');
-      });
-    }
-  } catch (err) {
-    logger.error({ module: 'digest', err }, 'Digest tick failed unexpectedly');
-  }
+export async function runDigestNow(deps: DigestLoopDeps): Promise<void> {
+  await runScheduledDigest(makeWeeklySpec(deps), {
+    db: deps.db,
+    sendMessage: deps.sendMessage,
+    getPrimaryChatId: deps.getPrimaryChatId,
+  });
 }
 
 export function startDigestLoop(deps: DigestLoopDeps): () => void {
-  const cronJob = new Cron(
-    '0 19 * * 5',
-    { timezone: 'Europe/Kyiv', protect: true },
-    () => {
-      void runDigestNow(deps);
-    },
-  );
-
-  logger.info({ module: 'digest', cron: '0 19 * * 5', tz: 'Europe/Kyiv' }, 'Digest loop started');
-
-  return function stopDigestLoop() {
-    cronJob.stop();
-    logger.info({ module: 'digest' }, 'Digest loop stopped');
-  };
+  return startScheduledDigest(makeWeeklySpec(deps), {
+    db: deps.db,
+    sendMessage: deps.sendMessage,
+    getPrimaryChatId: deps.getPrimaryChatId,
+  });
 }
 
 // Re-export for convenience in index.ts

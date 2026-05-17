@@ -1,32 +1,51 @@
 /**
- * loop.ts — Daily ace digest scheduler.
+ * loop.ts — Daily ace digest adapter over the shared scheduled-digest module.
  *
- * Cron '0 23 * * *' with timezone Europe/Kyiv.
- * Posts grouped ace digest to the primary chat every day at 23:00.
+ * Thin adapter: supplies only what differs for the daily digest — the
+ * cron expression (`0 23 * * *`, 23:00 Europe/Kyiv), the trailing-24h
+ * window + Kyiv-date dedup key, the `buildDailyAceDigest` call, and the
+ * `daily_digest_runs` persistence. Cron registration and the idempotency
+ * ordering live in `../lib/scheduled-digest.ts`.
  *
  * Idempotency: dedup via daily_digest_runs.run_date UNIQUE — safe against
  * container restarts that land exactly on the cron minute.
  *
- * If zero aces — no message sent; a row still recorded so subsequent re-runs
- * the same day are no-ops.
+ * The Silent-period gate and the Healthchecks.io ping do NOT apply to the
+ * daily digest (unchanged from the original loop).
+ *
+ * ─── Idempotency-ordering change (issue #255) ─────────────────────────────
+ *
+ * The original daily loop inserted a lock row BEFORE the build (one-loss-on-
+ * crash: a crash after the lock but before the post lost that day's digest
+ * forever). It now follows the SHARED no-dup-on-crash contract: the run row
+ * is recorded only AFTER a fully successful send. A crash mid-build/mid-send
+ * leaves no row, so the next cron tick re-attempts — at most one tick late,
+ * never silently lost. (See the scheduled-digest module doc-comment for the
+ * full rationale.) Observable posting behaviour is otherwise identical:
+ * one post per Kyiv date, zero-ace days still record a row with `posted_at`
+ * set and no message.
+ *
+ * Zero aces: no message sent; a row is still recorded (posted_at set,
+ * posted_text NULL) so subsequent re-runs the same day are no-ops.
  */
 
-import { Cron } from 'croner';
 import { eq } from 'drizzle-orm';
 import { dailyDigestRuns } from '../db/schema/daily_digest_runs.ts';
 import { buildDailyAceDigest } from './build.ts';
-import logger from '../lib/log.ts';
+import {
+  runScheduledDigest,
+  startScheduledDigest,
+  type DigestSpec,
+  type DigestWindow,
+  type SendMessage,
+} from '../lib/scheduled-digest.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
 
 export interface DailyDigestLoopDeps {
   db: AnyDb;
-  sendMessage: (
-    chatId: number,
-    text: string,
-    opts?: { parse_mode?: string; disable_web_page_preview?: boolean },
-  ) => Promise<{ message_id: number }>;
+  sendMessage: SendMessage;
   getPrimaryChatId?: () => number;
   intervalCron?: string; // default '0 23 * * *' Europe/Kyiv
 }
@@ -46,109 +65,86 @@ export function getKyivDate(nowMs?: number): string {
   return fmt.format(ms); // returns YYYY-MM-DD (en-CA locale)
 }
 
-export async function runDailyDigestNow(deps: DailyDigestLoopDeps): Promise<void> {
-  const { db, sendMessage, getPrimaryChatId } = deps;
+/**
+ * Build the daily `DigestSpec` — the only daily-specific knowledge:
+ * cron, trailing-24h window + Kyiv-date dedup key, the `buildDailyAceDigest`
+ * call, and `daily_digest_runs` persistence. Silent-period + Healthchecks
+ * do NOT apply to the daily digest.
+ */
+function makeDailySpec(deps: DailyDigestLoopDeps): DigestSpec {
+  const cron = deps.intervalCron ?? '0 23 * * *';
 
-  try {
-    const nowMs = Date.now();
-    const runDate = getKyivDate(nowMs);
-
-    // Check idempotency: if we already ran today, skip
-    const [existing] = await db
-      .select({ id: dailyDigestRuns.id })
-      .from(dailyDigestRuns)
-      .where(eq(dailyDigestRuns.run_date, runDate))
-      .limit(1);
-
-    if (existing) {
-      logger.info(
-        { module: 'digest-daily', run_date: runDate },
-        'Daily ace digest already ran today — skipping (idempotent)',
-      );
-      return;
-    }
-
-    // Window: last 24 hours ending now
-    const windowEnd = nowMs;
-    const windowStart = windowEnd - 24 * 3600 * 1000;
-
-    // Insert run row as a "lock" — if another tick races, the UNIQUE constraint
-    // on run_date will reject the second insert.
-    try {
-      await db.insert(dailyDigestRuns).values({
-        run_date: runDate,
-        started_at: nowMs,
+  return {
+    module: 'digest-daily',
+    cron,
+    silentPeriodGate: false,
+    healthcheckUrl: undefined,
+    resolveWindow: (): DigestWindow => {
+      const nowMs = Date.now();
+      return {
+        nowMs,
+        windowStart: nowMs - 24 * 3600 * 1000,
+        windowEnd: nowMs,
+        dedupKey: getKyivDate(nowMs),
+      };
+    },
+    build: async (db, w) => {
+      const { text, includedEventIds } = await buildDailyAceDigest({
+        db,
+        windowStart: w.windowStart,
+        windowEnd: w.windowEnd,
       });
-    } catch {
-      // UNIQUE constraint violation → another tick won the race, bail out
-      logger.info(
-        { module: 'digest-daily', run_date: runDate },
-        'Daily ace digest race — another tick already started, skipping',
-      );
-      return;
-    }
-
-    const { text, includedEventIds } = await buildDailyAceDigest({ db, windowStart, windowEnd });
-
-    if (text === null) {
-      // Zero aces — update the row to mark completion (no post)
+      return { text, meta: includedEventIds };
+    },
+    findExisting: async (db, runDate) => {
+      const [existing] = await db
+        .select({ id: dailyDigestRuns.id })
+        .from(dailyDigestRuns)
+        .where(eq(dailyDigestRuns.run_date, runDate))
+        .limit(1);
+      return existing;
+    },
+    // Zero-ace ("[no_content]") day: record a row so re-runs are no-ops.
+    // Daily semantics differ from weekly markers — posted_at is SET (the day
+    // was handled) but posted_text stays NULL (no message existed).
+    recordMarker: async (db, w) => {
       await db
-        .update(dailyDigestRuns)
-        .set({ posted_at: Date.now() })
-        .where(eq(dailyDigestRuns.run_date, runDate));
-      logger.info(
-        { module: 'digest-daily', run_date: runDate },
-        'Daily ace digest: zero aces in window — row recorded, no message sent',
-      );
-      return;
-    }
+        .insert(dailyDigestRuns)
+        .values({
+          run_date: w.dedupKey,
+          started_at: w.nowMs,
+          posted_at: Date.now(),
+        })
+        .onConflictDoNothing();
+    },
+    recordSuccess: async (db, w, sent, meta) => {
+      await db
+        .insert(dailyDigestRuns)
+        .values({
+          run_date: w.dedupKey,
+          started_at: w.nowMs,
+          posted_at: sent.postedAt,
+          posted_message_id: sent.messageId,
+          posted_text: sent.text,
+          included_event_ids: JSON.stringify(meta as number[]),
+        })
+        .onConflictDoNothing();
+    },
+  };
+}
 
-    const chatId = getPrimaryChatId ? getPrimaryChatId() : 0;
-    const { message_id: messageId } = await sendMessage(chatId, text, {
-      parse_mode: 'HTML',
-      disable_web_page_preview: true,
-    });
+function depsForRun(deps: DailyDigestLoopDeps) {
+  return {
+    db: deps.db,
+    sendMessage: deps.sendMessage,
+    getPrimaryChatId: deps.getPrimaryChatId ?? (() => 0),
+  };
+}
 
-    const postedAt = Date.now();
-    await db
-      .update(dailyDigestRuns)
-      .set({
-        posted_at: postedAt,
-        posted_message_id: messageId,
-        posted_text: text,
-        included_event_ids: JSON.stringify(includedEventIds),
-      })
-      .where(eq(dailyDigestRuns.run_date, runDate));
-
-    logger.info(
-      {
-        module: 'digest-daily',
-        run_date: runDate,
-        chat_id: chatId,
-        message_id: messageId,
-        ace_count: includedEventIds.length,
-      },
-      'Daily ace digest posted successfully',
-    );
-  } catch (err) {
-    logger.error({ module: 'digest-daily', err }, 'Daily ace digest tick failed unexpectedly');
-  }
+export async function runDailyDigestNow(deps: DailyDigestLoopDeps): Promise<void> {
+  await runScheduledDigest(makeDailySpec(deps), depsForRun(deps));
 }
 
 export function startDailyDigestLoop(deps: DailyDigestLoopDeps): () => void {
-  const cronExpr = deps.intervalCron ?? '0 23 * * *';
-  const cronJob = new Cron(
-    cronExpr,
-    { timezone: 'Europe/Kyiv', protect: true },
-    () => {
-      void runDailyDigestNow(deps);
-    },
-  );
-
-  logger.info({ module: 'digest-daily', cron: cronExpr, tz: 'Europe/Kyiv' }, 'Daily ace digest loop started');
-
-  return function stopDailyDigestLoop() {
-    cronJob.stop();
-    logger.info({ module: 'digest-daily' }, 'Daily ace digest loop stopped');
-  };
+  return startScheduledDigest(makeDailySpec(deps), depsForRun(deps));
 }
