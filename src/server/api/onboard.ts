@@ -1,6 +1,7 @@
 import type { Context } from 'hono';
 import { z } from 'zod';
 import { and, eq, isNotNull } from 'drizzle-orm';
+import { OnboardBodySchema } from '../../shared/schemas/onboard.ts';
 import { users } from '../db/schema/users.ts';
 import {
   validateAccount as defaultValidateAccount,
@@ -36,11 +37,6 @@ export interface OnboardHandlerDeps {
   /** Returns allowed Telegram chat IDs — used to lift restrictions after onboard. */
   getAllowedChatIds?: () => Set<number>;
 }
-
-const OnboardBodySchema = z.object({
-  name: z.string().min(1).max(16),
-  tag: z.string().min(1).max(5).regex(/^[a-zA-Z0-9]+$/, 'Tag must be alphanumeric'),
-});
 
 /**
  * Factory: returns a Hono handler for POST /api/onboard.

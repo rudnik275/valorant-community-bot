@@ -68,7 +68,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { z } from 'zod';
+import { OnboardBodySchema } from '../../shared/schemas/onboard.ts';
 
 const router = useRouter();
 
@@ -82,10 +82,19 @@ const linkedName = ref('');
 const linkedTag = ref('');
 const linkedRegion = ref('');
 
-const ClientBodySchema = z.object({
-  name: z.string().min(1, 'Введи Riot Name').max(16),
-  tag: z.string().min(1, 'Введи тег').max(5).regex(/^[a-zA-Z0-9]+$/, 'Тег — только буквы и цифры'),
-});
+const FIELD_MESSAGES: Record<string, string> = {
+  name: 'Введи Riot Name',
+  tag: 'Введи тег',
+};
+
+function getValidationMessage(issues: { path: (string | number)[]; code: string }[]): string {
+  for (const issue of issues) {
+    const field = String(issue.path[0] ?? '');
+    if (field === 'tag' && issue.code === 'invalid_string') return 'Тег — только буквы и цифры';
+    if (FIELD_MESSAGES[field]) return FIELD_MESSAGES[field];
+  }
+  return 'Заполни все поля.';
+}
 
 function getInitDataRaw(): string {
   if (typeof window === 'undefined') return '';
@@ -106,10 +115,9 @@ async function onSubmit() {
   validationError.value = null;
   apiError.value = null;
 
-  const parsed = ClientBodySchema.safeParse({ name: name.value.trim(), tag: tag.value.trim() });
+  const parsed = OnboardBodySchema.safeParse({ name: name.value.trim(), tag: tag.value.trim() });
   if (!parsed.success) {
-    const firstIssue = parsed.error.issues[0];
-    validationError.value = firstIssue?.message ?? 'Заполни все поля.';
+    validationError.value = getValidationMessage(parsed.error.issues);
     return;
   }
 
