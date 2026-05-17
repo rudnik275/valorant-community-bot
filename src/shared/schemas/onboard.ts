@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 export const OnboardBodySchema = z.object({
-  name: z.string().min(3).max(16),
-  tag: z.string().min(3).max(5),
+  name: z.string().min(1).max(16),
+  tag: z.string().min(1).max(5).regex(/^[a-zA-Z0-9]+$/),
 });
 
 export const OnboardResponseSchema = z.object({
