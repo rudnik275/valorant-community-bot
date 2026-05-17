@@ -1,37 +1,16 @@
-import { eq, and } from 'drizzle-orm';
 import type { Detector, DetectedEvent, DetectorDeps, MatchRecord } from '../types.ts';
-import { matchRosters } from '../../db/schema/match_rosters.ts';
-import { users } from '../../db/schema/users.ts';
-import { detectedEvents } from '../../db/schema/detected_events.ts';
+import { hasMatchEvent, getCommunityRoster } from '../../db/queries.ts';
 
 export const communityClashDetector: Detector = {
   type: 'community_clash',
-  detect: () => [],  // not used — async path only
-  detectAsync: async (record: MatchRecord, _prev: MatchRecord[], deps: DetectorDeps): Promise<DetectedEvent[]> => {
+  detect: async (record: MatchRecord, _prev: MatchRecord[], deps?: DetectorDeps): Promise<DetectedEvent[]> => {
     if (!record.match_id) return [];
 
     // Idempotency guard: if this match already has a community_clash event, skip
-    const existing = await deps.db
-      .select({ id: detectedEvents.id })
-      .from(detectedEvents)
-      .where(and(
-        eq(detectedEvents.event_type, 'community_clash'),
-        eq(detectedEvents.match_id, record.match_id),
-      ))
-      .limit(1);
-    if (existing.length > 0) return [];
+    if (await hasMatchEvent(deps!.db, 'community_clash', record.match_id)) return [];
 
     // Query roster ⋈ users (only community members who are in this match)
-    const rosters = await deps.db
-      .select({
-        riot_puuid: matchRosters.riot_puuid,
-        team: matchRosters.team,
-        riot_name: users.riot_name,
-        riot_tag: users.riot_tag,
-      })
-      .from(matchRosters)
-      .innerJoin(users, eq(users.riot_puuid, matchRosters.riot_puuid))
-      .where(eq(matchRosters.match_id, record.match_id));
+    const rosters = await getCommunityRoster(deps!.db, record.match_id);
 
     if (rosters.length < 2) return [];
 

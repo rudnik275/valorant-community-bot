@@ -1,4 +1,6 @@
-import type { Detector, DetectedEvent, MatchRecord } from '../types.ts';
+import type { Detector, DetectedEvent, EnrichContext, MatchRecord } from '../types.ts';
+import { decodeKillEvents, decodeRounds, type KillEventCompact } from '../../lib/match-codec.ts';
+import logger from '../../lib/log.ts';
 
 export interface AceRound {
   round: number;
@@ -9,21 +11,6 @@ export interface AceRound {
   victims: Array<{ puuid: string; name: string; tag: string }>;
 }
 
-interface RoundsCompactEntry {
-  r: number;
-  w?: string;
-  c?: string;
-}
-
-function parseRoundsCompact(record: MatchRecord): RoundsCompactEntry[] {
-  if (!record.rounds_compact) return [];
-  try {
-    return JSON.parse(record.rounds_compact) as RoundsCompactEntry[];
-  } catch {
-    return [];
-  }
-}
-
 /**
  * Finds rounds where the player aced.
  *
@@ -32,10 +19,10 @@ function parseRoundsCompact(record: MatchRecord): RoundsCompactEntry[] {
  * See ADR 0003.
  */
 export function findAces(record: MatchRecord): AceRound[] {
-  const kills = parseKillEvents(record);
+  const kills = decodeKillEvents(record.kill_events_compact);
 
   // Bucket player's enemy kills per round (no dedup at threshold stage).
-  const byRound = new Map<number, KillEvent[]>();
+  const byRound = new Map<number, KillEventCompact[]>();
   for (const k of kills) {
     if (k.attacker_puuid !== record.riot_puuid) continue;
     if (k.victim_puuid === k.attacker_puuid) continue; // self-kill (spike suicide)
@@ -49,7 +36,7 @@ export function findAces(record: MatchRecord): AceRound[] {
 
   // Map round → winning team for outcome flag.
   const roundWinner = new Map<number, string>();
-  for (const r of parseRoundsCompact(record)) {
+  for (const r of decodeRounds(record.rounds_compact)) {
     if (r.w) roundWinner.set(r.r, r.w);
   }
 
@@ -83,26 +70,6 @@ export function findAces(record: MatchRecord): AceRound[] {
   return aces;
 }
 
-function parseKillEvents(record: MatchRecord): KillEvent[] {
-  try {
-    return JSON.parse(record.kill_events_compact) as KillEvent[];
-  } catch {
-    return [];
-  }
-}
-
-interface KillEvent {
-  round: number;
-  attacker_team: string;
-  victim_team: string;
-  weapon: string;
-  attacker_puuid: string;
-  victim_puuid: string;
-  /** Optional — not present in v3 kill_events_compact; present in v4 when available. */
-  victim_name?: string;
-  victim_tag?: string;
-}
-
 /**
  * Ace detector: ≥5 enemy kills in a single round by the player.
  *
@@ -112,7 +79,7 @@ interface KillEvent {
  */
 export const aceDetector: Detector = {
   type: 'ace',
-  detect(record: MatchRecord, _prevRecords: MatchRecord[]): DetectedEvent[] {
+  async detect(record: MatchRecord, _prevRecords: MatchRecord[]): Promise<DetectedEvent[]> {
     const aces = findAces(record);
     if (aces.length === 0) return [];
 
@@ -145,5 +112,59 @@ export const aceDetector: Detector = {
         },
       },
     ];
+  },
+
+  /**
+   * Opponent-peak enrichment (previously hard-coded in the orchestrator as
+   * `if (ev.type === 'ace')` reaching into `payload.victims`). Behaviour is
+   * byte-identical: collect unique victims across this detector's ace events,
+   * fetch their peak ranks once, and merge the SAME complete `opponents_peak`
+   * map into every ace event's payload. No region / no victims → events
+   * returned unchanged.
+   */
+  async enrich(events: DetectedEvent[], ctx: EnrichContext): Promise<DetectedEvent[]> {
+    if (events.length === 0) return events;
+
+    if (!ctx.region) {
+      logger.warn(
+        { module: 'detect', puuid: ctx.riot_puuid, match_id: ctx.match_id },
+        'No region found for player — skipping opponent peak augmentation',
+      );
+      return events;
+    }
+
+    // Collect all unique victims across ace events (kill order, deduped).
+    const seenPuuids = new Set<string>();
+    const allVictims: Array<{ puuid: string; name: string; tag: string }> = [];
+    for (const ev of events) {
+      const victims = ev.payload['victims'] as
+        | Array<{ puuid: string; name: string; tag: string }>
+        | undefined;
+      if (Array.isArray(victims)) {
+        for (const v of victims) {
+          if (!seenPuuids.has(v.puuid)) {
+            seenPuuids.add(v.puuid);
+            allVictims.push(v);
+          }
+        }
+      }
+    }
+
+    if (allVictims.length === 0) return events;
+
+    const peakMap = await ctx.getOpponentPeakRanksFn(allVictims, ctx.region);
+
+    for (const ev of events) {
+      const opponents_peak: Record<
+        string,
+        { tier_id: number; tier_name: string; season_short: string }
+      > = {};
+      for (const [victimPuuid, peak] of peakMap) {
+        opponents_peak[victimPuuid] = peak;
+      }
+      ev.payload = { ...ev.payload, opponents_peak };
+    }
+
+    return events;
   },
 };

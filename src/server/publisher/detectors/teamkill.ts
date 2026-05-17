@@ -1,23 +1,6 @@
-import { inArray } from 'drizzle-orm';
 import type { Detector, DetectedEvent, DetectorDeps, MatchRecord } from '../types.ts';
-import { users } from '../../db/schema/users.ts';
-
-interface KillEvent {
-  round: number;
-  attacker_team: string;
-  victim_team: string;
-  weapon: string;
-  attacker_puuid: string;
-  victim_puuid: string;
-}
-
-function parseKillEvents(record: MatchRecord): KillEvent[] {
-  try {
-    return JSON.parse(record.kill_events_compact) as KillEvent[];
-  } catch {
-    return [];
-  }
-}
+import { decodeKillEvents } from '../../lib/match-codec.ts';
+import { getUsersByPuuids } from '../../db/queries.ts';
 
 /**
  * Teamkill detector: player killed a community teammate (same team, different player,
@@ -28,12 +11,12 @@ function parseKillEvents(record: MatchRecord): KillEvent[] {
  */
 export const teamkillDetector: Detector = {
   type: 'teamkill',
-  detect: () => [], // not used — async path only
-  detectAsync: async (record: MatchRecord, _prev: MatchRecord[], deps: DetectorDeps): Promise<DetectedEvent[]> => {
+  detect: async (record: MatchRecord, _prev: MatchRecord[], deps?: DetectorDeps): Promise<DetectedEvent[]> => {
+    const { db } = deps!; // orchestrator always supplies deps for DB-backed detectors
     const puuid = record.riot_puuid ?? '';
     if (!puuid) return [];
 
-    const kills = parseKillEvents(record);
+    const kills = decodeKillEvents(record.kill_events_compact);
 
     // Filter: attacker is this community player, same team, victim ≠ self
     const myTeamkills = kills.filter(
@@ -43,18 +26,14 @@ export const teamkillDetector: Detector = {
 
     // Filter further: victim must be in users table (community member)
     const victimPuuids = Array.from(new Set(myTeamkills.map((k) => k.victim_puuid)));
-    const communityVictims = await deps.db
-      .select({ riot_puuid: users.riot_puuid, riot_name: users.riot_name, riot_tag: users.riot_tag })
-      .from(users)
-      .where(inArray(users.riot_puuid, victimPuuids));
+    const communityVictims = await getUsersByPuuids(db, victimPuuids);
 
     if (communityVictims.length === 0) return [];
 
-    type CommunityVictim = { riot_puuid: string; riot_name: string | null; riot_tag: string | null };
-    const communitySet = new Set((communityVictims as CommunityVictim[]).map((u) => u.riot_puuid));
+    const communitySet = new Set(communityVictims.map((u) => u.riot_puuid));
     const communityNames = new Map<string, { name: string; tag: string }>(
-      (communityVictims as CommunityVictim[]).map((u) =>
-        [u.riot_puuid, { name: u.riot_name ?? '', tag: u.riot_tag ?? '' }]
+      communityVictims.map((u) =>
+        [u.riot_puuid ?? '', { name: u.riot_name ?? '', tag: u.riot_tag ?? '' }]
       ),
     );
 

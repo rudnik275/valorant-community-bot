@@ -29,7 +29,7 @@ function rankToNumeric(rank: string | null | undefined): number | null {
  */
 export const giantSlayerDetector: Detector = {
   type: 'giant_slayer',
-  detect(record: MatchRecord, _prevRecords: MatchRecord[]): DetectedEvent[] {
+  async detect(record: MatchRecord, _prevRecords: MatchRecord[]): Promise<DetectedEvent[]> {
     if (record.result !== 'win') return [];
 
     const ownNumeric = rankToNumeric(record.rank_after);

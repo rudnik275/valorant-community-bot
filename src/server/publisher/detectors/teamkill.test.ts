@@ -93,7 +93,7 @@ describe('teamkillDetector', () => {
     const record = makeRecord(JSON.stringify([
       makeKill(3, ATTACKER_PUUID, VICTIM_PUUID, 'Blue', 'Blue'),
     ]));
-    const events = await teamkillDetector.detectAsync!(record, [], { db });
+    const events = await teamkillDetector.detect(record, [], { db });
     expect(events).toHaveLength(1);
     expect(events[0]!.type).toBe('teamkill');
     expect(events[0]!.payload.round_numbers).toEqual([3]);
@@ -110,7 +110,7 @@ describe('teamkillDetector', () => {
     const record = makeRecord(JSON.stringify([
       makeKill(5, ATTACKER_PUUID, RANDOM_PUUID, 'Blue', 'Blue'),
     ]));
-    const events = await teamkillDetector.detectAsync!(record, [], { db });
+    const events = await teamkillDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
@@ -121,7 +121,7 @@ describe('teamkillDetector', () => {
     ])), riot_puuid: 'ghost-puuid' };
     // The detector filters k.attacker_puuid === record.riot_puuid, so ghost-puuid kills will be found.
     // Victim IS in users, so event fires. (Attacker does not need a users row.)
-    const events = await teamkillDetector.detectAsync!(record, [], { db });
+    const events = await teamkillDetector.detect(record, [], { db });
     expect(events).toHaveLength(1);
   });
 
@@ -132,7 +132,7 @@ describe('teamkillDetector', () => {
       makeKill(3, ATTACKER_PUUID, VICTIM_PUUID, 'Blue', 'Blue'),
       makeKill(7, ATTACKER_PUUID, RANDOM_PUUID, 'Blue', 'Blue'),
     ]));
-    const events = await teamkillDetector.detectAsync!(record, [], { db });
+    const events = await teamkillDetector.detect(record, [], { db });
     expect(events).toHaveLength(1);
     expect(events[0]!.payload.round_numbers).toEqual([3]);
     expect(events[0]!.payload.victim_names_for_template).toEqual(['CommunityMember']);
@@ -145,7 +145,7 @@ describe('teamkillDetector', () => {
       makeKill(2, ATTACKER_PUUID, VICTIM_PUUID, 'Blue', 'Blue'),
       makeKill(8, ATTACKER_PUUID, VICTIM2_PUUID, 'Blue', 'Blue'),
     ]));
-    const events = await teamkillDetector.detectAsync!(record, [], { db });
+    const events = await teamkillDetector.detect(record, [], { db });
     expect(events).toHaveLength(1);
     expect(events[0]!.payload.round_numbers).toEqual([2, 8]);
     const names = events[0]!.payload.victim_names_for_template as string[];
@@ -158,7 +158,7 @@ describe('teamkillDetector', () => {
     const record = makeRecord(JSON.stringify([
       makeKill(5, ATTACKER_PUUID, ATTACKER_PUUID, 'Blue', 'Blue'),
     ]));
-    const events = await teamkillDetector.detectAsync!(record, [], { db });
+    const events = await teamkillDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
@@ -168,19 +168,19 @@ describe('teamkillDetector', () => {
       makeKill(4, ATTACKER_PUUID, VICTIM_PUUID, 'Blue', 'Red'),
       makeKill(6, ATTACKER_PUUID, VICTIM_PUUID, 'Blue', 'Red'),
     ]));
-    const events = await teamkillDetector.detectAsync!(record, [], { db });
+    const events = await teamkillDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
   it('no kills at all — no event', async () => {
     const record = makeRecord('[]');
-    const events = await teamkillDetector.detectAsync!(record, [], { db });
+    const events = await teamkillDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
   it('null riot_puuid — no event', async () => {
     const record: MatchRecord = { ...makeRecord('[]'), riot_puuid: null as unknown as string };
-    const events = await teamkillDetector.detectAsync!(record, [], { db });
+    const events = await teamkillDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 });

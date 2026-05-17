@@ -9,7 +9,7 @@ import type { Detector, DetectedEvent, MatchRecord } from '../types.ts';
  */
 export const fallDamageDeathDetector: Detector = {
   type: 'fall_damage_death',
-  detect(record: MatchRecord, _prevRecords: MatchRecord[]): DetectedEvent[] {
+  async detect(record: MatchRecord, _prevRecords: MatchRecord[]): Promise<DetectedEvent[]> {
     if (record.fall_damage_kills < 1) return [];
 
     return [

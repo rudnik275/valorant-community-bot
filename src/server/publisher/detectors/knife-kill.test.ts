@@ -49,21 +49,21 @@ function makeKill(
 }
 
 describe('knifeKillDetector', () => {
-  it('emits one event with count=1 when player makes 1 knife kill', () => {
+  it('emits one event with count=1 when player makes 1 knife kill', async () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
         makeKill(3, 'Knife', 'puuid-1', 'enemy-1'),
       ]),
     };
-    const events = knifeKillDetector.detect(record, []);
+    const events = await knifeKillDetector.detect(record, []);
     expect(events).toHaveLength(1);
     expect(events[0]!.type).toBe('knife_kill');
     expect(events[0]!.payload.count).toBe(1);
     expect(events[0]!.payload.rounds).toEqual([3]);
   });
 
-  it('emits one event with count=3 when player makes 3 knife kills', () => {
+  it('emits one event with count=3 when player makes 3 knife kills', async () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
@@ -72,23 +72,23 @@ describe('knifeKillDetector', () => {
         makeKill(12, 'Knife', 'puuid-1', 'enemy-3'),
       ]),
     };
-    const events = knifeKillDetector.detect(record, []);
+    const events = await knifeKillDetector.detect(record, []);
     expect(events).toHaveLength(1);
     expect(events[0]!.payload.count).toBe(3);
     expect(events[0]!.payload.rounds).toEqual([1, 5, 12]);
   });
 
-  it('does NOT emit when community player is the victim of a knife kill', () => {
+  it('does NOT emit when community player is the victim of a knife kill', async () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
         makeKill(3, 'Knife', 'enemy-1', 'puuid-1'), // enemy knifed our player
       ]),
     };
-    expect(knifeKillDetector.detect(record, [])).toHaveLength(0);
+    expect(await knifeKillDetector.detect(record, [])).toHaveLength(0);
   });
 
-  it('does NOT emit when there are no knife kills', () => {
+  it('does NOT emit when there are no knife kills', async () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
@@ -96,48 +96,48 @@ describe('knifeKillDetector', () => {
         makeKill(2, 'Phantom', 'puuid-1', 'enemy-2'),
       ]),
     };
-    expect(knifeKillDetector.detect(record, [])).toHaveLength(0);
+    expect(await knifeKillDetector.detect(record, [])).toHaveLength(0);
   });
 
-  it('does NOT emit when knife kill is by a different puuid (not matching record.riot_puuid)', () => {
+  it('does NOT emit when knife kill is by a different puuid (not matching record.riot_puuid)', async () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
         makeKill(4, 'Knife', 'teammate-2', 'enemy-1'), // different player's knife kill
       ]),
     };
-    expect(knifeKillDetector.detect(record, [])).toHaveLength(0);
+    expect(await knifeKillDetector.detect(record, [])).toHaveLength(0);
   });
 
-  it('does NOT emit for empty kill_events_compact string', () => {
+  it('does NOT emit for empty kill_events_compact string', async () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: '',
     };
-    expect(knifeKillDetector.detect(record, [])).toHaveLength(0);
+    expect(await knifeKillDetector.detect(record, [])).toHaveLength(0);
   });
 
-  it('does NOT emit for invalid JSON in kill_events_compact', () => {
+  it('does NOT emit for invalid JSON in kill_events_compact', async () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: 'not-json',
     };
-    expect(knifeKillDetector.detect(record, [])).toHaveLength(0);
+    expect(await knifeKillDetector.detect(record, [])).toHaveLength(0);
   });
 
-  it('also recognises the canonical knife UUID as a knife weapon', () => {
+  it('also recognises the canonical knife UUID as a knife weapon', async () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
         makeKill(7, '2f59173c-4bed-b6c3-2191-dea9b58be9c7', 'puuid-1', 'enemy-1'),
       ]),
     };
-    const events = knifeKillDetector.detect(record, []);
+    const events = await knifeKillDetector.detect(record, []);
     expect(events).toHaveLength(1);
     expect(events[0]!.payload.count).toBe(1);
   });
 
-  it('counts only knife kills, ignoring other weapon kills in the same match', () => {
+  it('counts only knife kills, ignoring other weapon kills in the same match', async () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
@@ -146,13 +146,13 @@ describe('knifeKillDetector', () => {
         makeKill(3, 'Phantom', 'puuid-1', 'enemy-3'),
       ]),
     };
-    const events = knifeKillDetector.detect(record, []);
+    const events = await knifeKillDetector.detect(record, []);
     expect(events).toHaveLength(1);
     expect(events[0]!.payload.count).toBe(1);
     expect(events[0]!.payload.rounds).toEqual([2]);
   });
 
-  it('sets correct match_id and riot_puuid on the event', () => {
+  it('sets correct match_id and riot_puuid on the event', async () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       match_id: 'match-xyz',
@@ -161,12 +161,12 @@ describe('knifeKillDetector', () => {
         makeKill(5, 'Knife', 'puuid-abc', 'enemy-1'),
       ]),
     };
-    const events = knifeKillDetector.detect(record, []);
+    const events = await knifeKillDetector.detect(record, []);
     expect(events[0]!.match_id).toBe('match-xyz');
     expect(events[0]!.riot_puuid).toBe('puuid-abc');
   });
 
-  it('emits rounds_won subset based on rounds_compact', () => {
+  it('emits rounds_won subset based on rounds_compact', async () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
@@ -179,11 +179,11 @@ describe('knifeKillDetector', () => {
         { r: 7, w: 'Red' },
       ]),
     };
-    const events = knifeKillDetector.detect(record, []);
+    const events = await knifeKillDetector.detect(record, []);
     expect(events[0]!.payload.rounds_won).toEqual([3]);
   });
 
-  it('rounds_won is empty array when rounds_compact is null', () => {
+  it('rounds_won is empty array when rounds_compact is null', async () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
@@ -191,7 +191,7 @@ describe('knifeKillDetector', () => {
       ]),
       rounds_compact: null,
     };
-    const events = knifeKillDetector.detect(record, []);
+    const events = await knifeKillDetector.detect(record, []);
     expect(events[0]!.payload.rounds_won).toEqual([]);
   });
 });

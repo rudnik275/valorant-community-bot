@@ -1,14 +1,12 @@
 import type { Detector, DetectedEvent, MatchRecord, DetectorDeps } from '../types.ts';
 import { upsertRecord } from '../record-tracker.ts';
-import { users } from '../../db/schema/users.ts';
-import { eq } from 'drizzle-orm';
+import { getUserNameTag } from '../../db/queries.ts';
 
 export const recordDeathsMatchDetector: Detector = {
   type: 'record_deaths_match',
-  detect: () => [],  // not used — async path only
-  detectAsync: async (record: MatchRecord, _prev: MatchRecord[], deps: DetectorDeps): Promise<DetectedEvent[]> => {
+  detect: async (record: MatchRecord, _prev: MatchRecord[], deps?: DetectorDeps): Promise<DetectedEvent[]> => {
     if (!record.riot_puuid) return [];
-    const result = await upsertRecord(deps.db, {
+    const result = await upsertRecord(deps!.db, {
       recordType: 'deaths_match',
       value: record.deaths,
       riotPuuid: record.riot_puuid,
@@ -20,13 +18,7 @@ export const recordDeathsMatchDetector: Detector = {
     let prevName = '';
     let prevTag = '';
     if (result.prev) {
-      const [prevUser] = await deps.db
-        .select({ riot_name: users.riot_name, riot_tag: users.riot_tag })
-        .from(users)
-        .where(eq(users.riot_puuid, result.prev.puuid))
-        .limit(1);
-      prevName = prevUser?.riot_name ?? '';
-      prevTag = prevUser?.riot_tag ?? '';
+      ({ name: prevName, tag: prevTag } = await getUserNameTag(deps!.db, result.prev.puuid));
     }
 
     return [

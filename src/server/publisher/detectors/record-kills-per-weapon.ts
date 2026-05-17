@@ -1,16 +1,7 @@
-import { eq } from 'drizzle-orm';
 import type { Detector, DetectedEvent, DetectorDeps, MatchRecord } from '../types.ts';
 import { upsertRecord } from '../record-tracker.ts';
-import { users } from '../../db/schema/users.ts';
-
-interface KillEvent {
-  round: number;
-  weapon: string;
-  attacker_puuid: string;
-  victim_puuid: string;
-  attacker_team: string;
-  victim_team: string;
-}
+import { decodeKillEvents } from '../../lib/match-codec.ts';
+import { getUserNameTag } from '../../db/queries.ts';
 
 /**
  * Whitelist of canonical Valorant weapons that count for "Эксперт по …" records.
@@ -40,17 +31,11 @@ const ALLOWED_WEAPONS = new Set([
 
 export const recordKillsPerWeaponDetector: Detector = {
   type: 'record_kills_per_weapon',
-  detect: () => [], // not used — async path only
-  detectAsync: async (record: MatchRecord, _prev: MatchRecord[], deps: DetectorDeps): Promise<DetectedEvent[]> => {
+  detect: async (record: MatchRecord, _prev: MatchRecord[], deps?: DetectorDeps): Promise<DetectedEvent[]> => {
     const puuid = record.riot_puuid ?? '';
     if (!puuid) return [];
 
-    let kills: KillEvent[];
-    try {
-      kills = JSON.parse(record.kill_events_compact) as KillEvent[];
-    } catch {
-      return [];
-    }
+    const kills = decodeKillEvents(record.kill_events_compact);
     if (kills.length === 0) return [];
 
     // Group kills by weapon, attacker = this community player.
@@ -66,7 +51,7 @@ export const recordKillsPerWeaponDetector: Detector = {
 
     const events: DetectedEvent[] = [];
     for (const [weapon, count] of byWeapon) {
-      const result = await upsertRecord(deps.db, {
+      const result = await upsertRecord(deps!.db, {
         recordType: 'kills_per_weapon',
         weapon,
         value: count,
@@ -79,15 +64,7 @@ export const recordKillsPerWeaponDetector: Detector = {
       if (!result.beaten) continue;
       if (!result.prev || result.prev.value <= 0) continue;
 
-      let prevName = '';
-      let prevTag = '';
-      const [u] = await deps.db
-        .select({ riot_name: users.riot_name, riot_tag: users.riot_tag })
-        .from(users)
-        .where(eq(users.riot_puuid, result.prev.puuid))
-        .limit(1);
-      prevName = u?.riot_name ?? '';
-      prevTag = u?.riot_tag ?? '';
+      const { name: prevName, tag: prevTag } = await getUserNameTag(deps!.db, result.prev.puuid);
 
       // UNIQUE constraint on detected_events is (match_id, event_type, riot_puuid).
       // Per-weapon events from the same match would collide after the first insert.

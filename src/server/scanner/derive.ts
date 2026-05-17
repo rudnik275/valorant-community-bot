@@ -4,6 +4,12 @@
  */
 
 import type { HenrikMatchV4 } from '../lib/henrik.ts';
+import {
+  encodeKillEvents,
+  encodeRounds,
+  type KillEventCompact,
+  type RoundCompact,
+} from '../lib/match-codec.ts';
 
 // ─── MatchRecordInsert type ───────────────────────────────────────────────────
 
@@ -36,17 +42,10 @@ export interface MatchRecordInsert {
   is_match_mvp: number | null;
 }
 
-// ─── kill_events_compact entry ────────────────────────────────────────────────
-// Shape expected by clutch.ts, ace.ts, teamkill.ts, ace-rare-weapon.ts
-
-interface KillEventCompact {
-  round: number;
-  attacker_team: string;
-  victim_team: string;
-  weapon: string;
-  attacker_puuid: string;
-  victim_puuid: string;
-}
+// kill_events_compact / rounds_compact shapes (KillEventCompact, RoundCompact)
+// live in lib/match-codec.ts — the single source of truth for the compact
+// match payload format. derive.ts encodes through that module; all consumer
+// sites decode through it.
 
 // ─── enemy_avg_rank helpers ───────────────────────────────────────────────────
 
@@ -196,10 +195,10 @@ export function deriveMatchRecord(match: HenrikMatchV4, puuid: string): MatchRec
   // Shape: [{r: round_id, w: winning_team_id, c?: ceremony_string}]
   // `c` carries Henrik's `rounds[].ceremony` verbatim (e.g. "CeremonyAce") —
   // the ace detector treats `"CeremonyAce"` as ground truth.
-  const roundsCompact = match.rounds
+  const roundsCompact: RoundCompact[] = match.rounds
     .filter((r) => r.winning_team)
     .map((r) => {
-      const entry: { r: number; w: string; c?: string } = { r: r.id ?? 0, w: r.winning_team! };
+      const entry: RoundCompact = { r: r.id ?? 0, w: r.winning_team! };
       if (r.ceremony) entry.c = r.ceremony;
       return entry;
     });
@@ -219,8 +218,8 @@ export function deriveMatchRecord(match: HenrikMatchV4, puuid: string): MatchRec
     rank_after: player.tier?.name ?? null,
     enemy_avg_rank: calcEnemyAvgRank(match, playerTeamId),
     fall_damage_kills: fallDamageKills,
-    kill_events_compact: JSON.stringify(killEventsCompact),
-    rounds_compact: JSON.stringify(roundsCompact),
+    kill_events_compact: encodeKillEvents(killEventsCompact),
+    rounds_compact: encodeRounds(roundsCompact),
     score: player.stats?.score ?? null,
     headshots: player.stats?.headshots ?? null,
     bodyshots: player.stats?.bodyshots ?? null,

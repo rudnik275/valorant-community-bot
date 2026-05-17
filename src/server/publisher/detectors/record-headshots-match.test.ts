@@ -70,7 +70,7 @@ describe('recordHeadshotsMatchDetector', () => {
 
   it('new record headshots > nothing → emits event with prev_value=null', async () => {
     const record = makeRecord({ headshots: 22 });
-    const events = await recordHeadshotsMatchDetector.detectAsync!(record, [], { db });
+    const events = await recordHeadshotsMatchDetector.detect(record, [], { db });
 
     expect(events).toHaveLength(1);
     expect(events[0]!.type).toBe('record_headshots_match');
@@ -85,11 +85,11 @@ describe('recordHeadshotsMatchDetector', () => {
 
     // Insert initial record
     const firstRecord = makeRecord({ headshots: 18, match_id: 'match-first', riot_puuid: 'puuid-first' });
-    await recordHeadshotsMatchDetector.detectAsync!(firstRecord, [], { db });
+    await recordHeadshotsMatchDetector.detect(firstRecord, [], { db });
 
     // Beat it
     const newRecord = makeRecord({ headshots: 25, match_id: 'match-new', riot_puuid: 'puuid-new' });
-    const events = await recordHeadshotsMatchDetector.detectAsync!(newRecord, [], { db });
+    const events = await recordHeadshotsMatchDetector.detect(newRecord, [], { db });
 
     expect(events).toHaveLength(1);
     expect(events[0]!.payload.value).toBe(25);
@@ -101,10 +101,10 @@ describe('recordHeadshotsMatchDetector', () => {
 
   it('new record headshots < existing → no event', async () => {
     const firstRecord = makeRecord({ headshots: 30, match_id: 'match-first' });
-    await recordHeadshotsMatchDetector.detectAsync!(firstRecord, [], { db });
+    await recordHeadshotsMatchDetector.detect(firstRecord, [], { db });
 
     const lowerRecord = makeRecord({ headshots: 20, match_id: 'match-lower' });
-    const events = await recordHeadshotsMatchDetector.detectAsync!(lowerRecord, [], { db });
+    const events = await recordHeadshotsMatchDetector.detect(lowerRecord, [], { db });
 
     expect(events).toHaveLength(0);
   });
@@ -114,10 +114,10 @@ describe('recordHeadshotsMatchDetector', () => {
     seedUser(sqlite, puuid, 'SamePlayer', 'SAME');
 
     const firstRecord = makeRecord({ headshots: 18, match_id: 'match-first', riot_puuid: puuid });
-    await recordHeadshotsMatchDetector.detectAsync!(firstRecord, [], { db });
+    await recordHeadshotsMatchDetector.detect(firstRecord, [], { db });
 
     const betterRecord = makeRecord({ headshots: 28, match_id: 'match-better', riot_puuid: puuid });
-    const events = await recordHeadshotsMatchDetector.detectAsync!(betterRecord, [], { db });
+    const events = await recordHeadshotsMatchDetector.detect(betterRecord, [], { db });
 
     expect(events).toHaveLength(1);
     expect(events[0]!.payload.value).toBe(28);
@@ -128,13 +128,13 @@ describe('recordHeadshotsMatchDetector', () => {
 
   it('null headshots field → no event emitted', async () => {
     const record = makeRecord({ headshots: null });
-    const events = await recordHeadshotsMatchDetector.detectAsync!(record, [], { db });
+    const events = await recordHeadshotsMatchDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
   it('null riot_puuid → no event emitted', async () => {
     const record = makeRecord({ riot_puuid: null as unknown as string, headshots: 20 });
-    const events = await recordHeadshotsMatchDetector.detectAsync!(record, [], { db });
+    const events = await recordHeadshotsMatchDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 });

@@ -91,7 +91,7 @@ describe('communityClashDetector', () => {
     await seedRoster(db, 'match-001', 'puuid-2', 'Red');
 
     const record = makeRecord({ riot_puuid: 'puuid-1', match_id: 'match-001', result: 'win' });
-    const events = await communityClashDetector.detectAsync!(record, [], { db });
+    const events = await communityClashDetector.detect(record, [], { db });
 
     expect(events).toHaveLength(1);
     expect(events[0]!.type).toBe('community_clash');
@@ -113,7 +113,7 @@ describe('communityClashDetector', () => {
     await seedRoster(db, 'match-001', 'puuid-5', 'Red');
 
     const record = makeRecord({ riot_puuid: 'puuid-1', match_id: 'match-001', result: 'win' });
-    const events = await communityClashDetector.detectAsync!(record, [], { db });
+    const events = await communityClashDetector.detect(record, [], { db });
 
     expect(events).toHaveLength(1);
     const teams = events[0]!.payload['teams'] as Array<{ team_id: string; players: unknown[] }>;
@@ -131,7 +131,7 @@ describe('communityClashDetector', () => {
     await seedRoster(db, 'match-001', 'puuid-2', 'Blue');
 
     const record = makeRecord({ riot_puuid: 'puuid-1', match_id: 'match-001' });
-    const events = await communityClashDetector.detectAsync!(record, [], { db });
+    const events = await communityClashDetector.detect(record, [], { db });
 
     expect(events).toHaveLength(0);
   });
@@ -142,7 +142,7 @@ describe('communityClashDetector', () => {
     // puuid-2 is NOT in users — not a community member
 
     const record = makeRecord({ riot_puuid: 'puuid-1', match_id: 'match-001' });
-    const events = await communityClashDetector.detectAsync!(record, [], { db });
+    const events = await communityClashDetector.detect(record, [], { db });
 
     expect(events).toHaveLength(0);
   });
@@ -152,7 +152,7 @@ describe('communityClashDetector', () => {
     // no roster rows for this match
 
     const record = makeRecord({ riot_puuid: 'puuid-1', match_id: 'match-no-roster' });
-    const events = await communityClashDetector.detectAsync!(record, [], { db });
+    const events = await communityClashDetector.detect(record, [], { db });
 
     expect(events).toHaveLength(0);
   });
@@ -166,7 +166,7 @@ describe('communityClashDetector', () => {
     const record = makeRecord({ riot_puuid: 'puuid-1', match_id: 'match-001', result: 'win' });
 
     // First call — should emit
-    const firstEvents = await communityClashDetector.detectAsync!(record, [], { db });
+    const firstEvents = await communityClashDetector.detect(record, [], { db });
     expect(firstEvents).toHaveLength(1);
 
     // Simulate the event being persisted (as detect.ts would do)
@@ -178,7 +178,7 @@ describe('communityClashDetector', () => {
     });
 
     // Second call — should be empty due to idempotency guard
-    const secondEvents = await communityClashDetector.detectAsync!(record, [], { db });
+    const secondEvents = await communityClashDetector.detect(record, [], { db });
     expect(secondEvents).toHaveLength(0);
   });
 
@@ -189,7 +189,7 @@ describe('communityClashDetector', () => {
     await seedRoster(db, 'match-001', 'puuid-2', 'Red');
 
     const record = makeRecord({ riot_puuid: 'puuid-1', match_id: 'match-001', result: 'win' });
-    const events = await communityClashDetector.detectAsync!(record, [], { db });
+    const events = await communityClashDetector.detect(record, [], { db });
 
     expect(events).toHaveLength(1);
     expect(events[0]!.payload['winner_team_id']).toBe('Blue');
@@ -202,7 +202,7 @@ describe('communityClashDetector', () => {
     await seedRoster(db, 'match-001', 'puuid-2', 'Red');
 
     const record = makeRecord({ riot_puuid: 'puuid-1', match_id: 'match-001', result: 'loss' });
-    const events = await communityClashDetector.detectAsync!(record, [], { db });
+    const events = await communityClashDetector.detect(record, [], { db });
 
     expect(events).toHaveLength(1);
     expect(events[0]!.payload['winner_team_id']).toBe('Red');
@@ -215,7 +215,7 @@ describe('communityClashDetector', () => {
     await seedRoster(db, 'match-001', 'puuid-2', 'Red');
 
     const record = makeRecord({ riot_puuid: 'puuid-1', match_id: 'match-001', result: 'draw' });
-    const events = await communityClashDetector.detectAsync!(record, [], { db });
+    const events = await communityClashDetector.detect(record, [], { db });
 
     expect(events).toHaveLength(1);
     expect(events[0]!.payload['winner_team_id']).toBeNull();

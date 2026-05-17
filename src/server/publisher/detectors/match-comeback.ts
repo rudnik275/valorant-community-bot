@@ -1,42 +1,27 @@
-import { eq, and } from 'drizzle-orm';
 import type { Detector, DetectedEvent, DetectorDeps, MatchRecord } from '../types.ts';
-import { matchRosters } from '../../db/schema/match_rosters.ts';
-import { users } from '../../db/schema/users.ts';
-import { detectedEvents } from '../../db/schema/detected_events.ts';
-
-interface RoundCompact { r: number; w: string; }
+import { decodeRounds } from '../../lib/match-codec.ts';
+import { hasMatchEvent, getCommunityRoster } from '../../db/queries.ts';
 
 const MIN_DEFICIT = 8;
 
 export const matchComebackDetector: Detector = {
   type: 'match_comeback',
-  // Sync path not used — we need DB access to query rosters/users for grouping
-  // all community members on the winning team into a single event.
-  detect: () => [],
-  detectAsync: async (record: MatchRecord, _prev: MatchRecord[], deps: DetectorDeps): Promise<DetectedEvent[]> => {
+  detect: async (record: MatchRecord, _prev: MatchRecord[], deps?: DetectorDeps): Promise<DetectedEvent[]> => {
     if (record.result !== 'win') return [];
     if (!record.rounds_compact) return [];
     if (!record.match_id) return [];
 
-    let rounds: RoundCompact[];
-    try {
-      rounds = JSON.parse(record.rounds_compact) as RoundCompact[];
-    } catch { return []; }
+    // Only rounds with a known winning team participate in comeback scoring.
+    const rounds = decodeRounds(record.rounds_compact).filter(
+      (r): r is { r: number; w: string; c?: string } => typeof r.w === 'string' && r.w !== '',
+    );
     if (rounds.length === 0) return [];
 
     // Idempotency guard: skip if a match_comeback event already exists for this
     // match. Without this, every community winner's scan would emit a separate
     // event for the same match (spamming the chat with N copies of the same
     // "comeback" message).
-    const existing = await deps.db
-      .select({ id: detectedEvents.id })
-      .from(detectedEvents)
-      .where(and(
-        eq(detectedEvents.event_type, 'match_comeback'),
-        eq(detectedEvents.match_id, record.match_id),
-      ))
-      .limit(1);
-    if (existing.length > 0) return [];
+    if (await hasMatchEvent(deps!.db, 'match_comeback', record.match_id)) return [];
 
     // Identify the player's team_id: it's the team whose round-win count equals
     // record.team_rounds_won. Bail out if no team matches (corrupt data).
@@ -80,20 +65,9 @@ export const matchComebackDetector: Detector = {
     // team they aren't congratulated for the comeback — only winners go into
     // the payload list. Losing-side community members never reach this branch
     // anyway because their own record has result='loss' and bails out above.
-    const rosterRows = await deps.db
-      .select({
-        riot_puuid: matchRosters.riot_puuid,
-        riot_name: users.riot_name,
-        riot_tag: users.riot_tag,
-      })
-      .from(matchRosters)
-      .innerJoin(users, eq(users.riot_puuid, matchRosters.riot_puuid))
-      .where(and(
-        eq(matchRosters.match_id, record.match_id),
-        eq(matchRosters.team, playerTeam),
-      ));
+    const rosterRows = await getCommunityRoster(deps!.db, record.match_id, playerTeam);
 
-    const communityPlayers = rosterRows.map((r: { riot_puuid: string; riot_name: string | null; riot_tag: string | null }) => ({
+    const communityPlayers = rosterRows.map((r) => ({
       puuid: r.riot_puuid,
       name: r.riot_name ?? '',
       tag: r.riot_tag ?? '',

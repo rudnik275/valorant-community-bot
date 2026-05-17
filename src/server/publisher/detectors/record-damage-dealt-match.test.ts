@@ -63,7 +63,7 @@ describe('recordDamageDealtMatchDetector', () => {
 
   it('new value > nothing → emits event with prev_value=null', async () => {
     const record = makeRecord({ damage_dealt: 6840 });
-    const events = await recordDamageDealtMatchDetector.detectAsync!(record, [], { db });
+    const events = await recordDamageDealtMatchDetector.detect(record, [], { db });
 
     expect(events).toHaveLength(1);
     expect(events[0]!.type).toBe('record_damage_dealt_match');
@@ -76,11 +76,11 @@ describe('recordDamageDealtMatchDetector', () => {
   it('new value > existing → emits with prev_value and prev_name set', async () => {
     // Insert initial record
     const firstRecord = makeRecord({ damage_dealt: 6000, match_id: 'match-first', riot_puuid: 'puuid-first' });
-    await recordDamageDealtMatchDetector.detectAsync!(firstRecord, [], { db });
+    await recordDamageDealtMatchDetector.detect(firstRecord, [], { db });
 
     // Beat it
     const newRecord = makeRecord({ damage_dealt: 7200, match_id: 'match-new', riot_puuid: 'puuid-new' });
-    const events = await recordDamageDealtMatchDetector.detectAsync!(newRecord, [], { db });
+    const events = await recordDamageDealtMatchDetector.detect(newRecord, [], { db });
 
     expect(events).toHaveLength(1);
     expect(events[0]!.payload.value).toBe(7200);
@@ -93,23 +93,23 @@ describe('recordDamageDealtMatchDetector', () => {
 
   it('new value <= existing → no event', async () => {
     const firstRecord = makeRecord({ damage_dealt: 8000, match_id: 'match-first' });
-    await recordDamageDealtMatchDetector.detectAsync!(firstRecord, [], { db });
+    await recordDamageDealtMatchDetector.detect(firstRecord, [], { db });
 
     const lowerRecord = makeRecord({ damage_dealt: 7000, match_id: 'match-lower' });
-    const events = await recordDamageDealtMatchDetector.detectAsync!(lowerRecord, [], { db });
+    const events = await recordDamageDealtMatchDetector.detect(lowerRecord, [], { db });
 
     expect(events).toHaveLength(0);
   });
 
   it('null damage_dealt → no event', async () => {
     const record = makeRecord({ damage_dealt: null });
-    const events = await recordDamageDealtMatchDetector.detectAsync!(record, [], { db });
+    const events = await recordDamageDealtMatchDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
   it('null riot_puuid → no event emitted', async () => {
     const record = makeRecord({ riot_puuid: null as unknown as string, damage_dealt: 6840 });
-    const events = await recordDamageDealtMatchDetector.detectAsync!(record, [], { db });
+    const events = await recordDamageDealtMatchDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
   });
 
@@ -117,10 +117,10 @@ describe('recordDamageDealtMatchDetector', () => {
     const puuid = 'puuid-same';
 
     const firstRecord = makeRecord({ damage_dealt: 6000, match_id: 'match-first', riot_puuid: puuid });
-    await recordDamageDealtMatchDetector.detectAsync!(firstRecord, [], { db });
+    await recordDamageDealtMatchDetector.detect(firstRecord, [], { db });
 
     const betterRecord = makeRecord({ damage_dealt: 7500, match_id: 'match-better', riot_puuid: puuid });
-    const events = await recordDamageDealtMatchDetector.detectAsync!(betterRecord, [], { db });
+    const events = await recordDamageDealtMatchDetector.detect(betterRecord, [], { db });
 
     expect(events).toHaveLength(1);
     expect(events[0]!.payload.value).toBe(7500);

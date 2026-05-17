@@ -1,18 +1,15 @@
 import type { Detector, DetectedEvent, MatchRecord, DetectorDeps } from '../types.ts';
 import { upsertRecord } from '../record-tracker.ts';
-import { users } from '../../db/schema/users.ts';
-import { matchRosters } from '../../db/schema/match_rosters.ts';
-import { eq } from 'drizzle-orm';
+import { getUserNameTag, getCommunityRoster } from '../../db/queries.ts';
 
 export const recordLongestMatchMinutesDetector: Detector = {
   type: 'record_longest_match_minutes',
-  detect: () => [],  // not used — async path only
-  detectAsync: async (record: MatchRecord, _prev: MatchRecord[], deps: DetectorDeps): Promise<DetectedEvent[]> => {
+  detect: async (record: MatchRecord, _prev: MatchRecord[], deps?: DetectorDeps): Promise<DetectedEvent[]> => {
     if (!record.riot_puuid || !record.game_length_ms || record.game_length_ms <= 0) return [];
     const minutes = Math.round(record.game_length_ms / 60000);
     if (minutes <= 0) return [];
 
-    const result = await upsertRecord(deps.db, {
+    const result = await upsertRecord(deps!.db, {
       recordType: 'longest_match_minutes',
       value: minutes,
       riotPuuid: record.riot_puuid,
@@ -23,21 +20,11 @@ export const recordLongestMatchMinutesDetector: Detector = {
 
     let prevName = '', prevTag = '';
     if (result.prev) {
-      const [u] = await deps.db
-        .select({ riot_name: users.riot_name, riot_tag: users.riot_tag })
-        .from(users)
-        .where(eq(users.riot_puuid, result.prev.puuid))
-        .limit(1);
-      prevName = u?.riot_name ?? '';
-      prevTag = u?.riot_tag ?? '';
+      ({ name: prevName, tag: prevTag } = await getUserNameTag(deps!.db, result.prev.puuid));
     }
 
     // List all community players in this match (joined users table so we only get known players)
-    const community = await deps.db
-      .select({ riot_puuid: matchRosters.riot_puuid, riot_name: users.riot_name, riot_tag: users.riot_tag })
-      .from(matchRosters)
-      .innerJoin(users, eq(users.riot_puuid, matchRosters.riot_puuid))
-      .where(eq(matchRosters.match_id, record.match_id));
+    const community = await getCommunityRoster(deps!.db, record.match_id);
 
     return [
       {
@@ -60,7 +47,7 @@ export const recordLongestMatchMinutesDetector: Detector = {
           prev_puuid: result.prev?.puuid ?? null,
           prev_name: prevName,
           prev_tag: prevTag,
-          community_players: community.map((c: { riot_puuid: string; riot_name: string | null; riot_tag: string | null }) => ({
+          community_players: community.map((c) => ({
             puuid: c.riot_puuid,
             name: c.riot_name ?? '',
             tag: c.riot_tag ?? '',
