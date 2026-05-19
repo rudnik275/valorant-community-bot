@@ -15,8 +15,8 @@
  *
  * The retry/give-up policy lives in the *caller* (the prepare tick: MAX 2
  * attempts, no delay, then give up silently — issue #227 §3). This module
- * just makes one request and either returns a normalised 1080×1920 PNG
- * Buffer or throws `OpenAIImageError`.
+ * just makes one request and either returns the model's PNG Buffer
+ * (native ~2:3 portrait — no crop) or throws `OpenAIImageError`.
  */
 
 import { readFile } from 'node:fs/promises';
@@ -46,7 +46,7 @@ const ENDPOINT = 'https://api.openai.com/v1/images/edits';
  * an env tweak, not a code change + redeploy.
  */
 const DEFAULT_MODEL = process.env['OPENAI_IMAGE_MODEL'] ?? 'chatgpt-image-latest';
-/** Closest portrait ~2:3 supported size; sharp re-normalises to exact 9:16. */
+/** Tallest portrait size the Images API supports; kept as-is (no crop). */
 const DEFAULT_SIZE = '1024x1536';
 
 /**
@@ -54,10 +54,6 @@ const DEFAULT_SIZE = '1024x1536';
  * accepts then never closes hangs forever. Image gen is slow → 120s.
  */
 const FETCH_TIMEOUT_MS = 120_000;
-
-/** Final delivered dimensions — Telegram story 9:16. */
-const OUT_WIDTH = 1080;
-const OUT_HEIGHT = 1920;
 
 interface OpenAIImagesResponse {
   data?: Array<{ b64_json?: string; url?: string }>;
@@ -67,7 +63,7 @@ interface OpenAIImagesResponse {
 /**
  * Generate the weekly promo image.
  *
- * @returns a PNG Buffer normalised to exactly 1080×1920 (cover-fit).
+ * @returns the model's PNG Buffer at its native aspect (no crop).
  * @throws  {OpenAIImageError} on missing key, non-200, malformed body,
  *          network error, or timeout. The caller decides retry/give-up.
  */
@@ -170,12 +166,13 @@ export async function generateStoryImage(args: {
     throw new OpenAIImageError('OpenAI returned an empty image');
   }
 
-  // Force the 9:16 contract regardless of what the model returned.
+  // Keep the model's native aspect (~2:3). We used to cover-crop to a strict
+  // 9:16 — that was for the dropped Telegram Story format and it shaved ~100px
+  // off each side, clipping the left-edge text ("ДАЙДЖЕСТ" → "АЙДЖЕСТ"). A
+  // photo reply has no fixed-aspect requirement, so just normalise to PNG and
+  // send the full frame the model composed.
   try {
-    return await sharp(raw)
-      .resize(OUT_WIDTH, OUT_HEIGHT, { fit: 'cover' })
-      .png()
-      .toBuffer();
+    return await sharp(raw).png().toBuffer();
   } catch (err) {
     throw new OpenAIImageError(
       `sharp failed to normalise the image: ${(err as Error).message ?? String(err)}`,
