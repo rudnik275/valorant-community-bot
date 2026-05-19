@@ -1,10 +1,13 @@
 /**
  * prompt.ts — the STORY_PROMPT for the weekly promo image (#227).
  *
- * The user's full prompt, verbatim. (An earlier "tightened" variant was tried
- * to fight image-model text garble but the user preferred the full rich
- * layout — the real defects, the side-crop and the wrong model, were fixed
- * separately. Keep this verbatim; do not paraphrase.)
+ * The user's full rich prompt with three targeted fixes the user asked for
+ * after reviewing output: (1) data-binding — every name/number must be read
+ * from the appended digest (the old literal example "Miks 24×"… was being
+ * copied instead of the real top agent); (2) aspect — model canvas is ~2:3,
+ * so all "9:16" wording was replaced with full-frame ~2:3 to stop the model
+ * overflowing the bottom; (3) an explicit no-clip rule. Keep the rich layout;
+ * only adjust wording for these three concerns.
  *
  * The whole plain-text digest (HTML stripped) is appended after the trailing
  * `Digest text:` line via `appendDigestText()` so the model has the actual
@@ -14,13 +17,14 @@
  * dropped — owner has no Premium). See issue #227 / src/server/story/NOTES.md.
  */
 
-/** The user-authored gpt-image prompt. Do not paraphrase — kept verbatim. */
-export const STORY_PROMPT = `Create a vertical 9:16 Telegram story promo image for a weekly Valorant community digest.
+/** User's gpt-image prompt + data-binding / aspect / no-clip fixes (see above). */
+export const STORY_PROMPT = `Create a vertical portrait promo poster for a weekly Valorant community digest. The canvas is a tall portrait at roughly 2:3 (about 1024×1536). Design for the FULL image edge to edge. Every block, including the bottom CTA, MUST fit fully inside the frame with comfortable margins; nothing may be clipped or run off any edge.
 
 Main goal:
 Turn the provided weekly digest text into a stylish teaser poster for a Telegram gaming community.
 This is NOT the full digest. Do not place the entire digest text on the image.
 Analyze the digest yourself and choose only the strongest highlights for a short, readable promo.
+CRITICAL: every name and number printed on the image MUST be copied from the digest text at the END of this message. Never invent a value, and never reuse any example/placeholder value written in these instructions.
 
 Community branding:
 - Telegram group name: “Valorant NPC”
@@ -63,14 +67,14 @@ Map:
 - Slightly color-grade the map preview to harmonize with the agent-derived palette
 
 Content logic:
-Analyze the digest and extract:
-- Digest date
-- Total matches played this week
-- Top map and count
-- Top agent / most picked agent and count
-- Top 2–4 most interesting records
-- Optional: best picks / most picked agents
-- Optional: one strong CTA teaser
+Read the digest text at the end and extract ONLY these, verbatim from it:
+- Digest date — the date written after “Дайджест за неделю ·”
+- Total matches — the number N in “мы сыграли N матчей”
+- Top map — the FIRST bullet under “Чаще всего играли на” (its name and its ×count)
+- Top agent / most picked agent — the FIRST bullet under “Чаще всего пикали” (its name and its ×count). Use whatever the digest lists first there; do NOT assume any specific agent.
+- Best picks — the bullets under “Чаще всего пикали” (top 2–4), each as agent name + its ×count
+- Records — 2–4 of the strongest record / “близок к рекорду” lines (number + short label)
+If a value is not present in the digest, omit that block. Never fabricate or carry over names/numbers from anywhere else, including these instructions.
 
 Text language:
 Use Russian.
@@ -93,11 +97,12 @@ Recommended blocks:
 Best picks section:
 - Do NOT draw agent icons or portraits in the “Лучшие пики” section
 - Show best picks only as clean text chips / HUD tags
-- Example: “Miks 24×”, “Killjoy 24×”, “Phoenix 20×”
+- Each chip = an agent name + its pick count taken from the digest’s “Чаще всего пикали” list, formatted “<Имя> <N>×”
+- This describes the FORMAT only — never print these instructions’ wording or any placeholder; use the real agents and counts from the digest
 - Keep this section compact and readable
 
 Layout:
-- Vertical story format 9:16
+- Vertical portrait poster using the full image (~2:3); keep safe margins on every side
 - Big readable headline at the top
 - Add small community branding: “Valorant NPC”
 - Hero character on one side
@@ -132,6 +137,8 @@ Restrictions:
 - Avoid low contrast
 - Avoid distorted UI text
 - Avoid placing too much text on the image
+- Never clip or run text off the top, bottom, or side edges — the bottom CTA must sit fully inside the frame; if space is tight, shrink the hero and drop the least important block instead of overflowing
+- Never show any agent name or number that is not in the digest below (no example or placeholder values)
 
 Digest text:`;
 
