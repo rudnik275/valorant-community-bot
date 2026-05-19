@@ -8,7 +8,7 @@ import healthz from './api/healthz.ts';
 import { scopeGuard } from './bot/scope-guard.ts';
 import { makeLastMessageHandler } from './bot/listener.ts';
 import { makeChatMemberListener } from './bot/chat-member-listener.ts';
-import { makeTestDigestHandler, makeTestRuntimeEventsHandler } from './bot/test-commands.ts';
+import { makeTestDigestHandler, makeTestDigestImageHandler, makeTestRuntimeEventsHandler } from './bot/test-commands.ts';
 import { makeCongratsHandler, makeCongratsCallbackHandler } from './bot/congrats-command.ts';
 import { setupAdminCommandsForOwner } from './bot/setup-admin-commands.ts';
 import { isAllowedChat } from './lib/scope.ts';
@@ -25,14 +25,20 @@ import { loadAllowedChatIds } from './lib/scope.ts';
 import { scanForPuuid as scanForPuuidBase, startScanLoop } from './scanner/index.ts';
 import { startDetectionListener } from './publisher/detect.ts';
 import { startPublisherLoop } from './publisher/loop.ts';
-import { startDigestLoop } from './digest/loop.ts';
+import { startDigestLoop, startPrepareLoop } from './digest/loop.ts';
 import { startDailyDigestLoop } from './digest-daily/loop.ts';
 import { startRestrictGraceLoop } from './cron/restrict-grace.ts';
 import { startRetryPendingOnboardLoop } from './cron/retry-pending-onboard.ts';
 import { safeSendMessage } from './lib/safe-telegram.ts';
+import { sendPhotoExempt, InputFile } from './lib/telegram-send.ts';
 import { isPublishingEnabled } from './lib/silent-period.ts';
 
 const PORT = Number(process.env['PORT'] ?? 3000);
+
+// Weekly promo image (#227). Resolved at tick/command time so a key added
+// after boot is picked up without restart. Operator must create the matching
+// 1Password field `op://PetProject/openai-api-key/credential`.
+const getOpenAIKey = (): string => process.env['OPENAI_API_KEY'] ?? '';
 
 const app = new Hono();
 
@@ -47,6 +53,7 @@ if (botToken) {
   bot.use(scopeGuard);
   // Admin-only preview commands. Gated internally by isOwner() (TELEGRAM_OWNER_ID).
   bot.command('test_digest', makeTestDigestHandler({ db, bot }));
+  bot.command('test_digest_image', makeTestDigestImageHandler({ db, bot, getOpenAIKey }));
   bot.command('test_runtime_events', makeTestRuntimeEventsHandler({ db, bot }));
   // Admin: /congrats <nickname> → preview-then-confirm post of yesterday's
   // matches for the matched player to the primary chat.
@@ -162,10 +169,32 @@ if (process.env['SCANNER_DISABLED'] !== 'true') {
         ),
         getPrimaryChatId: () => primaryChatId,
       });
+      // Weekly promo image (#227): the photo reply on the digest message.
+      // sendPhotoExempt — destination is TELEGRAM_PRIMARY_CHAT_ID, the
+      // already-authorised group where the digest text was just posted;
+      // the photo is an additive reply on that exact message. Same exempt
+      // risk-model as the digest text send (see telegram-send.ts).
+      const sendPhotoReply = async (
+        chatId: number,
+        buffer: Buffer,
+        name: string,
+        replyToMessageId: number,
+      ): Promise<void> => {
+        await sendPhotoExempt(bot!.api, chatId, new InputFile(buffer, name), {
+          reply_parameters: { message_id: replyToMessageId },
+        });
+      };
       startDigestLoop({
         db,
         sendMessage: (chatId, text, opts) => safeSendMessage(bot!.api, chatId, text, opts as never),
         getPrimaryChatId: () => primaryChatId,
+        sendPhotoReply,
+      });
+      // Two-phase prepare tick (Fri 18:45 Kyiv): build digest + stash PNG.
+      startPrepareLoop({
+        db,
+        getPrimaryChatId: () => primaryChatId,
+        getOpenAIKey,
       });
       startDailyDigestLoop({
         db,

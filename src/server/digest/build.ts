@@ -178,6 +178,18 @@ export interface BuildDigestResult {
   /** Null when no sections produce content — don't post. */
   text: string | null;
   sectionsIncluded: string[];
+  /**
+   * Most-played map this window (top of the Top-Maps GROUP BY), or null.
+   * Lifted from the *existing* aggregation — no extra SQL. Used as a
+   * reference image for the weekly promo image (#227).
+   */
+  topMap: string | null;
+  /**
+   * Most-picked agent this window (top of the Top-Agents GROUP BY), or null.
+   * Lifted from the *existing* aggregation — no extra SQL. Used as a
+   * reference image for the weekly promo image (#227).
+   */
+  topAgent: string | null;
 }
 
 /**
@@ -228,8 +240,14 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
   const totalMatches = Number(totalRow?.count ?? 0);
 
   if (totalMatches === 0) {
-    return { text: null, sectionsIncluded: [] };
+    return { text: null, sectionsIncluded: [], topMap: null, topAgent: null };
   }
+
+  // Hoisted out of the Top-Maps / Top-Agents scoped blocks below so the
+  // weekly promo image (#227) can pick the strongest single map/agent as a
+  // reference. No extra SQL — captured from the existing GROUP BY rows.
+  let topMap: string | null = null;
+  let topAgent: string | null = null;
 
   // ─── Header ─────────────────────────────────────────────────────────────────
   const headerDate = new Intl.DateTimeFormat('ru-RU', {
@@ -540,6 +558,8 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       .orderBy(sql`COUNT(*) DESC`)
       .limit(3);
 
+    topMap = maps[0]?.map != null ? String(maps[0].map) : null;
+
     if (maps.length > 0) {
       const mapLines = maps
         .map((m: { map: string; cnt: number }) => `• <b>${esc(String(m.map))}</b> (${Number(m.cnt)}×)`)
@@ -561,6 +581,8 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       .groupBy(matchRecords.agent)
       .orderBy(sql`COUNT(*) DESC`)
       .limit(3);
+
+    topAgent = agents[0]?.agent != null ? String(agents[0].agent) : null;
 
     if (agents.length > 0) {
       const agentLines = agents
@@ -591,7 +613,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
   parts.push('#digest');
 
   const text = parts.join('\n');
-  return { text, sectionsIncluded };
+  return { text, sectionsIncluded, topMap, topAgent };
 }
 
 /**
