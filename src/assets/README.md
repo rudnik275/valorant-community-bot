@@ -1,7 +1,7 @@
 # Reference images for the weekly promo image (#227)
 
 The Friday 18:45 Kyiv "prepare" tick generates a promo image for the weekly
-digest via OpenAI (`gpt-image-2`). It passes two reference PNGs — the most-
+digest via OpenAI (`chatgpt-image-latest`). It passes two reference PNGs — the most-
 played agent and the most-played map of the week — so the model keeps the
 recognizable vibe and palette.
 

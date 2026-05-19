@@ -3,7 +3,10 @@
  *
  * `POST https://api.openai.com/v1/images/edits` (multipart) with two
  * reference images (top-agent card + top-map preview) and the verbatim
- * STORY_PROMPT followed by the plain-text digest. Model: `gpt-image-2`.
+ * STORY_PROMPT followed by the plain-text digest. Model defaults to
+ * `chatgpt-image-latest` (the image model this project has access to) and is
+ * overridable via the `OPENAI_IMAGE_MODEL` env var — a 403 "project does not
+ * have access to model X" is fixed by setting that var, no code change.
  *
  * Client style mirrors `src/server/lib/henrik.ts`: per-request hard timeout
  * via AbortController + setTimeout cleared in `finally`, `globalThis.fetch`,
@@ -36,7 +39,13 @@ export class OpenAIImageError extends Error {
 // ─── Client internals ────────────────────────────────────────────────────────
 
 const ENDPOINT = 'https://api.openai.com/v1/images/edits';
-const DEFAULT_MODEL = 'gpt-image-2';
+/**
+ * `gpt-image-2` (the original #227 placeholder) 403s with "project does not
+ * have access to model" on this project; `chatgpt-image-latest` is the image
+ * model it does have access to. Overridable via env so a future model bump is
+ * an env tweak, not a code change + redeploy.
+ */
+const DEFAULT_MODEL = process.env['OPENAI_IMAGE_MODEL'] ?? 'chatgpt-image-latest';
 /** Closest portrait ~2:3 supported size; sharp re-normalises to exact 9:16. */
 const DEFAULT_SIZE = '1024x1536';
 
