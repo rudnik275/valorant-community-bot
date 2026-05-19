@@ -32,6 +32,7 @@
  * gets the same durable-vs-transient classification without copy-paste.
  */
 
+import { InputFile } from 'grammy';
 import type { Api } from 'grammy';
 import logger from './log.ts';
 import { isAllowedChat } from './scope.ts';
@@ -55,6 +56,7 @@ export class UnauthorizedChatError extends Error {
 // ---------------------------------------------------------------------------
 
 export type SendOpts = Parameters<Api['sendMessage']>[2];
+export type SendPhotoOpts = Parameters<Api['sendPhoto']>[2];
 
 let sleepFn: (ms: number) => Promise<void> = (ms) =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -197,6 +199,83 @@ export async function sendExempt(
 ): ReturnType<Api['sendMessage']> {
   return sendWithRetry(api, chatId, text, opts, { exempt: true });
 }
+
+// ---------------------------------------------------------------------------
+// Photo send (weekly promo image — #227)
+// ---------------------------------------------------------------------------
+
+/**
+ * Core photo send with retry. Same 2-attempt transient policy as
+ * `sendWithRetry` (it reuses `classifyError`): 429 → retry_after (default
+ * 5 s), 5xx / network → 2 s, durable 4xx → throw immediately.
+ */
+async function sendPhotoWithRetry(
+  api: Api,
+  chatId: number,
+  photo: InputFile,
+  opts?: SendPhotoOpts,
+  logContext?: Record<string, unknown>,
+): ReturnType<Api['sendPhoto']> {
+  let lastErr: unknown;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await api.sendPhoto(chatId, photo, opts);
+    } catch (err: unknown) {
+      lastErr = err;
+      const { isTransient, retryAfterMs } = classifyError(err);
+
+      if (isTransient && attempt === 0) {
+        const errCode = (err && typeof err === 'object' && 'error_code' in err)
+          ? (err as { error_code?: number }).error_code
+          : undefined;
+        const errMsg = err instanceof Error ? err.message : String(err);
+        const is429 = errCode === 429 || (errMsg ?? '').includes('429');
+        const is5xx = typeof errCode === 'number' && errCode >= 500 && errCode < 600;
+        const kind = is429 ? '429' : is5xx ? '5xx' : 'network';
+
+        logger.warn(
+          { module: 'telegram_send', chat_id: chatId, retry_after_ms: retryAfterMs, kind, photo: true, ...logContext },
+          'Transient Telegram error (sendPhoto) — retrying',
+        );
+        await sleep(retryAfterMs);
+        continue;
+      }
+
+      // Durable error on any attempt, OR transient after retry — give up.
+      break;
+    }
+  }
+
+  throw lastErr;
+}
+
+/**
+ * Send a photo that bypasses the allowlist guard.
+ *
+ * Same exemption risk-model as `sendExempt` (see its doc-comment): ONLY
+ * valid when the destination is either the bot-owner's own DM (verified by
+ * `isOwner()` at the call site — used by `/test_digest_image`) or
+ * `TELEGRAM_PRIMARY_CHAT_ID` (the already-authorised group — the weekly
+ * promo-image photo reply on the digest message, #227). The weekly digest
+ * text already posts to that same primary chat via the exempt path; the
+ * photo reply is purely additive and lands on the message we just sent.
+ * Do NOT call this for arbitrary chats.
+ *
+ * `photo` is an in-memory `InputFile(buffer, name)`. Reply via
+ * `opts.reply_parameters = { message_id }`. Still applies the
+ * retry/backoff policy for transient errors.
+ */
+export async function sendPhotoExempt(
+  api: Api,
+  chatId: number,
+  photo: InputFile,
+  opts?: SendPhotoOpts,
+): ReturnType<Api['sendPhoto']> {
+  return sendPhotoWithRetry(api, chatId, photo, opts, { exempt: true });
+}
+
+export { InputFile };
 
 // ---------------------------------------------------------------------------
 // Retry helper for injected send functions (publisher/digest loops)

@@ -23,6 +23,7 @@ import { eq, sql } from 'drizzle-orm';
 import { digestRuns } from '../db/schema/digest_runs.ts';
 import { buildDigest } from './build.ts';
 import logger from '../lib/log.ts';
+import { makeWeeklyPublishOverride, type SendPhotoReply } from './two-phase.ts';
 import {
   runScheduledDigest,
   startScheduledDigest,
@@ -42,6 +43,15 @@ export interface DigestLoopDeps {
   healthcheckUrl?: string;
   /** Injectable now-in-Kyiv for testing. Returns { nowMs, weekIso, weekStart, weekEnd }. */
   getNowKyiv?: () => DigestNowKyiv;
+  /**
+   * Best-effort photo-reply for the two-phase promo image (#227). When set,
+   * the weekly publish path runs the two-phase override instead of the
+   * shared no-dup-on-crash path: post saved `prepared_text` → record
+   * published → best-effort photo reply. When absent (e.g. legacy callers /
+   * unit tests that only exercise the text path), the weekly digest keeps
+   * the original single-tick build+post behaviour.
+   */
+  sendPhotoReply?: SendPhotoReply;
 }
 
 export interface DigestNowKyiv {
@@ -126,11 +136,16 @@ function makeWeeklySpec(deps: DigestLoopDeps): DigestSpec {
   const getNowKyiv = deps.getNowKyiv ?? getDigestNowKyiv;
   const healthcheckUrl = deps.healthcheckUrl ?? process.env['HEALTHCHECK_DIGEST_URL'];
 
+  const publishOverride = deps.sendPhotoReply
+    ? makeWeeklyPublishOverride(deps.sendPhotoReply)
+    : undefined;
+
   return {
     module: 'digest',
     cron: '0 19 * * 5',
     silentPeriodGate: true,
     healthcheckUrl,
+    ...(publishOverride ? { publishOverride } : {}),
     resolveWindow: (): DigestWindow => {
       const { nowMs, weekIso, weekStart, weekEnd } = getNowKyiv();
       return { nowMs, windowStart: weekStart, windowEnd: weekEnd, dedupKey: weekIso };
@@ -191,6 +206,10 @@ export function startDigestLoop(deps: DigestLoopDeps): () => void {
     getPrimaryChatId: deps.getPrimaryChatId,
   });
 }
+
+// Re-export the two-phase prepare loop + photo-reply type so index.ts wires
+// the weekly promo image (#227) from one place.
+export { startPrepareLoop, type PrepareLoopDeps, type SendPhotoReply } from './two-phase.ts';
 
 // Re-export for convenience in index.ts
 export { sql };

@@ -124,6 +124,26 @@ export interface DigestSpec {
   /** Does the Silent-period gate apply? (weekly: yes, daily: no) */
   silentPeriodGate: boolean;
   /**
+   * Optional weekly-only publish override (issue #227 two-phase digest).
+   *
+   * When set, `runScheduledDigest` runs ONLY the unexpected-error boundary
+   * and the Silent-period gate, then hands the entire dedup/build/post
+   * decision to this function. The weekly digest needs branching the shared
+   * scaffold deliberately does not model (prepared-row → post saved text +
+   * best-effort photo reply; no row → fresh build text-only). Daily NEVER
+   * sets this, so its observable behaviour is byte-for-byte unchanged: it
+   * still runs the documented no-dup-on-crash path (steps 3–8).
+   *
+   * The override is responsible for its own idempotency. It must preserve
+   * the #255 ordering: the published/posted-state row is written
+   * immediately after the text send succeeds, BEFORE the best-effort image.
+   */
+  publishOverride?: (
+    db: AnyDb,
+    w: DigestWindow,
+    deps: { sendMessage: SendMessage; getPrimaryChatId: () => number },
+  ) => Promise<void>;
+  /**
    * Healthchecks.io URL to ping (fire-and-forget) after a successful post.
    * Undefined ⇒ no ping (daily). Weekly passes `HEALTHCHECK_DIGEST_URL`.
    */
@@ -151,6 +171,13 @@ export async function runScheduledDigest(
         { module, dedup_key: w.dedupKey },
         'Digest skipped — silent period active',
       );
+      return;
+    }
+
+    // 2b. Weekly two-phase publish override (#227). Daily never sets this,
+    //     so daily continues through the unchanged steps 3–8 below.
+    if (spec.publishOverride) {
+      await spec.publishOverride(db, w, { sendMessage, getPrimaryChatId });
       return;
     }
 

@@ -27,7 +27,8 @@ import { buildDigest } from '../digest/build.ts';
 import { renderTemplate, type TemplateMatch, type TemplateUser } from '../publisher/templates.ts';
 import { isRealtimeEvent, type EventType } from '../publisher/types.ts';
 import logger from '../lib/log.ts';
-import { sendExempt } from '../lib/telegram-send.ts';
+import { sendExempt, sendPhotoExempt, InputFile } from '../lib/telegram-send.ts';
+import { runStoryGeneration } from '../story/run.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
@@ -35,6 +36,11 @@ type AnyDb = any;
 export interface TestCommandsDeps {
   db: AnyDb;
   bot: Bot;
+  /**
+   * Resolve the OpenAI key at command time — only used by
+   * `/test_digest_image`. Optional so the other handlers' deps stay minimal.
+   */
+  getOpenAIKey?: () => string;
 }
 
 const DEFAULT_DIGEST_DAYS = 7;
@@ -103,6 +109,99 @@ export function makeTestDigestHandler(deps: TestCommandsDeps): MiddlewareFn<Cont
       }
     } catch (err) {
       logger.error({ module: 'test_commands', cmd: 'test_digest', err }, 'Preview digest failed');
+      try {
+        await sendExempt(deps.bot.api, fromId!, `<i>Ошибка: ${(err as Error).message ?? 'unknown'}</i>`, HTML_OPTS);
+      } catch {
+        // swallow — already in error path
+      }
+    }
+  };
+}
+
+/**
+ * `/test_digest_image [N]` — owner-only promo-image preview. Builds the
+ * weekly digest for the last N days (default 7), resolves the agent/map
+ * reference PNGs, generates the image via OpenAI, and sends the PNG to the
+ * owner's DM. NO DB writes, NO group post, NO dedup — pure prompt-iteration
+ * tool so the operator doesn't have to wait until Friday.
+ *
+ * Refs/key missing → reply a text warning, no photo (graceful degrade,
+ * same contract as the prepare tick).
+ *
+ * Why sendPhotoExempt: identical risk-model to `/test_digest`'s sendExempt
+ * (see the module header) — destination is ctx.from.id = the owner who
+ * issued the command, verified by isOwner(). The photo lands in the owner's
+ * own DM; no path for data to leak elsewhere.
+ */
+export function makeTestDigestImageHandler(deps: TestCommandsDeps): MiddlewareFn<Context> {
+  return async (ctx: Context): Promise<void> => {
+    const fromId = ctx.from?.id;
+    if (!isOwner(fromId)) return; // silent ignore
+
+    const days = parseDaysArg(ctx.message?.text, DEFAULT_DIGEST_DAYS);
+    const weekEnd = Date.now();
+    const weekStart = weekEnd - days * 86400000;
+
+    logger.info(
+      { module: 'test_commands', cmd: 'test_digest_image', owner_id: fromId, days },
+      'Building preview digest image',
+    );
+
+    try {
+      const apiKey = deps.getOpenAIKey?.() ?? '';
+      if (!apiKey) {
+        await sendExempt(
+          deps.bot.api,
+          fromId!,
+          '<i>OPENAI_API_KEY не задан — картинку не сгенерировать.</i>',
+          HTML_OPTS,
+        );
+        return;
+      }
+
+      const result = await buildDigest({ db: deps.db, weekStart, weekEnd });
+      if (result.text === null) {
+        await sendExempt(
+          deps.bot.api,
+          fromId!,
+          '<i>(дайджест пустой за это окно — нечего иллюстрировать)</i>',
+          HTML_OPTS,
+        );
+        return;
+      }
+
+      const story = await runStoryGeneration({
+        topAgent: result.topAgent,
+        topMap: result.topMap,
+        digestText: result.text,
+        apiKey,
+      });
+
+      if (story.buffer === null) {
+        const what = story.skipReason === 'missing_map_ref'
+          ? `карты «${result.topMap ?? '—'}»`
+          : `агента «${result.topAgent ?? '—'}»`;
+        await sendExempt(
+          deps.bot.api,
+          fromId!,
+          `<i>Нет reference-PNG для ${what} в src/assets/ — картинку не сгенерировать.</i>`,
+          HTML_OPTS,
+        );
+        return;
+      }
+
+      // sendPhotoExempt: destination is the owner's own DM, verified by isOwner() above.
+      await sendPhotoExempt(
+        deps.bot.api,
+        fromId!,
+        new InputFile(story.buffer, `digest-preview-${days}d.png`),
+        { caption: `<i>--- Preview: промо-картинка дайджеста за ${days} дн. ---</i>`, parse_mode: 'HTML' },
+      );
+    } catch (err) {
+      logger.error(
+        { module: 'test_commands', cmd: 'test_digest_image', err },
+        'Preview digest image failed',
+      );
       try {
         await sendExempt(deps.bot.api, fromId!, `<i>Ошибка: ${(err as Error).message ?? 'unknown'}</i>`, HTML_OPTS);
       } catch {
