@@ -288,4 +288,51 @@ describe('findAces', () => {
     const aces = findAces(record);
     expect(aces[0]!.won).toBe(false);
   });
+
+  it('afkVictimCount equals victims.length when ALL victims were AFK (стадо гусей)', () => {
+    const record: MatchRecord = {
+      ...BASE_RECORD,
+      kill_events_compact: JSON.stringify(makeAceRound(1)),
+      // All 5 ace victims are listed in the round-1 AFK set.
+      per_round_afk_compact: JSON.stringify({
+        '1': ['enemy-1', 'enemy-2', 'enemy-3', 'enemy-4', 'enemy-5'],
+      }),
+    };
+    const aces = findAces(record);
+    expect(aces[0]!.victims).toHaveLength(5);
+    expect(aces[0]!.afkVictimCount).toBe(5);
+  });
+
+  it('afkVictimCount is partial when only some victims were AFK', () => {
+    const record: MatchRecord = {
+      ...BASE_RECORD,
+      kill_events_compact: JSON.stringify(makeAceRound(1)),
+      per_round_afk_compact: JSON.stringify({ '1': ['enemy-2', 'enemy-4'] }),
+    };
+    const aces = findAces(record);
+    expect(aces[0]!.afkVictimCount).toBe(2);
+  });
+
+  it('afkVictimCount is 0 when per_round_afk_compact is null (legacy match)', () => {
+    const record: MatchRecord = {
+      ...BASE_RECORD,
+      kill_events_compact: JSON.stringify(makeAceRound(1)),
+      per_round_afk_compact: null,
+    };
+    const aces = findAces(record);
+    expect(aces[0]!.afkVictimCount).toBe(0);
+  });
+
+  it('detector payload exposes victims_count_per_round + afk_count_per_round parallel to rounds', async () => {
+    const record: MatchRecord = {
+      ...BASE_RECORD,
+      kill_events_compact: JSON.stringify(makeAceRound(1)),
+      per_round_afk_compact: JSON.stringify({
+        '1': ['enemy-1', 'enemy-2', 'enemy-3', 'enemy-4', 'enemy-5'],
+      }),
+    };
+    const events = await aceDetector.detect(record, []);
+    expect(events[0]!.payload.victims_count_per_round).toEqual([5]);
+    expect(events[0]!.payload.afk_count_per_round).toEqual([5]);
+  });
 });

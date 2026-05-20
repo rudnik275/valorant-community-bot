@@ -16,6 +16,7 @@
  *   💀 - без победы в раунде
  *   🏆 - с победой в раунде
  *   🎯 - Ace
+ *   🎯🦢 - Расстрелял стадо гусей
  *   🔪 - Заколол баранчика
  *   🔪🦢 - Распотрошил гуся
  *   </blockquote>
@@ -138,6 +139,8 @@ function rowToLine(row: Row): Line {
   let rounds: number[] = [];
   let roundsWonFromPayload: number[] | null = null;
   let victimsAfkRaw: boolean[] = [];
+  let aceVictimsCount: number[] = [];
+  let aceAfkCount: number[] = [];
   try {
     const payload = JSON.parse(row.payloadJson) as Record<string, unknown>;
     if (Array.isArray(payload['rounds'])) {
@@ -149,17 +152,37 @@ function rowToLine(row: Row): Line {
     if (Array.isArray(payload['victims_afk'])) {
       victimsAfkRaw = (payload['victims_afk'] as unknown[]).map((v) => v === true);
     }
+    if (Array.isArray(payload['victims_count_per_round'])) {
+      aceVictimsCount = (payload['victims_count_per_round'] as unknown[]).filter((n): n is number => typeof n === 'number');
+    }
+    if (Array.isArray(payload['afk_count_per_round'])) {
+      aceAfkCount = (payload['afk_count_per_round'] as unknown[]).filter((n): n is number => typeof n === 'number');
+    }
   } catch {
     // ignore bad json
   }
-  // Dedup rounds (knife events can repeat the same round when ≥2 knife kills landed in it).
-  // For AFK: a deduped round is "AFK" if ANY of its raw victims was AFK (OR).
+  // AFK aggregation per round — semantics differ by event type:
+  //   • knife_kill: a round is "AFK" if ANY of its raw victims was Riot-flagged
+  //     was_afk (OR over the deduped kills in that round). Per-kill payload.
+  //   • ace: a round is "AFK" iff ALL deduped victims in that round were AFK
+  //     ("стадо гусей" — truly free ace). Raw counts in payload let the
+  //     renderer pick any threshold later (e.g. ≥3 of 5) without re-detection.
   const afkByRound = new Map<number, boolean>();
-  for (let i = 0; i < rounds.length; i++) {
-    const r = rounds[i] as number;
-    const wasAfk = victimsAfkRaw[i] === true;
-    afkByRound.set(r, (afkByRound.get(r) ?? false) || wasAfk);
+  if (row.eventType === 'knife_kill') {
+    for (let i = 0; i < rounds.length; i++) {
+      const r = rounds[i] as number;
+      const wasAfk = victimsAfkRaw[i] === true;
+      afkByRound.set(r, (afkByRound.get(r) ?? false) || wasAfk);
+    }
+  } else if (row.eventType === 'ace') {
+    for (let i = 0; i < rounds.length; i++) {
+      const r = rounds[i] as number;
+      const total = aceVictimsCount[i] ?? 0;
+      const afk = aceAfkCount[i] ?? 0;
+      afkByRound.set(r, total > 0 && afk === total);
+    }
   }
+  // Dedup rounds (knife events can repeat the same round when ≥2 knife kills landed in it).
   const sortedRounds = [...new Set(rounds)].sort((a, b) => a - b);
   const roundsAfk = sortedRounds.map((r) => afkByRound.get(r) ?? false);
   const roundsWon = roundsWonFromPayload ?? deriveRoundsWon(
@@ -274,6 +297,7 @@ const LEGEND =
   `💀 - без победы в раунде\n` +
   `🏆 - с победой в раунде\n` +
   `🎯 - Ace\n` +
+  `🎯🦢 - Расстрелял стадо гусей\n` +
   `🔪 - Заколол баранчика\n` +
   `🔪🦢 - Распотрошил гуся` +
   `</blockquote>`;
@@ -286,10 +310,8 @@ export function renderDailyDigestText(entries: Entry[]): string {
 function renderEntry(e: Entry): string {
   const typeEmoji =
     e.type === 'ace'
-      ? '🎯'
-      : e.afk
-        ? '🔪🦢'
-        : '🔪';
+      ? (e.afk ? '🎯🦢' : '🎯')
+      : (e.afk ? '🔪🦢' : '🔪');
   const time = formatKyivHHMM(e.detectedAt);
   const player = `<b>${esc(e.riotName)}#${esc(e.riotTag)}</b>`;
   const agentPart = e.agent ? ` · ${esc(e.agent)}` : '';
