@@ -21,6 +21,10 @@ export const matchRecords = sqliteTable(
     fall_damage_kills: integer('fall_damage_kills').notNull().default(0),
     kill_events_compact: text('kill_events_compact').notNull(),
     rounds_compact: text('rounds_compact'),
+    // Per-match map: { "<round>": ["puuid", ...] } of players Riot flagged
+    // `was_afk` for that round. Nullable / empty `{}` when no AFK or pre-feature.
+    // Consumed by knife-kill detector to tag "распотрошил гуся" vs "заколол баранчика".
+    per_round_afk_compact: text('per_round_afk_compact'),
     score: integer('score'),
     headshots: integer('headshots'),
     bodyshots: integer('bodyshots'),

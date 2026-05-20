@@ -34,6 +34,7 @@ function makeRecord(overrides: Partial<MatchRecord> = {}): MatchRecord {
     fall_damage_kills: 0,
     kill_events_compact: '[]',
     rounds_compact: null,
+    per_round_afk_compact: null,
     score: null,
     headshots: 18,
     bodyshots: 40,

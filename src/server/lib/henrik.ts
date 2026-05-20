@@ -368,6 +368,22 @@ const KillV4Schema = z.object({
   location: z.object({ x: z.number().optional(), y: z.number().optional() }).passthrough().optional(),
 }).passthrough();
 
+/**
+ * Per-round per-player stats inside `rounds[].stats[]`. Henrik passes the
+ * Riot v4 shape through; we type only the fields we read (`player.puuid` +
+ * the AFK signals) and `.passthrough()` keeps the rest (damage_events,
+ * economy, ability_casts, stats.{score,kills,...}) on the wire for future
+ * features. `was_afk` is the canonical "this player was AFK in this round"
+ * boolean — exactly what the knife-kill detector needs to tag a kill as
+ * "распотрошил гуся".
+ */
+const RoundStatsV4Schema = z.object({
+  player: z.object({ puuid: z.string().optional() }).passthrough().optional(),
+  was_afk: z.boolean().optional(),
+  stayed_in_spawn: z.boolean().optional(),
+  received_penalty: z.boolean().optional(),
+}).passthrough();
+
 const RoundV4Schema = z.object({
   id: z.number().optional(),
   result: z.string().optional(),
@@ -375,10 +391,11 @@ const RoundV4Schema = z.object({
   winning_team: z.string().nullable().optional(),
   plant: z.unknown().nullable().optional(),
   defuse: z.unknown().nullable().optional(),
-  stats: z.array(z.unknown()).default([]),
+  stats: z.array(RoundStatsV4Schema).default([]),
 }).passthrough();
 
 export type HenrikRoundV4 = z.infer<typeof RoundV4Schema>;
+export type HenrikRoundStatsV4 = z.infer<typeof RoundStatsV4Schema>;
 
 export const HenrikMatchV4Schema = z.object({
   metadata: MatchMetadataV4Schema,

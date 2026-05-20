@@ -111,3 +111,47 @@ export function decodeRounds(raw: string | null | undefined): RoundCompact[] {
     return [];
   }
 }
+
+// ─── per_round_afk_compact ──────────────────────────────────────────────────
+//
+// New as of the AFK-knife-kill feature: per match, the set of player puuids
+// that Riot flagged `was_afk` per round. Stored as an object keyed by round
+// number → array of puuids. Rounds with no AFK player are omitted, so an
+// empty map encodes to `"{}"` (or null in DB if we want to skip the write).
+// Encoded shape is a flat JSON object, so any new sibling field can be added
+// later (e.g. `stayed_in_spawn`) without breaking the column's wire format.
+
+/** Encode a per-round AFK map. Empty map → `"{}"`. */
+export function encodePerRoundAfk(map: Map<number, Set<string>>): string {
+  const obj: Record<string, string[]> = {};
+  for (const [round, puuids] of map) {
+    if (puuids.size === 0) continue;
+    obj[String(round)] = [...puuids];
+  }
+  return JSON.stringify(obj);
+}
+
+/**
+ * Decode the `per_round_afk_compact` column.
+ *
+ * Same degradation contract as the other decoders: null / empty / malformed
+ * / wrong-shape → empty map. Callers do `map.get(round)?.has(puuid)`.
+ */
+export function decodePerRoundAfk(raw: string | null | undefined): Map<number, Set<string>> {
+  const out = new Map<number, Set<string>>();
+  if (!raw) return out;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return out;
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      const round = Number(k);
+      if (!Number.isFinite(round)) continue;
+      if (!Array.isArray(v)) continue;
+      const puuids = (v as unknown[]).filter((p): p is string => typeof p === 'string');
+      if (puuids.length > 0) out.set(round, new Set(puuids));
+    }
+    return out;
+  } catch {
+    return out;
+  }
+}

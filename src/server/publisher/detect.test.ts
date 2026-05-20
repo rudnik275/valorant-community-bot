@@ -50,6 +50,7 @@ function makeRecord(overrides: Partial<MatchRecord> = {}): MatchRecord {
       { r: 2, w: 'Blue', c: 'CeremonyAce' },
       { r: 3, w: 'Blue', c: 'CeremonyAce' },
     ]),
+    per_round_afk_compact: null,
     score: null,
     headshots: null,
     bodyshots: null,

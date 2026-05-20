@@ -6,6 +6,7 @@
 import type { HenrikMatchV4 } from '../lib/henrik.ts';
 import {
   encodeKillEvents,
+  encodePerRoundAfk,
   encodeRounds,
   type KillEventCompact,
   type RoundCompact,
@@ -30,6 +31,12 @@ export interface MatchRecordInsert {
   fall_damage_kills: number;
   kill_events_compact: string;
   rounds_compact: string;
+  /**
+   * Per-round AFK map encoded by {@link encodePerRoundAfk}. `null` when
+   * Henrik's `rounds[].stats[]` is absent (legacy / unexpected response);
+   * `"{}"` when present but no player was AFK in any round.
+   */
+  per_round_afk_compact: string | null;
   score: number | null;
   headshots: number | null;
   bodyshots: number | null;
@@ -203,6 +210,32 @@ export function deriveMatchRecord(match: HenrikMatchV4, puuid: string): MatchRec
       return entry;
     });
 
+  // per_round_afk_compact: { "<round>": ["puuid", ...] } of players Riot
+  // flagged `was_afk` per round. `null` when `rounds[].stats[]` is absent
+  // entirely (legacy/unexpected); `"{}"` when present but no AFK anywhere
+  // (the normal case). Feeds the knife-kill detector to tag "распотрошил
+  // гуся" vs "заколол баранчика" and is the source-of-truth for any
+  // future AFK-related stat / record.
+  let perRoundAfkRaw: string | null = null;
+  if (Array.isArray(match.rounds)) {
+    const afkMap = new Map<number, Set<string>>();
+    let sawAnyStats = false;
+    for (const r of match.rounds) {
+      if (!Array.isArray(r.stats) || r.stats.length === 0) continue;
+      sawAnyStats = true;
+      const roundId = r.id ?? 0;
+      for (const s of r.stats) {
+        if (s?.was_afk !== true) continue;
+        const p = s.player?.puuid;
+        if (!p) continue;
+        let set = afkMap.get(roundId);
+        if (!set) { set = new Set(); afkMap.set(roundId, set); }
+        set.add(p);
+      }
+    }
+    if (sawAnyStats) perRoundAfkRaw = encodePerRoundAfk(afkMap);
+  }
+
   return {
     riot_puuid: puuid,
     match_id: match.metadata.match_id,
@@ -220,6 +253,7 @@ export function deriveMatchRecord(match: HenrikMatchV4, puuid: string): MatchRec
     fall_damage_kills: fallDamageKills,
     kill_events_compact: encodeKillEvents(killEventsCompact),
     rounds_compact: encodeRounds(roundsCompact),
+    per_round_afk_compact: perRoundAfkRaw,
     score: player.stats?.score ?? null,
     headshots: player.stats?.headshots ?? null,
     bodyshots: player.stats?.bodyshots ?? null,
