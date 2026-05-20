@@ -25,7 +25,10 @@ import { loadAllowedChatIds } from './lib/scope.ts';
 import { scanForPuuid as scanForPuuidBase, startScanLoop } from './scanner/index.ts';
 import { startDetectionListener } from './publisher/detect.ts';
 import { startPublisherLoop } from './publisher/loop.ts';
-import { startDigestLoop, startPrepareLoop } from './digest/loop.ts';
+// `startPrepareLoop` (weekly promo-image kickoff) is disabled per user
+// request — see the commented-out call below. Re-enable by uncommenting
+// both the import and the call.
+import { startDigestLoop /*, startPrepareLoop */ } from './digest/loop.ts';
 import { startDailyDigestLoop } from './digest-daily/loop.ts';
 import { startRestrictGraceLoop } from './cron/restrict-grace.ts';
 import { startRetryPendingOnboardLoop } from './cron/retry-pending-onboard.ts';
@@ -191,11 +194,16 @@ if (process.env['SCANNER_DISABLED'] !== 'true') {
         sendPhotoReply,
       });
       // Two-phase prepare tick (Fri 18:45 Kyiv): build digest + stash PNG.
-      startPrepareLoop({
-        db,
-        getPrimaryChatId: () => primaryChatId,
-        getOpenAIKey,
-      });
+      // ── DISABLED per user request (2026-05-20) — re-enable by uncommenting
+      // this block AND the matching `startPrepareLoop` named import above.
+      // While disabled, the Fri 19:00 publish path sees no `prepared` row
+      // and falls back to a fresh build + text-only post (covered by the
+      // two-phase tests). `/test_digest_image` still works for manual runs.
+      // startPrepareLoop({
+      //   db,
+      //   getPrimaryChatId: () => primaryChatId,
+      //   getOpenAIKey,
+      // });
       startDailyDigestLoop({
         db,
         sendMessage: (chatId, text, opts) => safeSendMessage(bot!.api, chatId, text, opts as never),
