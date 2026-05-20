@@ -17,14 +17,14 @@
  *   🏆 - с победой в раунде
  *   🎯 - Ace
  *   🔪 - Заколол баранчика
- *   🔪🦢 - Распотрошил гуся
+ *   🔪🪿 - Распотрошил гуся
  *   </blockquote>
  *
  *   🎯 22:00 <b>Name#TAG</b> · Agent · 🏆round 3 · 🗺<a href="…">Map</a>
  *
  *   🔪 22:21 <b>Name#TAG</b> · Agent · 💀round 13 · 🗺<a href="…">Map</a>
  *
- *   🔪🦢 22:42 <b>Name#TAG</b> · Agent · 🏆round 18 · 🗺<a href="…">Map</a>
+ *   🔪🪿 22:42 <b>Name#TAG</b> · Agent · 🏆round 18 · 🗺<a href="…">Map</a>
  *
  * Returns null when no qualifying events exist.
  * Format and rationale: see ADR 0003.
@@ -275,7 +275,7 @@ const LEGEND =
   `🏆 - с победой в раунде\n` +
   `🎯 - Ace\n` +
   `🔪 - Заколол баранчика\n` +
-  `🔪🦢 - Распотрошил гуся` +
+  `🔪🪿 - Распотрошил гуся` +
   `</blockquote>`;
 
 /** Pure renderer — emits the combined daily post. Exported for unit tests. */
@@ -288,7 +288,7 @@ function renderEntry(e: Entry): string {
     e.type === 'ace'
       ? '🎯'
       : e.afk
-        ? '🔪🦢'
+        ? '🔪🪿'
         : '🔪';
   const time = formatKyivHHMM(e.detectedAt);
   const player = `<b>${esc(e.riotName)}#${esc(e.riotTag)}</b>`;
