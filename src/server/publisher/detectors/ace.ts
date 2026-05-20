@@ -1,5 +1,5 @@
 import type { Detector, DetectedEvent, EnrichContext, MatchRecord } from '../types.ts';
-import { decodeKillEvents, decodePerRoundAfk, decodeRounds, type KillEventCompact } from '../../lib/match-codec.ts';
+import { decodeKillEvents, decodeRounds, type KillEventCompact } from '../../lib/match-codec.ts';
 import logger from '../../lib/log.ts';
 
 export interface AceRound {
@@ -9,13 +9,6 @@ export interface AceRound {
   won: boolean;
   /** Victims killed in this ace round, in kill order, deduped by puuid. */
   victims: Array<{ puuid: string; name: string; tag: string }>;
-  /**
-   * How many of those (deduped) victims Riot flagged `was_afk` for this round.
-   * Renderer's "стадо гусей" check is `afkVictimCount === victims.length` (all
-   * AFK). Storing the raw count lets future tweaks pick any threshold
-   * (e.g. ≥3) without re-detection.
-   */
-  afkVictimCount: number;
 }
 
 /**
@@ -27,7 +20,6 @@ export interface AceRound {
  */
 export function findAces(record: MatchRecord): AceRound[] {
   const kills = decodeKillEvents(record.kill_events_compact);
-  const afkMap = decodePerRoundAfk(record.per_round_afk_compact);
 
   // Bucket player's enemy kills per round (no dedup at threshold stage).
   const byRound = new Map<number, KillEventCompact[]>();
@@ -68,16 +60,11 @@ export function findAces(record: MatchRecord): AceRound[] {
     const winner = roundWinner.get(round);
     const won = playerTeam !== '' && winner !== undefined && winner === playerTeam;
 
-    // Count this round's deduped victims that Riot flagged was_afk that round.
-    const afkPuuids = afkMap.get(round) ?? new Set<string>();
-    const afkVictimCount = victims.filter((v) => afkPuuids.has(v.puuid)).length;
-
     aces.push({
       round,
       weapons: list.map((k) => k.weapon),
       won,
       victims,
-      afkVictimCount,
     });
   }
   return aces;
@@ -122,16 +109,6 @@ export const aceDetector: Detector = {
           victims: allVictims,
           /** Display names in kill order (deduped). Kept for back-compat with augmenter/templates. */
           victim_names_for_template: allVictims.map((v) => v.name),
-          /**
-           * Parallel to `rounds`: number of (deduped) victims in that ace
-           * round, and how many of them Riot flagged `was_afk`. Renderer's
-           * default policy: tag "стадо гусей" (🎯🦢) iff
-           * `afk_count_per_round[i] === victims_count_per_round[i] > 0`.
-           * Storing raw counts (not a boolean) lets future tweaks pick a
-           * looser threshold (e.g. ≥3) without re-detection.
-           */
-          victims_count_per_round: aces.map((a) => a.victims.length),
-          afk_count_per_round: aces.map((a) => a.afkVictimCount),
         },
       },
     ];
