@@ -51,9 +51,10 @@ const DEFAULT_SIZE = '1024x1536';
 
 /**
  * Per-request hard timeout. Mirrors henrik.ts: without it a connection that
- * accepts then never closes hangs forever. Image gen is slow → 120s.
+ * accepts then never closes hangs forever. The "render whole digest" prompt
+ * is dense — gpt-image takes longer; bumped 120s → 300s with headroom.
  */
-const FETCH_TIMEOUT_MS = 120_000;
+const FETCH_TIMEOUT_MS = 300_000;
 
 interface OpenAIImagesResponse {
   data?: Array<{ b64_json?: string; url?: string }>;
@@ -149,11 +150,32 @@ export async function generateStoryImage(args: {
     throw new OpenAIImageError(`OpenAI image error ${status}: ${detail}`, status);
   }
 
+  // Read as text first so the diagnostic on parse failure can include the
+  // content-type, length and a short head of what actually came back
+  // (empty body, HTML error page, truncated stream, etc.). Response bodies
+  // can only be consumed once — text() then JSON.parse keeps both signals.
+  let rawText: string;
+  try {
+    rawText = await response.text();
+  } catch (err) {
+    throw new OpenAIImageError(
+      `Failed to read OpenAI response body: ${(err as Error).message ?? String(err)}`,
+    );
+  }
   let body: OpenAIImagesResponse;
   try {
-    body = (await response.json()) as OpenAIImagesResponse;
-  } catch {
-    throw new OpenAIImageError('Malformed JSON response from OpenAI');
+    body = JSON.parse(rawText) as OpenAIImagesResponse;
+  } catch (err) {
+    const ct = response.headers.get('content-type') ?? 'unknown';
+    const head = rawText.slice(0, 200).replace(/\s+/g, ' ').trim();
+    const parseMsg = (err as Error).message ?? String(err);
+    logger.warn(
+      { module: 'openai_image', content_type: ct, body_len: rawText.length, head, parse_err: parseMsg },
+      'OpenAI 200 with unparseable JSON body',
+    );
+    throw new OpenAIImageError(
+      `Malformed JSON from OpenAI (ct=${ct}, len=${rawText.length}, parse=${parseMsg}, head="${head}")`,
+    );
   }
 
   const b64 = body?.data?.[0]?.b64_json;
