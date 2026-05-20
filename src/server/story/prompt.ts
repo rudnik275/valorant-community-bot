@@ -1,13 +1,20 @@
 /**
  * prompt.ts — the STORY_PROMPT for the weekly promo image (#227).
  *
- * The user's full rich prompt with three targeted fixes the user asked for
- * after reviewing output: (1) data-binding — every name/number must be read
- * from the appended digest (the old literal example "Miks 24×"… was being
- * copied instead of the real top agent); (2) aspect — model canvas is ~2:3,
- * so all "9:16" wording was replaced with full-frame ~2:3 to stop the model
- * overflowing the bottom; (3) an explicit no-clip rule. Keep the rich layout;
- * only adjust wording for these three concerns.
+ * Iteration of the user's rich prompt with the fixes the user asked for after
+ * reviewing real output:
+ *   (1) data-binding — every name/number must be read from the appended
+ *       digest; the old literal example "Miks 24×"… was being copied
+ *       instead of the real top agent.
+ *   (2) aspect — model canvas is ~2:3, so all "9:16" wording was replaced
+ *       with full-frame ~2:3 to stop the model overflowing the bottom.
+ *   (3) no-clip rule — nothing may run off any edge.
+ *   (4) RENDER THE WHOLE DIGEST (not a teaser): the user wants every section
+ *       on the image — all records, leaders, top-3 maps with counts, top-3
+ *       agents with counts, total matches, date. Image-model text garble
+ *       scales with density; if prompt-only ever hits its ceiling, the next
+ *       step is a deterministic text-overlay compositing layer, not more
+ *       prompt tweaks.
  *
  * The whole plain-text digest (HTML stripped) is appended after the trailing
  * `Digest text:` line via `appendDigestText()` so the model has the actual
@@ -21,9 +28,7 @@
 export const STORY_PROMPT = `Create a vertical portrait promo poster for a weekly Valorant community digest. The canvas is a tall portrait at roughly 2:3 (about 1024×1536). Design for the FULL image edge to edge. Every block, including the bottom CTA, MUST fit fully inside the frame with comfortable margins; nothing may be clipped or run off any edge.
 
 Main goal:
-Turn the provided weekly digest text into a stylish teaser poster for a Telegram gaming community.
-This is NOT the full digest. Do not place the entire digest text on the image.
-Analyze the digest yourself and choose only the strongest highlights for a short, readable promo.
+Render the WHOLE weekly digest as a stylish poster for a Telegram gaming community. Include every section of the digest at the end of this message — all records / near-miss lines, weekly leaders, total matches, the digest date, every top-map with its count, every top-agent with its count. Nothing from the digest should be missing from the image. The hero character and the map reference are background art; the digest content has priority and must all fit, even if the hero is rendered smaller.
 CRITICAL: every name and number printed on the image MUST be copied from the digest text at the END of this message. Never invent a value, and never reuse any example/placeholder value written in these instructions.
 
 Community branding:
@@ -67,14 +72,14 @@ Map:
 - Slightly color-grade the map preview to harmonize with the agent-derived palette
 
 Content logic:
-Read the digest text at the end and extract ONLY these, verbatim from it:
-- Digest date — the date written after “Дайджест за неделю ·”
+Read the digest text at the end and render EVERY section it contains, verbatim from it (not just highlights):
+- Digest date — the date after “Дайджест за неделю ·”
+- ALL record / near-miss lines (the lines with emoji like 💀 🥩 🤕 ⚰️ 🤠 ⏳ 🏅 🍿 🔪 🔫 etc., or starting with “Был(а) близок к рекорду”) — each with its short label, the player nick, and the number. Every such line in the digest must appear, not only the strongest 2–4.
 - Total matches — the number N in “мы сыграли N матчей”
-- Top map — the FIRST bullet under “Чаще всего играли на” (its name and its ×count)
-- Top agent / most picked agent — the FIRST bullet under “Чаще всего пикали” (its name and its ×count). Use whatever the digest lists first there; do NOT assume any specific agent.
-- Best picks — the bullets under “Чаще всего пикали” (top 2–4), each as agent name + its ×count
-- Records — 2–4 of the strongest record / “близок к рекорду” lines (number + short label)
-If a value is not present in the digest, omit that block. Never fabricate or carry over names/numbers from anywhere else, including these instructions.
+- Weekly leaders — the “🏆 Больше всех матчей” line (player nick + match count), and any other similar leader lines present
+- Top maps — every bullet under “🗺 Чаще всего играли на” (each map name + its ×count, in the digest’s order — not just the first)
+- Top picks / agents — every bullet under “🎭 Чаще всего пикали” (each agent name + its ×count, in the digest’s order — not just the first)
+The very first agent in “Чаще всего пикали” is the top agent of the week; the very first map in “Чаще всего играли на” is the top map. If a section is missing from the digest, omit it. Never fabricate or carry over names/numbers from anywhere else, including these instructions.
 
 Text language:
 Use Russian.
@@ -85,35 +90,34 @@ Required headline:
 Required date:
 Use the date from the digest.
 
-Recommended blocks:
-- “Valorant NPC”
-- “матчей за неделю”
-- “Топ карта”
-- “Топ агент недели”
-- “Лучшие пики”
-- “Рекорды недели”
-- Bottom CTA: “Главные рекорды, лидеры и статистика — в полном дайджесте”
+Sections on the poster (include every one that the digest contains):
+- Small “Valorant NPC” branding badge
+- The digest date
+- “Рекорды недели” — every record / near-miss line from the digest, each as a short row
+- “За неделю сыграно: N матчей”
+- “Лидеры недели” — the “Больше всех матчей” leader, and any other leader lines
+- “Топ карты” — every map from “Чаще всего играли на”, with its ×count, in the digest’s order
+- “Топ агенты” / “Лучшие пики” — every agent from “Чаще всего пикали”, with its ×count, in the digest’s order
 
-Best picks section:
-- Do NOT draw agent icons or portraits in the “Лучшие пики” section
-- Show best picks only as clean text chips / HUD tags
-- Each chip = an agent name + its pick count taken from the digest’s “Чаще всего пикали” list, formatted “<Имя> <N>×”
+Picks / agents section:
+- Do NOT draw agent icons or portraits in this section
+- Show every agent from the digest’s “Чаще всего пикали” list as a clean text chip / HUD tag, in the digest’s order
+- Each chip = agent name + its pick count, formatted “<Имя> <N>×”
 - This describes the FORMAT only — never print these instructions’ wording or any placeholder; use the real agents and counts from the digest
-- Keep this section compact and readable
+- Keep the section compact and readable
 
 Layout:
 - Vertical portrait poster using the full image (~2:3); keep safe margins on every side
-- Big readable headline at the top
-- Add small community branding: “Valorant NPC”
-- Hero character on one side
-- Featured map card near the upper/middle area
-- Main stats in compact cards
-- Best picks section must use text-only HUD chips, no character icons
-- Records section with 3–4 short rows
-- CTA strip at the bottom
-- Keep enough spacing
-- Do not make the poster overcrowded
-- Avoid tiny unreadable text
+- Big readable headline at the top with the digest date right under it
+- Small “Valorant NPC” branding badge
+- Hero character to one side as background art; shrink it if the digest content needs more space — content has priority over hero size
+- Featured map as a small framed element, not dominant
+- Records section: every record / near-miss row from the digest as one short row each (emoji or icon, player nick, number, brief label) — fit them all
+- Leaders block: total matches number + “Больше всех матчей” leader (+ any other leader lines)
+- Top maps block: each map name with its ×count, in digest order
+- Top agents / picks block: each agent name with its ×count, in digest order, text-only chips
+- Use a compact dashboard / multi-column grid if needed to fit everything; nothing must clip or run off any edge
+- Keep type readable; if space is tight, shrink the hero further rather than the data text
 
 Typography:
 - Bold esports-style sans-serif headline
@@ -130,14 +134,11 @@ Restrictions:
 - Avoid muddy colors
 - Avoid excessive bloom
 - Avoid unreadable tiny text
-- Avoid cluttered layout
-- Avoid full digest copy-paste
 - Avoid random human faces
 - Avoid photorealistic people
 - Avoid low contrast
 - Avoid distorted UI text
-- Avoid placing too much text on the image
-- Never clip or run text off the top, bottom, or side edges — the bottom CTA must sit fully inside the frame; if space is tight, shrink the hero and drop the least important block instead of overflowing
+- Never clip or run text off the top, bottom, or side edges — every block must sit fully inside the frame; if space is tight, shrink the hero (and the map element) rather than dropping data or letting text overflow
 - Never show any agent name or number that is not in the digest below (no example or placeholder values)
 
 Digest text:`;
