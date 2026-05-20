@@ -146,7 +146,7 @@ describe('buildDailyAceDigest', () => {
   });
 
   describe('header and legend', () => {
-    it('renders plain header and blockquote legend with 4 lines (no italic)', async () => {
+    it('renders plain header and blockquote legend with 5 lines (no italic)', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'AcePlayer', riotTag: 'ACE' });
       seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW, map: 'Ascent', agent: 'Omen' });
       seedAceEvent(sqlite, { puuid: 'p1', matchId: 'm1', detectedAt: IN_WINDOW, rounds: [1], roundsWon: [1] });
@@ -159,9 +159,11 @@ describe('buildDailyAceDigest', () => {
       expect(text).not.toContain('<u>🍿');
       expect(text).not.toContain('<b>🍿');
 
-      // Legend is one blockquote with 4 plain lines (no <i>, no <b>).
+      // Legend is one blockquote with 5 plain lines (no <i>, no <b>).
+      // The 5th line (🔪🦢) tags knife kills of AFK victims — added in the
+      // AFK-knife feature; kept here in the same plain format as the others.
       expect(text).toContain(
-        '<blockquote>💀 - без победы в раунде\n🏆 - с победой в раунде\n🎯 - Ace\n🔪 - Заколол баранчика</blockquote>',
+        '<blockquote>💀 - без победы в раунде\n🏆 - с победой в раунде\n🎯 - Ace\n🔪 - Заколол баранчика\n🔪🦢 - Распотрошил гуся</blockquote>',
       );
       expect(text).not.toContain('<i>💀');
       expect(text).not.toContain('<i>🏆');
