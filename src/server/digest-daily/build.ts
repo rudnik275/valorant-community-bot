@@ -17,11 +17,14 @@
  *   🏆 - с победой в раунде
  *   🎯 - Ace
  *   🔪 - Заколол баранчика
+ *   🔪🦢 - Распотрошил гуся
  *   </blockquote>
  *
  *   🎯 22:00 <b>Name#TAG</b> · Agent · 🏆round 3 · 🗺<a href="…">Map</a>
  *
  *   🔪 22:21 <b>Name#TAG</b> · Agent · 💀round 13 · 🗺<a href="…">Map</a>
+ *
+ *   🔪🦢 22:42 <b>Name#TAG</b> · Agent · 🏆round 18 · 🗺<a href="…">Map</a>
  *
  * Returns null when no qualifying events exist.
  * Format and rationale: see ADR 0003.
@@ -85,6 +88,8 @@ interface Line {
   matchId: string;
   rounds: number[]; // 0-indexed, deduped, ascending
   roundsWon: number[] | null; // null = unknown; [] = all lost
+  /** Parallel to `rounds`: `true` if any victim in that round was AFK. */
+  roundsAfk: boolean[];
   detectedAt: number;
   eventType: 'ace' | 'knife_kill';
 }
@@ -94,6 +99,8 @@ interface Entry {
   detectedAt: number;
   round0: number;
   won: boolean | null;
+  /** For knife_kill: this kill's victim was Riot-flagged AFK that round. */
+  afk: boolean;
   riotName: string;
   riotTag: string;
   agent: string;
@@ -130,6 +137,7 @@ function deriveRoundsWon(
 function rowToLine(row: Row): Line {
   let rounds: number[] = [];
   let roundsWonFromPayload: number[] | null = null;
+  let victimsAfkRaw: boolean[] = [];
   try {
     const payload = JSON.parse(row.payloadJson) as Record<string, unknown>;
     if (Array.isArray(payload['rounds'])) {
@@ -138,11 +146,22 @@ function rowToLine(row: Row): Line {
     if (Array.isArray(payload['rounds_won'])) {
       roundsWonFromPayload = (payload['rounds_won'] as unknown[]).filter((r): r is number => typeof r === 'number');
     }
+    if (Array.isArray(payload['victims_afk'])) {
+      victimsAfkRaw = (payload['victims_afk'] as unknown[]).map((v) => v === true);
+    }
   } catch {
     // ignore bad json
   }
   // Dedup rounds (knife events can repeat the same round when ≥2 knife kills landed in it).
+  // For AFK: a deduped round is "AFK" if ANY of its raw victims was AFK (OR).
+  const afkByRound = new Map<number, boolean>();
+  for (let i = 0; i < rounds.length; i++) {
+    const r = rounds[i] as number;
+    const wasAfk = victimsAfkRaw[i] === true;
+    afkByRound.set(r, (afkByRound.get(r) ?? false) || wasAfk);
+  }
   const sortedRounds = [...new Set(rounds)].sort((a, b) => a - b);
+  const roundsAfk = sortedRounds.map((r) => afkByRound.get(r) ?? false);
   const roundsWon = roundsWonFromPayload ?? deriveRoundsWon(
     sortedRounds,
     row.roundsCompactJson,
@@ -158,17 +177,19 @@ function rowToLine(row: Row): Line {
     matchId: row.matchId,
     rounds: sortedRounds,
     roundsWon,
+    roundsAfk,
     detectedAt: row.detectedAt,
     eventType: row.eventType,
   };
 }
 
 function lineToEntries(line: Line): Entry[] {
-  return line.rounds.map((round0) => ({
+  return line.rounds.map((round0, idx) => ({
     type: line.eventType,
     detectedAt: line.detectedAt,
     round0,
     won: line.roundsWon === null ? null : line.roundsWon.includes(round0),
+    afk: line.roundsAfk[idx] === true,
     riotName: line.riotName,
     riotTag: line.riotTag,
     agent: line.agent,
@@ -253,7 +274,8 @@ const LEGEND =
   `💀 - без победы в раунде\n` +
   `🏆 - с победой в раунде\n` +
   `🎯 - Ace\n` +
-  `🔪 - Заколол баранчика` +
+  `🔪 - Заколол баранчика\n` +
+  `🔪🦢 - Распотрошил гуся` +
   `</blockquote>`;
 
 /** Pure renderer — emits the combined daily post. Exported for unit tests. */
@@ -262,7 +284,12 @@ export function renderDailyDigestText(entries: Entry[]): string {
 }
 
 function renderEntry(e: Entry): string {
-  const typeEmoji = e.type === 'ace' ? '🎯' : '🔪';
+  const typeEmoji =
+    e.type === 'ace'
+      ? '🎯'
+      : e.afk
+        ? '🔪🦢'
+        : '🔪';
   const time = formatKyivHHMM(e.detectedAt);
   const player = `<b>${esc(e.riotName)}#${esc(e.riotTag)}</b>`;
   const agentPart = e.agent ? ` · ${esc(e.agent)}` : '';

@@ -1,0 +1,1 @@
+ALTER TABLE `match_records` ADD `per_round_afk_compact` text;

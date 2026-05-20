@@ -26,6 +26,7 @@ const BASE_RECORD: MatchRecord = {
     { r: 3, w: 'Blue' },
     { r: 5, w: 'Red' },
   ]),
+  per_round_afk_compact: null,
   score: null,
   headshots: null,
   bodyshots: null,
@@ -106,6 +107,7 @@ describe('aceDetector', () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       rounds_compact: JSON.stringify([{ r: 4, w: 'Red', c: 'CeremonyCloser' }]),
+      per_round_afk_compact: null,
       kill_events_compact: JSON.stringify(makeAceRound(4)),
     };
     const events = await aceDetector.detect(record, []);

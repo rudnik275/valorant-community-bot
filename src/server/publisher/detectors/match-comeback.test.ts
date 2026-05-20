@@ -36,6 +36,7 @@ const BASE_RECORD: MatchRecord = {
   fall_damage_kills: 0,
   kill_events_compact: '[]',
   rounds_compact: null,
+  per_round_afk_compact: null,
   score: null,
   headshots: null,
   bodyshots: null,
@@ -101,6 +102,7 @@ describe('matchComebackDetector', () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       rounds_compact: makeRoundsCompact(blueWins, redWins),
+      per_round_afk_compact: null,
       team_rounds_won: 13,
       team_rounds_lost: 11,
     };
@@ -124,6 +126,7 @@ describe('matchComebackDetector', () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       rounds_compact: makeRoundsCompact(blueWins, redWins),
+      per_round_afk_compact: null,
       team_rounds_won: 13,
       team_rounds_lost: 11,
     };
@@ -153,6 +156,7 @@ describe('matchComebackDetector', () => {
       ...BASE_RECORD,
       match_id: 'match-779',
       rounds_compact: JSON.stringify(rounds),
+      per_round_afk_compact: null,
       team_rounds_won: 16,
       team_rounds_lost: 14,
     };
@@ -174,6 +178,7 @@ describe('matchComebackDetector', () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       rounds_compact: makeRoundsCompact(blueWins2, redWins2),
+      per_round_afk_compact: null,
       team_rounds_won: 13,
       team_rounds_lost: 8,
     };
@@ -191,6 +196,7 @@ describe('matchComebackDetector', () => {
       ...BASE_RECORD,
       result: 'loss',
       rounds_compact: makeRoundsCompact(blueWins, redWins),
+      per_round_afk_compact: null,
       team_rounds_won: 11,
       team_rounds_lost: 13,
     };
@@ -202,6 +208,7 @@ describe('matchComebackDetector', () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       rounds_compact: null,
+      per_round_afk_compact: null,
     };
     const events = await matchComebackDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
@@ -211,6 +218,7 @@ describe('matchComebackDetector', () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       rounds_compact: '[]',
+      per_round_afk_compact: null,
     };
     const events = await matchComebackDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
@@ -222,6 +230,7 @@ describe('matchComebackDetector', () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       rounds_compact: makeRoundsCompact(blueWins, redWins),
+      per_round_afk_compact: null,
       team_rounds_won: 99,
     };
     const events = await matchComebackDetector.detect(record, [], { db });
@@ -232,6 +241,7 @@ describe('matchComebackDetector', () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       rounds_compact: 'not-valid-json',
+      per_round_afk_compact: null,
     };
     const events = await matchComebackDetector.detect(record, [], { db });
     expect(events).toHaveLength(0);
@@ -246,6 +256,7 @@ describe('matchComebackDetector', () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       rounds_compact: makeRoundsCompact(blueWins, redWins),
+      per_round_afk_compact: null,
       team_rounds_won: 13,
       team_rounds_lost: 11,
     };
@@ -277,6 +288,7 @@ describe('matchComebackDetector', () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       rounds_compact: makeRoundsCompact(blueWins, redWins),
+      per_round_afk_compact: null,
       team_rounds_won: 13,
       team_rounds_lost: 11,
     };
@@ -304,6 +316,7 @@ describe('matchComebackDetector', () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       rounds_compact: makeRoundsCompact(blueWins, redWins),
+      per_round_afk_compact: null,
       team_rounds_won: 13,
       team_rounds_lost: 11,
     };
