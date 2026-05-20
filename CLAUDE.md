@@ -59,6 +59,23 @@ This is a private friend-group bot. Comparative stats, K/D, winrates, opponents'
 - **No branch protection** (free-tier private repo). Auto-merge fires immediately. Verify CI green via `gh pr checks <PR#>` before claiming "done"; if CI failed, roll forward with a fix-up PR — don't leave master red.
 - VPS / tunnel / Cloudflare config — see user memory `project_deployment_state.md`.
 
+## Inspecting prod data
+
+The prod image (`ghcr.io/rudnik275/valorant-community-bot`) is minimal and **does NOT include `sqlite3` CLI** — `docker exec valorant-bot-app sqlite3 ...` will fail with "executable file not found". Don't `apk add sqlite` either; keep the image clean.
+
+Instead use the `bun` that's already in the image + the built-in `bun:sqlite` driver. Write a tiny read-only script and pipe it into the container over SSH:
+
+```sh
+# /tmp/diag.ts (local):
+#   import { Database } from "bun:sqlite";
+#   const db = new Database("/app/data/data.db", { readonly: true });
+#   console.log(JSON.stringify(db.query("SELECT ...").all(), null, 2));
+
+cat /tmp/diag.ts | ssh root@46.62.229.131 'docker exec -i valorant-bot-app sh -c "cat > /tmp/diag.ts && bun /tmp/diag.ts; rm -f /tmp/diag.ts"'
+```
+
+Always open with `{ readonly: true }` so you can't accidentally mutate prod state. Cron tick reality on this bot: missed daily/weekly ticks are **not replayed** by Croner on the next process start — a deploy whose container swap lands on the cron minute drops that tick (see issue history).
+
 ## Memory layout
 
 User-level memory lives in `~/.claude/projects/-Users-rudnikdmitriy-dev-valorant-comunity-bot/memory/`. The index file `MEMORY.md` is loaded automatically. Always check it for current strategic direction, behavioural feedback, and infra facts before acting on assumptions.
