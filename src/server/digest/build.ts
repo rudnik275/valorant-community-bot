@@ -17,7 +17,7 @@
  * includes "play more / come back" calls (memory rule: valorant_no_qol_coercion).
  */
 
-import { and, gte, lt, sql, eq, desc } from 'drizzle-orm';
+import { and, gte, lt, sql, eq, desc, isNotNull } from 'drizzle-orm';
 import { matchRecords } from '../db/schema/match_records.ts';
 import { detectedEvents } from '../db/schema/detected_events.ts';
 import { users } from '../db/schema/users.ts';
@@ -112,6 +112,38 @@ async function renderNearMisses(
     if (!atr) continue;  // no record established yet — nothing to be near
     const currentRecord = Number(atr.value);
 
+    // Special case: mvp_count_week is a derived aggregate (SUM of is_match_mvp per player),
+    // not a direct column — handle it with its own query branch.
+    if (cfg.source === 'mvp_count_week') {
+      const [mvpRow] = await db
+        .select({
+          mvp_count: sql<number>`SUM(${matchRecords.is_match_mvp})`.as('mvp_count'),
+          riot_puuid: matchRecords.riot_puuid,
+        })
+        .from(matchRecords)
+        .where(and(
+          isNotNull(matchRecords.riot_puuid),
+          gte(matchRecords.started_at, weekStart),
+          lt(matchRecords.started_at, weekEnd),
+        ))
+        .groupBy(matchRecords.riot_puuid)
+        .orderBy(sql`SUM(${matchRecords.is_match_mvp}) DESC`)
+        .limit(1);
+      if (!mvpRow || mvpRow.mvp_count == null) continue;
+      const weekMax = Number(mvpRow.mvp_count);
+      if (cfg.floor != null && weekMax < cfg.floor) continue;
+      if (weekMax >= currentRecord) continue;
+      if (weekMax < currentRecord - cfg.threshold) continue;
+      const [user] = await db
+        .select({ riot_name: users.riot_name, riot_tag: users.riot_tag })
+        .from(users)
+        .where(eq(users.riot_puuid, mvpRow.riot_puuid))
+        .limit(1);
+      const userTag = user ? `<b>${esc(user.riot_name)}#${esc(user.riot_tag)}</b>` : `<b>${esc(String(mvpRow.riot_puuid))}</b>`;
+      blocks.push(`${cfg.emoji} <u>${cfg.header}</u>\n${userTag} — ${weekMax} ${cfg.unit}`);
+      continue;
+    }
+
     // Build the SQL expression for this metric
     const sourceColumnMap = {
       kills: matchRecords.kills,
@@ -121,6 +153,7 @@ async function renderNearMisses(
       damage_dealt: matchRecords.damage_dealt,
       damage_received: matchRecords.damage_received,
       rounds_played: matchRecords.rounds_played,
+      died_first_rounds: matchRecords.died_first_rounds,
       // game_length_minutes is handled separately below
     } as const;
 

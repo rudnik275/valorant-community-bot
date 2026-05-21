@@ -64,7 +64,7 @@ function recordRow(over: Partial<typeof matchRecords.$inferInsert> = {}): typeof
     team_rounds_lost: null,
     game_length_ms: null,
     is_match_mvp: null,
-    survived_last_rounds: null,    ...over,
+    survived_last_rounds: null,    died_first_rounds: null,    ...over,
   };
 }
 

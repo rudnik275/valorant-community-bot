@@ -488,6 +488,95 @@ describe('survived_last_rounds derivation', () => {
   });
 });
 
+describe('died_first_rounds derivation', () => {
+  function makeKill(round: number, t: number, victimPuuid: string, victimTeam: string) {
+    return {
+      round,
+      time_in_round_in_ms: t,
+      killer: { puuid: 'k', name: 'K', tag: 'K', team: victimTeam === 'Blue' ? 'Red' : 'Blue' },
+      victim: { puuid: victimPuuid, name: victimPuuid, tag: 'X', team: victimTeam },
+      weapon: { id: 'w', name: 'Vandal', type: 'Rifle' },
+    };
+  }
+
+  it('is null when no round has ≥2 same-team deaths (v4Fixture: only solo deaths)', () => {
+    const record = deriveMatchRecord(v4Fixture as HenrikMatchV4, TARGET_PUUID);
+    expect(record!.died_first_rounds).toBeNull();
+  });
+
+  it('counts a round where target died FIRST among ≥2 dying teammates', () => {
+    const m = {
+      ...v4Fixture,
+      kills: [
+        makeKill(1, 3000, TARGET_PUUID, 'Blue'),
+        makeKill(1, 15000, 'blue-mate-1', 'Blue'),
+      ],
+    } as unknown as HenrikMatchV4;
+    const record = deriveMatchRecord(m, TARGET_PUUID);
+    expect(record!.died_first_rounds).toBe(1);
+  });
+
+  it('does NOT count a round where target died but a teammate died earlier', () => {
+    const m = {
+      ...v4Fixture,
+      kills: [
+        makeKill(1, 3000, 'blue-mate-1', 'Blue'),
+        makeKill(1, 15000, TARGET_PUUID, 'Blue'),
+      ],
+    } as unknown as HenrikMatchV4;
+    const record = deriveMatchRecord(m, TARGET_PUUID);
+    // Round qualifies (2 Blue deaths) but target is not the earliest → 0, not null
+    expect(record!.died_first_rounds).toBe(0);
+  });
+
+  it('skips solo-death rounds (anti-tank guard) and rounds with only enemy deaths', () => {
+    const m = {
+      ...v4Fixture,
+      kills: [
+        // round 1: solo target death — skipped
+        makeKill(1, 3000, TARGET_PUUID, 'Blue'),
+        // round 2: only enemies die — skipped
+        makeKill(2, 4000, 'red-1', 'Red'),
+        makeKill(2, 9000, 'red-2', 'Red'),
+      ],
+    } as unknown as HenrikMatchV4;
+    const record = deriveMatchRecord(m, TARGET_PUUID);
+    expect(record!.died_first_rounds).toBeNull();
+  });
+
+  it('accumulates across multiple qualifying rounds', () => {
+    const m = {
+      ...v4Fixture,
+      kills: [
+        // round 1: target first (count)
+        makeKill(1, 2000, TARGET_PUUID, 'Blue'),
+        makeKill(1, 10000, 'blue-mate-1', 'Blue'),
+        // round 2: target first (count)
+        makeKill(2, 1000, TARGET_PUUID, 'Blue'),
+        makeKill(2, 5000, 'blue-mate-2', 'Blue'),
+        // round 3: teammate first (no count)
+        makeKill(3, 2000, 'blue-mate-1', 'Blue'),
+        makeKill(3, 8000, TARGET_PUUID, 'Blue'),
+      ],
+    } as unknown as HenrikMatchV4;
+    const record = deriveMatchRecord(m, TARGET_PUUID);
+    expect(record!.died_first_rounds).toBe(2);
+  });
+
+  it('excludes kills with missing time_in_round_in_ms from the sort, can drop a round below threshold', () => {
+    const m = {
+      ...v4Fixture,
+      kills: [
+        // round 1: would be 2 deaths, but one missing timing → falls to 1 → skipped
+        makeKill(1, 3000, TARGET_PUUID, 'Blue'),
+        { round: 1, killer: { team: 'Red' }, victim: { puuid: 'blue-mate-1', team: 'Blue' }, weapon: { name: 'V' } },
+      ],
+    } as unknown as HenrikMatchV4;
+    const record = deriveMatchRecord(m, TARGET_PUUID);
+    expect(record!.died_first_rounds).toBeNull();
+  });
+});
+
 describe('deriveMatchRoster', () => {
   it('returns all 10 players from the fixture', () => {
     const rosters = deriveMatchRoster(v4Fixture as HenrikMatchV4);
