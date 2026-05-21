@@ -23,7 +23,8 @@ export type EventType =
   | 'record_mvp_count_week'
   | 'community_clash'
   | 'record_kills_per_weapon'
-  | 'record_longest_match_minutes';
+  | 'record_longest_match_minutes'
+  | 'record_survived_last_rounds';
 
 export interface DetectedEvent {
   type: EventType;
@@ -113,6 +114,7 @@ export const EVENT_CATEGORY: Record<EventType, EventCategory> = {
   record_damage_received_match: 'digest',
   record_kills_per_weapon: 'digest',
   record_longest_match_minutes: 'digest',
+  record_survived_last_rounds: 'digest',
   record_mvp_count_week: 'digest',
 };
 

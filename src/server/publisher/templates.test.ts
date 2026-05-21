@@ -56,6 +56,7 @@ const minimalPayloads: Record<EventType, Record<string, unknown>> = {
   community_clash: { teams: [], winner_team_id: null },
   record_kills_per_weapon: { weapon: 'Operator', value: 5, prev_value: 3, prev_puuid: 'other-puuid', prev_name: 'OldHolder', prev_tag: 'OLD', real_match_id: 'match-xyz' },
   record_longest_match_minutes: { value: 45, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '', community_players: [], rounds: 24, result: 'win' },
+  record_survived_last_rounds: { value: 4, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '' },
 };
 
 describe('esc()', () => {

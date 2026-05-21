@@ -47,7 +47,7 @@ const BASE_RECORD: MatchRecord = {
   team_rounds_lost: 11,
   game_length_ms: null,
   is_match_mvp: null,
-  inserted_at: 1747000000000,
+  survived_last_rounds: null,  inserted_at: 1747000000000,
 };
 
 /**

@@ -51,7 +51,7 @@ function makeRecord(killEventsCompact: string): MatchRecord {
     team_rounds_lost: null,
     game_length_ms: null,
     is_match_mvp: null,
-    inserted_at: 1750000000000,
+    survived_last_rounds: null,    inserted_at: 1750000000000,
   };
 }
 

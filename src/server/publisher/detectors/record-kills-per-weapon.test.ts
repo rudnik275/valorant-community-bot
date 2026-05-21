@@ -61,7 +61,7 @@ function makeRecord(overrides: Partial<MatchRecord> & { killEvents?: object[] } 
     team_rounds_lost: null,
     game_length_ms: null,
     is_match_mvp: null,
-    inserted_at: 1750000000000,
+    survived_last_rounds: null,    inserted_at: 1750000000000,
     ...rest,
   };
 }

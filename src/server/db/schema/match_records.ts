@@ -35,6 +35,12 @@ export const matchRecords = sqliteTable(
     team_rounds_lost: integer('team_rounds_lost'),
     game_length_ms: integer('game_length_ms'),
     is_match_mvp: integer('is_match_mvp'),
+    // Count of rounds in this match where the player died and was the LAST
+    // teammate to die among ≥2 dying teammates (max `time_in_round_in_ms`
+    // among same-team victims with at least one other team-victim).
+    // Null when the match has no qualifying round (no multi-death team round
+    // with timings) — distinguishes "no signal" from "never tanked = 0".
+    survived_last_rounds: integer('survived_last_rounds'),
     inserted_at: integer('inserted_at').notNull().default(sql`(unixepoch() * 1000)`),
   },
   (table) => [
