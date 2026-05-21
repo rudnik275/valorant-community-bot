@@ -45,7 +45,7 @@ function makeRecord(matchId: string, result: 'win' | 'loss' | 'draw', startedAt:
     team_rounds_lost: null,
     game_length_ms: null,
     is_match_mvp: null,
-    inserted_at: startedAt,
+    survived_last_rounds: null,    died_first_rounds: null,    inserted_at: startedAt,
   };
 }
 

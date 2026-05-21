@@ -55,14 +55,17 @@ interface MatchOpts {
   damageDealt?: number;
   damageReceived?: number;
   gameLengthMs?: number;
+  isMatchMvp?: number;
+  survivedLastRounds?: number;
+  diedFirstRounds?: number;
 }
 
 function seedMatch(sqlite: Database.Database, opts: MatchOpts) {
   sqlite.prepare(
     `INSERT OR REPLACE INTO match_records
      (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result, rounds_played, kill_events_compact,
-      headshots, legshots, damage_dealt, damage_received, game_length_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, '[]', ?, ?, ?, ?, ?)`,
+      headshots, legshots, damage_dealt, damage_received, game_length_ms, is_match_mvp, survived_last_rounds, died_first_rounds)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, '[]', ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     opts.puuid,
     opts.matchId ?? `match-${Date.now()}-${Math.random()}`,
@@ -78,6 +81,9 @@ function seedMatch(sqlite: Database.Database, opts: MatchOpts) {
     opts.damageDealt ?? null,
     opts.damageReceived ?? null,
     opts.gameLengthMs ?? null,
+    opts.isMatchMvp ?? null,
+    opts.survivedLastRounds ?? null,
+    opts.diedFirstRounds ?? null,
   );
 }
 
@@ -100,6 +106,20 @@ function seedAllTimeRecord(sqlite: Database.Database, opts: AllTimeRecordOpts) {
     opts.matchId ?? `match-atr-${Date.now()}`,
     Date.now(),
   );
+}
+
+interface WeeklyRecordOpts {
+  recordType: string;
+  weekIso: string;
+  puuid: string;
+  value: number;
+}
+
+function seedWeeklyRecord(sqlite: Database.Database, opts: WeeklyRecordOpts) {
+  sqlite.prepare(
+    `INSERT OR REPLACE INTO weekly_records (record_type, week_iso, riot_puuid, value)
+     VALUES (?, ?, ?, ?)`,
+  ).run(opts.recordType, opts.weekIso, opts.puuid, opts.value);
 }
 
 interface EventOpts {
@@ -806,6 +826,117 @@ describe('buildDigest', () => {
       expect(result.text).toContain('мясником недели');
       expect(result.text).toContain('dmg');
       expect(result.text).toContain('AlmostDmg');
+    });
+
+    // mvp_count_week near-miss cases
+
+    it('mvp_count_week near-miss: floor-skip — weekly leader below floor=10, no block', async () => {
+      // All-time record = 15 (seeded in both all_time_records AND weekly_records
+      // so computeAndEmitWeeklyMvpRecord does not emit a false bright event)
+      seedUser(sqlite, 99, 'p-holder', { riotName: 'MVPHolder', riotTag: 'MVP' });
+      seedAllTimeRecord(sqlite, { recordType: 'mvp_count_week', value: 15, puuid: 'p-holder', matchId: 'old-mvp' });
+      seedWeeklyRecord(sqlite, { recordType: 'mvp_count_week', weekIso: '2025-W01', puuid: 'p-holder', value: 15 });
+
+      // Weekly leader: 8 MVPs — below floor=10
+      seedUser(sqlite, 1, 'p1', { riotName: 'LowMVP', riotTag: 'LOW' });
+      for (let i = 0; i < 8; i++) {
+        seedMatch(sqlite, { puuid: 'p1', matchId: `mvp-floor-${i}`, startedAt: IN_WINDOW + i * 1000, isMatchMvp: 1 });
+      }
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).not.toContain('nearMiss');
+      expect(result.text).not.toContain('королём MVP');
+    });
+
+    it('mvp_count_week near-miss: hit — 14 MVPs with all-time=15 (within threshold=2, above floor=10)', async () => {
+      // All-time record = 15 (seeded in both all_time_records AND weekly_records
+      // so computeAndEmitWeeklyMvpRecord does not emit a false bright event for 14 MVPs)
+      seedUser(sqlite, 99, 'p-holder', { riotName: 'MVPHolder', riotTag: 'MVP' });
+      seedAllTimeRecord(sqlite, { recordType: 'mvp_count_week', value: 15, puuid: 'p-holder', matchId: 'old-mvp' });
+      seedWeeklyRecord(sqlite, { recordType: 'mvp_count_week', weekIso: '2025-W01', puuid: 'p-holder', value: 15 });
+
+      // Weekly leader: 14 MVPs — >=floor and within threshold
+      seedUser(sqlite, 1, 'p1', { riotName: 'AlmostKing', riotTag: 'AK' });
+      for (let i = 0; i < 14; i++) {
+        seedMatch(sqlite, { puuid: 'p1', matchId: `mvp-hit-${i}`, startedAt: IN_WINDOW + i * 1000, isMatchMvp: 1 });
+      }
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).toContain('nearMiss');
+      expect(result.text).toContain('Был(а) близок(ка) к тому чтобы стать королём MVP за неделю');
+      expect(result.text).toContain('AlmostKing');
+      expect(result.text).toContain('14');
+    });
+
+    it('mvp_count_week near-miss: beyond threshold — 11 MVPs with all-time=15 (delta=4 > threshold=2)', async () => {
+      // All-time record = 15 (seeded in both tables to prevent false bright event)
+      seedUser(sqlite, 99, 'p-holder', { riotName: 'MVPHolder', riotTag: 'MVP' });
+      seedAllTimeRecord(sqlite, { recordType: 'mvp_count_week', value: 15, puuid: 'p-holder', matchId: 'old-mvp' });
+      seedWeeklyRecord(sqlite, { recordType: 'mvp_count_week', weekIso: '2025-W01', puuid: 'p-holder', value: 15 });
+
+      // Weekly leader: 11 MVPs — >=floor but delta=4 > threshold=2
+      seedUser(sqlite, 1, 'p1', { riotName: 'TooFarMVP', riotTag: 'TFM' });
+      for (let i = 0; i < 11; i++) {
+        seedMatch(sqlite, { puuid: 'p1', matchId: `mvp-far-${i}`, startedAt: IN_WINDOW + i * 1000, isMatchMvp: 1 });
+      }
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).not.toContain('nearMiss');
+      expect(result.text).not.toContain('королём MVP за неделю');
+    });
+
+    it('mvp_count_week near-miss: beaten — 16 MVPs with all-time=15 → bright event fires, no near-miss duplication', async () => {
+      // All-time record = 15
+      seedUser(sqlite, 99, 'p-holder', { riotName: 'MVPHolder', riotTag: 'MVP' });
+      seedAllTimeRecord(sqlite, { recordType: 'mvp_count_week', value: 15, puuid: 'p-holder', matchId: 'old-mvp' });
+
+      // Weekly leader beats the record with 16 MVPs — bright event emitted
+      seedUser(sqlite, 1, 'p1', { riotName: 'NewKing', riotTag: 'NK' });
+      for (let i = 0; i < 16; i++) {
+        seedMatch(sqlite, { puuid: 'p1', matchId: `mvp-beat-${i}`, startedAt: IN_WINDOW + i * 1000, isMatchMvp: 1 });
+      }
+      // Seed the bright record event (as computeAndEmitWeeklyMvpRecord would in production)
+      seedEvent(sqlite, {
+        puuid: 'p1',
+        matchId: 'mvp-beat-0',
+        eventType: 'record_mvp_count_week',
+        payload: { value: 16, prev_value: 15, prev_puuid: 'p-holder', prev_name: 'MVPHolder', prev_tag: 'MVP' },
+        detectedAt: IN_WINDOW,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      // Bright event rendered, no near-miss duplication
+      expect(result.sectionsIncluded).toContain('record_mvp_count_week');
+      expect(result.text).toContain('Король MVP за неделю');
+      // Near-miss should NOT appear
+      expect(result.sectionsIncluded).not.toContain('nearMiss');
+      expect(result.text).not.toContain('близок(ка) к тому чтобы стать королём MVP');
+    });
+
+    it('mvp_count_week near-miss: no all-time record row → no near-miss', async () => {
+      // No all_time_records seeded for mvp_count_week
+      seedUser(sqlite, 1, 'p1', { riotName: 'MvpPlayer', riotTag: 'MP' });
+      for (let i = 0; i < 12; i++) {
+        seedMatch(sqlite, { puuid: 'p1', matchId: `mvp-none-${i}`, startedAt: IN_WINDOW + i * 1000, isMatchMvp: 1 });
+      }
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).not.toContain('nearMiss');
+      expect(result.text).not.toContain('королём MVP');
+    });
+
+    it('near-miss for died_first_rounds renders with correct emoji and header', async () => {
+      seedUser(sqlite, 99, 'p-holder', { riotName: 'Holder', riotTag: 'HLD' });
+      seedAllTimeRecord(sqlite, { recordType: 'died_first_rounds_match', value: 6, puuid: 'p-holder', matchId: 'old-dfr' });
+
+      seedUser(sqlite, 1, 'p1', { riotName: 'AlmostTrojan', riotTag: 'TRJ' });
+      // 5 is within threshold=1 of 6
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'dfr-near', startedAt: IN_WINDOW, diedFirstRounds: 5 });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).toContain('nearMiss');
+      expect(result.text).toContain('троянским конём');
+      expect(result.text).toContain('AlmostTrojan');
     });
   });
 });

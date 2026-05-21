@@ -1,0 +1,1 @@
+ALTER TABLE `match_records` ADD `survived_last_rounds` integer;

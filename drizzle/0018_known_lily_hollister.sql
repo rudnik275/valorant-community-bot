@@ -1,0 +1,1 @@
+ALTER TABLE `match_records` ADD `died_first_rounds` integer;

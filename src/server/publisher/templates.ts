@@ -81,6 +81,8 @@ function recordContextLine(eventType: EventType): string | null {
     case 'record_damage_dealt_match':    return 'рекорд по нанесённому урону за игру';
     case 'record_damage_received_match': return 'рекорд по полученному урону за игру';
     case 'record_mvp_count_week':        return 'рекорд по количеству MVP-матчей за неделю';
+    case 'record_survived_last_rounds':  return 'рекорд по количеству раундов в матче, где игрок умирал последним из своей команды';
+    case 'record_died_first_rounds':     return 'рекорд по количеству раундов в матче, где игрок умирал первым из своей команды';
     // record_kills_per_weapon, record_longest_match_minutes — context line
     // is already inside their template body.
     default: return null;
@@ -223,6 +225,22 @@ const templates: Record<EventType, TemplateFn> = {
     return `♿️ <u>Угадай куда шмальну</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
   },
 
+  record_survived_last_rounds: (payload, user, match) => {
+    const value = payload['value'];
+    const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
+    const ctx = recordContextLine('record_survived_last_rounds');
+    const valueLine = `${playerTag(user)} — ${esc(String(value))} последних смертей${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
+    return `⚓ <u>Якорь</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
+  },
+
+  record_died_first_rounds: (payload, user, match) => {
+    const value = payload['value'];
+    const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
+    const ctx = recordContextLine('record_died_first_rounds');
+    const valueLine = `${playerTag(user)} — ${esc(String(value))} первых смертей${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
+    return `🐴 <u>Троянский конь</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
+  },
+
   knife_kill: (payload, user, match) => {
     const count = Number(payload['count'] ?? 1);
     const countStr = count > 1 ? `${count} врагов` : 'врага';
@@ -239,7 +257,7 @@ const templates: Record<EventType, TemplateFn> = {
     const prev = prevRecordLine(prevForLine, payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid, 'MVP');
     const ctx = recordContextLine('record_mvp_count_week');
     const valueLine = `${playerTag(user)} — ${esc(String(value))} MVP-матчей`;
-    return `🏅 <u>Легенда</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
+    return `👑 <u>Король MVP за неделю</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
   },
 
   match_comeback: (payload, user, match) => {

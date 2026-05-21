@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { EVENT_CATEGORY, isRealtimeEvent, isDigestEvent, type EventType } from './types.ts';
 
 describe('EVENT_CATEGORY', () => {
-  it('covers all 19 EventType values exactly once', () => {
+  it('covers all 21 EventType values exactly once', () => {
     const allEvents: EventType[] = [
       'ace',
       'giant_slayer',
@@ -22,6 +22,8 @@ describe('EVENT_CATEGORY', () => {
       'record_damage_received_match',
       'record_kills_per_weapon',
       'record_longest_match_minutes',
+      'record_survived_last_rounds',
+      'record_died_first_rounds',
       'record_mvp_count_week',
     ];
     expect(Object.keys(EVENT_CATEGORY).sort()).toEqual([...allEvents].sort());
@@ -41,11 +43,11 @@ describe('EVENT_CATEGORY', () => {
     ]);
   });
 
-  it('has 13 digest types', () => {
+  it('has 15 digest types', () => {
     const digest = Object.entries(EVENT_CATEGORY)
       .filter(([, v]) => v === 'digest')
       .map(([k]) => k);
-    expect(digest.length).toBe(13);
+    expect(digest.length).toBe(15);
     expect(digest.sort()).toEqual([
       'ace',
       'knife_kill',
@@ -53,12 +55,14 @@ describe('EVENT_CATEGORY', () => {
       'record_damage_dealt_match',
       'record_damage_received_match',
       'record_deaths_match',
+      'record_died_first_rounds',
       'record_headshots_match',
       'record_kills_match',
       'record_kills_per_weapon',
       'record_legshots_match',
       'record_longest_match_minutes',
       'record_mvp_count_week',
+      'record_survived_last_rounds',
       'winstreak_10plus',
     ]);
   });

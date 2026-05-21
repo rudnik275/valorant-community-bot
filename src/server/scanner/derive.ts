@@ -47,6 +47,8 @@ export interface MatchRecordInsert {
   team_rounds_lost: number | null;
   game_length_ms: number | null;
   is_match_mvp: number | null;
+  survived_last_rounds: number | null;
+  died_first_rounds: number | null;
 }
 
 // kill_events_compact / rounds_compact shapes (KillEventCompact, RoundCompact)
@@ -121,6 +123,92 @@ export function deriveMatchRoster(match: HenrikMatchV4): MatchRosterInsert[] {
       name: p.name ?? null,
       tag: p.tag ?? null,
     }));
+}
+
+// ─── survived_last_rounds helper ──────────────────────────────────────────────
+
+/**
+ * Count rounds where `puuid` died and was the LATEST teammate to die among
+ * ≥2 same-team deaths in that round (max `time_in_round_in_ms`). Rounds with
+ * <2 team-deaths or missing timings are excluded — solo deaths award nothing
+ * (anti-tank), and we don't guess ordering when timings are absent.
+ *
+ * Returns `null` when no round qualifies — distinguishes "no signal" from
+ * "never tanked = 0". Detector early-returns on `null`.
+ *
+ * Note: relies only on the WITHIN-round ordering of timings, so the open
+ * question from #258 about whether `time_in_round_in_ms` starts at buy-phase
+ * or barrier-drop is irrelevant — every player in the round shares the same
+ * timeline.
+ */
+function calcSurvivedLastRounds(match: HenrikMatchV4, puuid: string, teamId: string): number | null {
+  const byRound = new Map<number, Array<{ puuid: string; t: number }>>();
+  for (const k of match.kills) {
+    if (k.victim?.team !== teamId) continue;
+    if (typeof k.time_in_round_in_ms !== 'number') continue;
+    const victimPuuid = k.victim?.puuid;
+    if (!victimPuuid) continue;
+    const round = k.round ?? 0;
+    let list = byRound.get(round);
+    if (!list) { list = []; byRound.set(round, list); }
+    list.push({ puuid: victimPuuid, t: k.time_in_round_in_ms });
+  }
+
+  let qualifyingRounds = 0;
+  let count = 0;
+  for (const deaths of byRound.values()) {
+    if (deaths.length < 2) continue;
+    qualifyingRounds++;
+    let maxT = -Infinity;
+    let maxPuuid: string | null = null;
+    for (const d of deaths) {
+      if (d.t > maxT) { maxT = d.t; maxPuuid = d.puuid; }
+    }
+    if (maxPuuid === puuid) count++;
+  }
+
+  return qualifyingRounds === 0 ? null : count;
+}
+
+// ─── died_first_rounds helper ─────────────────────────────────────────────────
+
+/**
+ * Count rounds where `puuid` died and was the EARLIEST teammate to die among
+ * ≥2 same-team deaths in that round (min `time_in_round_in_ms`). Rounds with
+ * <2 team-deaths or missing timings are excluded — solo deaths award nothing
+ * (symmetric anti-solo guard with calcSurvivedLastRounds), and we don't guess
+ * ordering when timings are absent.
+ *
+ * Returns `null` when no round qualifies — distinguishes "no signal" from
+ * "never first = 0". Detector early-returns on `null`.
+ */
+function calcDiedFirstRounds(match: HenrikMatchV4, puuid: string, teamId: string): number | null {
+  const byRound = new Map<number, Array<{ puuid: string; t: number }>>();
+  for (const k of match.kills) {
+    if (k.victim?.team !== teamId) continue;
+    if (typeof k.time_in_round_in_ms !== 'number') continue;
+    const victimPuuid = k.victim?.puuid;
+    if (!victimPuuid) continue;
+    const round = k.round ?? 0;
+    let list = byRound.get(round);
+    if (!list) { list = []; byRound.set(round, list); }
+    list.push({ puuid: victimPuuid, t: k.time_in_round_in_ms });
+  }
+
+  let qualifyingRounds = 0;
+  let count = 0;
+  for (const deaths of byRound.values()) {
+    if (deaths.length < 2) continue;
+    qualifyingRounds++;
+    let minT = +Infinity;
+    let minPuuid: string | null = null;
+    for (const d of deaths) {
+      if (d.t < minT) { minT = d.t; minPuuid = d.puuid; }
+    }
+    if (minPuuid === puuid) count++;
+  }
+
+  return qualifyingRounds === 0 ? null : count;
 }
 
 // ─── Main derive function ─────────────────────────────────────────────────────
@@ -264,5 +352,7 @@ export function deriveMatchRecord(match: HenrikMatchV4, puuid: string): MatchRec
     team_rounds_lost: playerTeam?.rounds?.lost ?? null,
     game_length_ms: match.metadata.game_length_in_ms ?? null,
     is_match_mvp: isMatchMvp,
+    survived_last_rounds: calcSurvivedLastRounds(match, puuid, playerTeamId),
+    died_first_rounds: calcDiedFirstRounds(match, puuid, playerTeamId),
   };
 }
