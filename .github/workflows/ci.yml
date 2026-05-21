@@ -93,6 +93,7 @@ jobs:
             PREV_IMAGE=$(docker inspect --format '{{.Image}}' valorant-bot-app 2>/dev/null || echo "none")
             echo "$PREV_IMAGE" > /opt/valorant-bot/.last-image-id
             cd /opt/valorant-bot && docker compose pull app && docker compose up -d --no-deps app
+            docker compose up -d --no-deps litestream
 
       - name: Health-gate (60s poll)
         uses: appleboy/ssh-action@v1
