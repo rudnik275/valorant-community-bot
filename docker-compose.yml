@@ -9,5 +9,3 @@ services:
       - ./data:/app/data
     mem_limit: 512m
     cpus: 1.0
-    labels:
-      - "com.centurylinklabs.watchtower.enable=false"   # деплой через GH Actions, не watchtower
