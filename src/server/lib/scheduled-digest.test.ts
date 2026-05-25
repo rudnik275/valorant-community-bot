@@ -13,7 +13,7 @@
  *   - dedup → a recorded row makes the next tick a no-op (no second post)
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
@@ -242,6 +242,80 @@ describe('scheduled-digest idempotency contract (no-dup-on-crash)', () => {
 
     expect(sendMessage).not.toHaveBeenCalled();
     expect(rowFor(sqlite, WEEK_ISO)?.posted_text).toBe('[no_content]');
+  });
+
+  describe('Healthchecks.io ping (issue #290)', () => {
+    const HC_URL = 'https://hc-ping.test/abc';
+    let fetchSpy: MockInstance<typeof fetch>;
+
+    beforeEach(() => {
+      fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(null, { status: 200 }));
+    });
+    afterEach(() => {
+      fetchSpy.mockRestore();
+    });
+
+    it('regular flow: pings after a successful post', async () => {
+      const spec = weeklySpec(db, async () => ({ text: 'hi', meta: [] }), {
+        healthcheckUrl: HC_URL,
+      });
+
+      await runScheduledDigest(spec, { db, sendMessage, getPrimaryChatId: () => -100 });
+
+      expect(sendMessage).toHaveBeenCalledOnce();
+      expect(fetchSpy).toHaveBeenCalledWith(HC_URL);
+    });
+
+    it('publishOverride path: pings when the override returns normally', async () => {
+      // Regression for #290: weekly two-phase override (`makeWeeklyPublishOverride`)
+      // posts the digest itself and used to bypass step 8, so HC never got a ping
+      // even though the digest was sent. The scaffold must ping after the
+      // override returns.
+      const override = vi.fn<NonNullable<DigestSpec['publishOverride']>>().mockResolvedValue();
+      const spec = weeklySpec(db, async () => ({ text: 'unused', meta: [] }), {
+        publishOverride: override,
+        healthcheckUrl: HC_URL,
+      });
+
+      await runScheduledDigest(spec, { db, sendMessage, getPrimaryChatId: () => -100 });
+
+      expect(override).toHaveBeenCalledOnce();
+      // The override owns the send — the scaffold must NOT also call sendMessage.
+      expect(sendMessage).not.toHaveBeenCalled();
+      expect(fetchSpy).toHaveBeenCalledWith(HC_URL);
+    });
+
+    it('publishOverride path: does NOT ping if the override throws', async () => {
+      const override = vi
+        .fn<NonNullable<DigestSpec['publishOverride']>>()
+        .mockRejectedValue(new Error('override crashed'));
+      const spec = weeklySpec(db, async () => ({ text: 'unused', meta: [] }), {
+        publishOverride: override,
+        healthcheckUrl: HC_URL,
+      });
+
+      await runScheduledDigest(spec, { db, sendMessage, getPrimaryChatId: () => -100 });
+
+      expect(override).toHaveBeenCalledOnce();
+      // A crash inside the override must NOT mark Healthchecks green.
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('silent-period: does NOT ping (weekly only, override unreached)', async () => {
+      vi.stubEnv('EVENTS_PUBLISHING_ENABLED_AFTER', new Date(NOW + 9_999_999).toISOString());
+      const override = vi.fn<NonNullable<DigestSpec['publishOverride']>>().mockResolvedValue();
+      const spec = weeklySpec(db, async () => ({ text: 'unused', meta: [] }), {
+        publishOverride: override,
+        healthcheckUrl: HC_URL,
+      });
+
+      await runScheduledDigest(spec, { db, sendMessage, getPrimaryChatId: () => -100 });
+
+      expect(override).not.toHaveBeenCalled();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
   });
 
   it('daily-shaped spec (daily_digest_runs, no silent-period): crash-before-send → no row, retry posts', async () => {

@@ -137,6 +137,11 @@ export interface DigestSpec {
    * The override is responsible for its own idempotency. It must preserve
    * the #255 ordering: the published/posted-state row is written
    * immediately after the text send succeeds, BEFORE the best-effort image.
+   *
+   * If the override returns normally, the scaffold fires the Healthchecks
+   * ping just like step 8 of the regular flow — successful override return
+   * is the same liveness signal as a successful post. A throw out of the
+   * override is caught by the unexpected-error boundary and skips the ping.
    */
   publishOverride?: (
     db: AnyDb,
@@ -178,6 +183,16 @@ export async function runScheduledDigest(
     //     so daily continues through the unchanged steps 3–8 below.
     if (spec.publishOverride) {
       await spec.publishOverride(db, w, { sendMessage, getPrimaryChatId });
+      // Healthchecks.io ping (fire-and-forget). Mirrors step 8 for the
+      // regular flow — the override is the publish path when two-phase is
+      // wired (#227), and its successful return is the same liveness signal
+      // as a successful post on the non-override path. Without this the
+      // weekly check went DOWN every Friday (issue #290).
+      if (spec.healthcheckUrl) {
+        fetch(spec.healthcheckUrl).catch((err) => {
+          logger.warn({ module, err }, 'Healthchecks.io ping failed');
+        });
+      }
       return;
     }
 
