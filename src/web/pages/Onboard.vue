@@ -54,7 +54,19 @@
       </button>
 
       <div v-if="apiError" class="glass-panel onboard-api-error" data-testid="api-error">
-        <p class="list-item-dotted list-item-dotted--no">{{ apiError }}</p>
+        <template v-if="apiErrorCode === 'account_not_found'">
+          <p class="onboard-error-headline">Аккаунт Riot не найден</p>
+          <p class="onboard-error-sub">
+            Имя и тег должны совпадать с клиентом Valorant один-в-один — регистр и язык каждого символа имеют значение.
+          </p>
+          <ul class="onboard-error-list">
+            <li class="list-item-dotted list-item-dotted--no">латинская <b>I</b> (Shift+i) ≠ строчная <b>l</b></li>
+            <li class="list-item-dotted list-item-dotted--no">кириллическая <b>І</b> ≠ латинская <b>I</b></li>
+            <li class="list-item-dotted list-item-dotted--no">буква <b>O</b> ≠ цифра <b>0</b></li>
+          </ul>
+          <p class="onboard-error-hint">Лучше скопируй Riot ID прямо из клиента Valorant.</p>
+        </template>
+        <p v-else class="list-item-dotted list-item-dotted--no">{{ apiError }}</p>
       </div>
     </form>
 
@@ -77,6 +89,7 @@ const tag = ref('');
 const loading = ref(false);
 const validationError = ref<string | null>(null);
 const apiError = ref<string | null>(null);
+const apiErrorCode = ref<string | null>(null);
 const success = ref(false);
 const linkedName = ref('');
 const linkedTag = ref('');
@@ -105,7 +118,7 @@ function getInitDataRaw(): string {
 }
 
 const ERROR_MESSAGES: Record<string, string> = {
-  account_not_found: 'Аккаунт Riot не найден. Проверьте написание.',
+  account_not_found: 'Аккаунт Riot не найден.',
   rate_limited: 'Слишком много запросов. Попробуйте через минуту.',
   puuid_already_linked: 'Этот Riot аккаунт уже привязан к другому Telegram.',
   henrik_upstream: 'Сервер Henrik временно недоступен.',
@@ -114,6 +127,7 @@ const ERROR_MESSAGES: Record<string, string> = {
 async function onSubmit() {
   validationError.value = null;
   apiError.value = null;
+  apiErrorCode.value = null;
 
   const parsed = OnboardBodySchema.safeParse({ name: name.value.trim(), tag: tag.value.trim() });
   if (!parsed.success) {
@@ -152,9 +166,11 @@ async function onSubmit() {
         // ignore parse error
       }
       apiError.value = ERROR_MESSAGES[errorCode] ?? 'Что-то пошло не так. Попробуйте ещё раз.';
+      apiErrorCode.value = errorCode;
     }
   } catch {
     apiError.value = 'Что-то пошло не так. Попробуйте ещё раз.';
+    apiErrorCode.value = 'unknown';
   } finally {
     loading.value = false;
   }
@@ -239,6 +255,35 @@ async function onSubmit() {
 
 .onboard-api-error p {
   margin: 0;
+}
+
+.onboard-error-headline {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.onboard-error-sub {
+  margin-top: 6px !important;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.onboard-error-list {
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  list-style: none;
+}
+
+.onboard-error-hint {
+  margin-top: 12px !important;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--fg);
 }
 
 /* Spinner inside button */
