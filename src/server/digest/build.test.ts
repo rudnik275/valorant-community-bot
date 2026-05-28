@@ -359,6 +359,72 @@ describe('buildDigest', () => {
       expect(result.text).toContain('Climber');
       expect(result.text).toContain('Повышение по службе');
     });
+
+    it('dedups multiple ups for one player to the highest rank (singular header)', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Climber', riotTag: 'UP' });
+      seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW });
+      // Scanner emits one event per tier transition: Diamond 1 → 2 → 3.
+      seedEvent(sqlite, {
+        puuid: 'p1', matchId: 'peak:21', eventType: 'peak_rank_up',
+        payload: { to_tier_id: 21, to_tier_name: 'Diamond 1' }, detectedAt: IN_WINDOW,
+      });
+      seedEvent(sqlite, {
+        puuid: 'p1', matchId: 'peak:22', eventType: 'peak_rank_up',
+        payload: { to_tier_id: 22, to_tier_name: 'Diamond 2' }, detectedAt: IN_WINDOW + 1000,
+      });
+      seedEvent(sqlite, {
+        puuid: 'p1', matchId: 'peak:23', eventType: 'peak_rank_up',
+        payload: { to_tier_id: 23, to_tier_name: 'Diamond 3' }, detectedAt: IN_WINDOW + 2000,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      const text = result.text!;
+      expect(result.sectionsIncluded).toContain('peak_rank_up');
+      // Only the final (highest) rank survives, exactly once.
+      expect(text).toContain('Diamond 3');
+      expect(text).not.toContain('Diamond 1');
+      expect(text).not.toContain('Diamond 2');
+      expect(text.split('Diamond 3').length - 1).toBe(1);
+      // One player ⇒ singular header.
+      expect(text).toContain('Повышение по службе');
+      expect(text).not.toContain('Повышения по службе');
+    });
+
+    it('keeps one line per player when several players rank up (plural header)', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Climber', riotTag: 'UP' });
+      seedUser(sqlite, 2, 'p2', { riotName: 'Rocket', riotTag: 'GG' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW });
+      seedMatch(sqlite, { puuid: 'p2', matchId: 'm2', startedAt: IN_WINDOW });
+      // p1: Diamond 1 → 2; p2: Plat 1 → 2 → 3.
+      seedEvent(sqlite, {
+        puuid: 'p1', matchId: 'peak:21', eventType: 'peak_rank_up',
+        payload: { to_tier_id: 21, to_tier_name: 'Diamond 1' }, detectedAt: IN_WINDOW,
+      });
+      seedEvent(sqlite, {
+        puuid: 'p1', matchId: 'peak:22', eventType: 'peak_rank_up',
+        payload: { to_tier_id: 22, to_tier_name: 'Diamond 2' }, detectedAt: IN_WINDOW + 1000,
+      });
+      seedEvent(sqlite, {
+        puuid: 'p2', matchId: 'peak:18', eventType: 'peak_rank_up',
+        payload: { to_tier_id: 18, to_tier_name: 'Platinum 1' }, detectedAt: IN_WINDOW + 500,
+      });
+      seedEvent(sqlite, {
+        puuid: 'p2', matchId: 'peak:20', eventType: 'peak_rank_up',
+        payload: { to_tier_id: 20, to_tier_name: 'Platinum 3' }, detectedAt: IN_WINDOW + 1500,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      const text = result.text!;
+      // Each player appears once, at their highest rank.
+      expect(text).toContain('Diamond 2');
+      expect(text).toContain('Platinum 3');
+      expect(text).not.toContain('Diamond 1');
+      expect(text).not.toContain('Platinum 1');
+      expect(text).toContain('Climber');
+      expect(text).toContain('Rocket');
+      // Two players ⇒ plural header.
+      expect(text).toContain('Повышения по службе');
+    });
   });
 
   describe('bright events — record_deaths_match', () => {

@@ -464,6 +464,30 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       g.entries = [{ ...winner, payload: mergedPayload }];
     }
 
+    // Phase 2.6: dedup peak_rank_up by player. A player can rank up multiple
+    // times in a week (Diamond 1 → 2 → 3) and the scanner emits one event per
+    // tier transition; show only their final (highest) peak — one line per
+    // player. Peak only ever increases, so the highest to_tier_id is also the
+    // latest; we tie-break / fall back to the latest entry on missing ids.
+    for (const g of groups) {
+      if (g.eventType !== 'peak_rank_up' || g.entries.length < 2) continue;
+      const bestByPuuid = new Map<string, Entry>();
+      const order: string[] = [];
+      for (const e of g.entries) {
+        const puuid = e.user.riot_puuid ?? `${e.user.riot_name}#${e.user.riot_tag}`;
+        const existing = bestByPuuid.get(puuid);
+        if (!existing) {
+          order.push(puuid);
+          bestByPuuid.set(puuid, e);
+          continue;
+        }
+        const cur = Number(e.payload['to_tier_id'] ?? 0);
+        const prev = Number(existing.payload['to_tier_id'] ?? 0);
+        if (cur >= prev) bestByPuuid.set(puuid, e);
+      }
+      g.entries = order.map((p) => bestByPuuid.get(p)!);
+    }
+
     // Phase 2.9: merge all per-weapon kills_per_weapon groups into ONE group.
     // After per-weapon dedup (Phase 2.5), each weapon has its single best entry;
     // we now collapse all weapons into a single group so the digest renders one
