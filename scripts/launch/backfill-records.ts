@@ -3,7 +3,7 @@
 // Idempotent — running twice does not corrupt.
 //
 // Usage:
-//   ./scripts/with-secrets.sh bun run scripts/launch/backfill-records.ts
+//   with-secrets bun run scripts/launch/backfill-records.ts
 
 import { db } from '../../src/server/db/client.ts';
 import { matchRecords } from '../../src/server/db/schema/match_records.ts';

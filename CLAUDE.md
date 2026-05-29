@@ -25,7 +25,7 @@ Read `~/.claude/CLAUDE.md` first — it has the global secrets contract. Project
 
 - All secrets live in 1Password vault `PetProject` (+ `SlotRanker` for shared infra).
 - `.env.1password` is committed and contains `op://` references — safe.
-- Local: run anything that needs secrets via `./scripts/with-secrets.sh <cmd>`.
+- Local: run anything that needs secrets via `with-secrets <cmd>`.
 - Deploy env to VPS: `SSH_HOST=46.62.229.131 ./scripts/deploy-env.sh` (user only — AI sessions cannot run this; secrets would enter the transcript).
 - **Never** read `.env`, run `op item get` / `op read` for secret fields, or echo any secret. Use `op run --env-file=...` or the wrapper script.
 - `OPENAI_API_KEY` (`op://PetProject/openai-api-key/credential`) — weekly digest promo image (#227). Empty/missing ⇒ digest still posts on time, text-only. Two-phase weekly: Fri 18:45 Kyiv prepare tick builds the digest + stashes the image; Fri 19:00 publish tick posts the saved text then best-effort photo-reply. Daily digest is unaffected. The image is purely best-effort — it never blocks or delays the digest text.

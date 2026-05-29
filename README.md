@@ -18,7 +18,7 @@ Events publish in real time per friend, subject to antispam quotas (max 2 chat n
 
 ```sh
 cp .env.example .env
-# Fill in required values in .env (or use with-secrets.sh for 1Password-backed secrets)
+# Fill in required values in .env (or use with-secrets for 1Password-backed secrets)
 bun install
 bun run dev
 ```
