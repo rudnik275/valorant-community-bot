@@ -32,6 +32,8 @@ import { startDigestLoop /*, startPrepareLoop */ } from './digest/loop.ts';
 import { startDailyDigestLoop } from './digest-daily/loop.ts';
 import { startRestrictGraceLoop } from './cron/restrict-grace.ts';
 import { startRetryPendingOnboardLoop } from './cron/retry-pending-onboard.ts';
+import { startReconcileMembershipLoop } from './cron/reconcile-membership.ts';
+import { rebuildAllRecords } from './publisher/records-rebuild.ts';
 import { safeSendMessage } from './lib/safe-telegram.ts';
 import { sendPhotoExempt, InputFile } from './lib/telegram-send.ts';
 import { isPublishingEnabled } from './lib/silent-period.ts';
@@ -221,6 +223,14 @@ if (process.env['SCANNER_DISABLED'] !== 'true') {
         bot!.api.restrictChatMember(chatId, userId, permissions).then(() => undefined),
       getChatAdministrators: (chatId) =>
         bot!.api.getChatAdministrators(chatId),
+    });
+
+    startReconcileMembershipLoop({
+      db,
+      getAllowedChatIds: loadAllowedChatIds,
+      getBotId: () => bot!.botInfo.id,
+      getChatMember: (chatId, userId) => bot!.api.getChatMember(chatId, userId),
+      rebuildRecords: rebuildAllRecords,
     });
 
     startRetryPendingOnboardLoop({
