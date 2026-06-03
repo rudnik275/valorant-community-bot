@@ -8,8 +8,9 @@
  * 1. Load all members from users table.
  * 2. For each member (skip bot), for each allowed chat: call getChatMember.
  *    - PRESENT: status in {member, administrator, creator} or restricted+is_member=true.
- *    - DEPARTED: status in {left, kicked} or restricted+is_member=false.
- *    - UNKNOWN: call threw (per-call catch).
+ *    - DEPARTED: status in {left, kicked} or restricted+is_member=false, OR a Telegram
+ *      400 "member/user not found" error (a conclusive "not a participant" signal).
+ *    - UNKNOWN: call threw with any OTHER error (network / lost-access / rate-limit / etc).
  * 3. Decision: KEEP if PRESENT in any chat. DEPARTED only if at least one call succeeded
  *    AND every successful call said DEPARTED. If all calls UNKNOWN → SKIP (never purge on
  *    inconclusive data).
@@ -59,6 +60,26 @@ function classifyStatus(status: string, is_member?: boolean): MembershipVerdict 
   return 'unknown';
 }
 
+/**
+ * Telegram's getChatMember returns a 400 "member not found" / "user not found"
+ * when the user is not a participant of the chat (left long ago, blocked the bot,
+ * deleted account, or was never really tracked). Unlike a network/permission
+ * failure, this is a CONCLUSIVE answer that the user is gone — so it must count as
+ * DEPARTED, not inconclusive-unknown, otherwise such stuck members never get purged.
+ * Matched on the grammY GrammyError shape (error_code + description) without importing it.
+ */
+function isNotAMemberError(err: unknown): boolean {
+  const e = err as { error_code?: number; description?: string } | null | undefined;
+  if (!e || e.error_code !== 400) return false;
+  const d = (e.description ?? '').toLowerCase();
+  return (
+    d.includes('member not found') ||
+    d.includes('user not found') ||
+    d.includes('participant_id_invalid') ||
+    d.includes('user_id_invalid')
+  );
+}
+
 export async function runReconcileMembershipTick(
   deps: ReconcileMembershipDeps,
 ): Promise<ReconcileResult> {
@@ -95,11 +116,22 @@ export async function runReconcileMembershipTick(
         verdict = classifyStatus(result.status, result.is_member);
         anySucceeded = true;
       } catch (err) {
-        logger.warn(
-          { module: 'reconcile-membership', chat_id: chatId, telegram_id, err },
-          'getChatMember failed — skipping this chat result',
-        );
-        verdict = 'unknown';
+        if (isNotAMemberError(err)) {
+          // Telegram positively reports the user is not a participant of this
+          // chat — a conclusive departed signal, equivalent to status 'left'.
+          verdict = 'departed';
+          anySucceeded = true;
+          logger.info(
+            { module: 'reconcile-membership', chat_id: chatId, telegram_id },
+            'getChatMember: member not found — treating as departed',
+          );
+        } else {
+          logger.warn(
+            { module: 'reconcile-membership', chat_id: chatId, telegram_id, err },
+            'getChatMember failed — skipping this chat result',
+          );
+          verdict = 'unknown';
+        }
       }
 
       if (verdict === 'present') {
