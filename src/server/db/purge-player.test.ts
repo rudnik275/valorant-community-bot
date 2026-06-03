@@ -8,7 +8,7 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import Database from 'better-sqlite3';
 import { join } from 'node:path';
-import { purgePlayer } from './purge-player.ts';
+import { purgePlayer, sweepOrphanedRecords } from './purge-player.ts';
 
 vi.mock('../lib/log.ts', () => ({
   default: {
@@ -132,5 +132,69 @@ describe('purgePlayer', () => {
     expect(counts.detectedEvents).toBe(2);
     expect(sqlite.prepare(`SELECT * FROM match_records WHERE riot_puuid='puuid-multi'`).all()).toHaveLength(0);
     expect(sqlite.prepare(`SELECT * FROM detected_events WHERE riot_puuid='puuid-multi'`).all()).toHaveLength(0);
+  });
+});
+
+describe('sweepOrphanedRecords', () => {
+  let db: ReturnType<typeof makeTestDb>['db'];
+  let sqlite: ReturnType<typeof makeTestDb>['sqlite'];
+
+  beforeEach(() => {
+    ({ db, sqlite } = makeTestDb());
+  });
+
+  afterEach(() => {
+    sqlite.close();
+    vi.resetAllMocks();
+  });
+
+  it('deletes rows whose puuid is not in users, keeps current members', async () => {
+    // Current linked member + their rows (FK on — all valid references)
+    sqlite.exec(`INSERT INTO users (telegram_id, riot_puuid, riot_name, riot_tag) VALUES (1, 'puuid-current', 'Current', 'C')`);
+    sqlite.exec(`INSERT INTO match_records (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result, rounds_played, kill_events_compact) VALUES ('puuid-current', 'm-cur', 1000, 'Ascent', 'Jett', 20, 5, 3, 'win', 25, '[]')`);
+    sqlite.exec(`INSERT INTO all_time_records (record_type, weapon, riot_puuid, value, match_id, achieved_at) VALUES ('kills_match', '', 'puuid-current', 20, 'm-cur', 1000)`);
+    sqlite.exec(`INSERT INTO weekly_records (record_type, week_iso, riot_puuid, value) VALUES ('mvp_count_week', '2024-W01', 'puuid-current', 3)`);
+    sqlite.exec(`INSERT INTO detected_events (event_type, riot_puuid, match_id, payload_json, status) VALUES ('ace', 'puuid-current', 'm-cur', '{}', 'pending')`);
+
+    // Orphan rows (puuid NOT in users) — only insertable with FK temporarily off,
+    // mirroring prod where these arise after a member row was removed out-of-band.
+    sqlite.exec('PRAGMA foreign_keys=OFF');
+    sqlite.exec(`INSERT INTO match_records (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result, rounds_played, kill_events_compact) VALUES ('puuid-orphan', 'm-orph', 2000, 'Bind', 'Sage', 30, 2, 1, 'win', 20, '[]')`);
+    sqlite.exec(`INSERT INTO all_time_records (record_type, weapon, riot_puuid, value, match_id, achieved_at) VALUES ('deaths_match', '', 'puuid-orphan', 99, 'm-orph', 2000)`);
+    sqlite.exec(`INSERT INTO weekly_records (record_type, week_iso, riot_puuid, value) VALUES ('mvp_count_week', '2024-W02', 'puuid-orphan', 5)`);
+    sqlite.exec(`INSERT INTO detected_events (event_type, riot_puuid, match_id, payload_json, status) VALUES ('clutch', 'puuid-orphan', 'm-orph', '{}', 'pending')`);
+    sqlite.exec('PRAGMA foreign_keys=ON');
+
+    const counts = await sweepOrphanedRecords(db);
+
+    // Orphan rows gone from all four tables
+    expect(sqlite.prepare(`SELECT * FROM match_records WHERE riot_puuid='puuid-orphan'`).all()).toHaveLength(0);
+    expect(sqlite.prepare(`SELECT * FROM all_time_records WHERE riot_puuid='puuid-orphan'`).all()).toHaveLength(0);
+    expect(sqlite.prepare(`SELECT * FROM weekly_records WHERE riot_puuid='puuid-orphan'`).all()).toHaveLength(0);
+    expect(sqlite.prepare(`SELECT * FROM detected_events WHERE riot_puuid='puuid-orphan'`).all()).toHaveLength(0);
+
+    // Current member's rows fully intact
+    expect(sqlite.prepare(`SELECT * FROM match_records WHERE riot_puuid='puuid-current'`).all()).toHaveLength(1);
+    expect(sqlite.prepare(`SELECT * FROM all_time_records WHERE riot_puuid='puuid-current'`).all()).toHaveLength(1);
+    expect(sqlite.prepare(`SELECT * FROM weekly_records WHERE riot_puuid='puuid-current'`).all()).toHaveLength(1);
+    expect(sqlite.prepare(`SELECT * FROM detected_events WHERE riot_puuid='puuid-current'`).all()).toHaveLength(1);
+
+    expect(counts.matchRecords).toBe(1);
+    expect(counts.allTimeRecords).toBe(1);
+    expect(counts.weeklyRecords).toBe(1);
+    expect(counts.detectedEvents).toBe(1);
+  });
+
+  it('no orphans → deletes nothing, all counts zero', async () => {
+    sqlite.exec(`INSERT INTO users (telegram_id, riot_puuid) VALUES (1, 'puuid-only')`);
+    sqlite.exec(`INSERT INTO weekly_records (record_type, week_iso, riot_puuid, value) VALUES ('mvp_count_week', '2024-W01', 'puuid-only', 1)`);
+
+    const counts = await sweepOrphanedRecords(db);
+
+    expect(counts.weeklyRecords).toBe(0);
+    expect(counts.matchRecords).toBe(0);
+    expect(counts.allTimeRecords).toBe(0);
+    expect(counts.detectedEvents).toBe(0);
+    expect(sqlite.prepare(`SELECT * FROM weekly_records WHERE riot_puuid='puuid-only'`).all()).toHaveLength(1);
   });
 });

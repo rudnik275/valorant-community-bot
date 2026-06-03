@@ -259,4 +259,49 @@ describe('runReconcileMembershipTick', () => {
     expect(rebuildRecords).not.toHaveBeenCalled();
     expect(sqlite.prepare(`SELECT * FROM users WHERE telegram_id=12`).all()).toHaveLength(1);
   });
+
+  // (j) orphan sweep: record rows whose puuid is no longer in users get swept even
+  // when NO member is purged this tick (e.g. left by the live listener's bare delete),
+  // and a rebuild is triggered.
+  it('(j) orphaned record rows (puuid not in users) are swept + rebuild called', async () => {
+    // A present member (kept)
+    sqlite.exec(`INSERT INTO users (telegram_id, riot_puuid, riot_name, riot_tag) VALUES (1, 'puuid-here', 'Here', 'H')`);
+    // Orphan rows from a prior out-of-band member removal (puuid not in users) — FK off to insert
+    sqlite.exec('PRAGMA foreign_keys=OFF');
+    sqlite.exec(`INSERT INTO weekly_records (record_type, week_iso, riot_puuid, value) VALUES ('mvp_count_week', '2024-W09', 'puuid-ghost', 4)`);
+    sqlite.exec(`INSERT INTO all_time_records (record_type, weapon, riot_puuid, value, match_id, achieved_at) VALUES ('kills_match', '', 'puuid-ghost', 40, 'm-ghost', 5000)`);
+    sqlite.exec('PRAGMA foreign_keys=ON');
+
+    const rebuildRecords = vi.fn().mockResolvedValue(undefined);
+    const getChatMember = vi.fn().mockResolvedValue({ status: 'member' });
+    const deps = makeDeps(db, { getChatMember, rebuildRecords });
+
+    const result = await runReconcileMembershipTick(deps);
+
+    expect(result.purged).toHaveLength(0);
+    expect(rebuildRecords).toHaveBeenCalledOnce();
+    expect(sqlite.prepare(`SELECT * FROM weekly_records WHERE riot_puuid='puuid-ghost'`).all()).toHaveLength(0);
+    expect(sqlite.prepare(`SELECT * FROM all_time_records WHERE riot_puuid='puuid-ghost'`).all()).toHaveLength(0);
+    // present member kept
+    expect(sqlite.prepare(`SELECT * FROM users WHERE telegram_id=1`).all()).toHaveLength(1);
+  });
+
+  // (k) safety: with an empty users table the orphan sweep is skipped entirely, so a
+  // transient/erroneous empty state can never wipe all records.
+  it('(k) empty users table → orphan sweep skipped, records NOT wiped, rebuild not called', async () => {
+    sqlite.exec('PRAGMA foreign_keys=OFF');
+    sqlite.exec(`INSERT INTO weekly_records (record_type, week_iso, riot_puuid, value) VALUES ('mvp_count_week', '2024-W09', 'puuid-ghost', 4)`);
+    sqlite.exec('PRAGMA foreign_keys=ON');
+
+    const rebuildRecords = vi.fn().mockResolvedValue(undefined);
+    const getChatMember = vi.fn().mockResolvedValue({ status: 'member' });
+    const deps = makeDeps(db, { getChatMember, rebuildRecords });
+
+    const result = await runReconcileMembershipTick(deps);
+
+    expect(result.purged).toHaveLength(0);
+    expect(rebuildRecords).not.toHaveBeenCalled();
+    // orphan NOT wiped — the empty-users guard protected the table
+    expect(sqlite.prepare(`SELECT * FROM weekly_records WHERE riot_puuid='puuid-ghost'`).all()).toHaveLength(1);
+  });
 });
