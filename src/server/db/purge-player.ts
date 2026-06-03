@@ -13,7 +13,7 @@
  *   detected_events → all_time_records → weekly_records → match_records → users
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { detectedEvents } from './schema/detected_events.ts';
 import { allTimeRecords } from './schema/all_time_records.ts';
 import { weeklyRecords } from './schema/weekly_records.ts';
@@ -87,5 +87,44 @@ export async function purgePlayer(db: any, input: PurgePlayerInput): Promise<Pur
     weeklyRecords: weeklyRecordsCount,
     matchRecords: matchRecordsCount,
     users: usersCount,
+  };
+}
+
+export interface SweepOrphanCounts {
+  detectedEvents: number;
+  allTimeRecords: number;
+  weeklyRecords: number;
+  matchRecords: number;
+}
+
+/**
+ * Delete rows in the puuid-keyed tables whose riot_puuid is no longer present in
+ * `users` — orphans left behind when a member row was removed WITHOUT going through
+ * purgePlayer (e.g. the live chat-member listener's bare `DELETE FROM users`, which
+ * intentionally leaves records untouched). This is the daily janitor that guarantees
+ * records only ever reflect current members, regardless of how a user was removed.
+ *
+ * Deletes match_records too, so a subsequent records rebuild cannot resurrect a
+ * departed player from their surviving match history.
+ *
+ * IMPORTANT: the caller MUST guard against an empty `users` table before calling this.
+ * With no linked members the "not in users" set matches every row and would wipe all
+ * records — see runReconcileMembershipTick's allMembers guard. Rows with a NULL
+ * riot_puuid are never matched (NULL NOT IN (...) is NULL), so they are left alone.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function sweepOrphanedRecords(db: any): Promise<SweepOrphanCounts> {
+  const orphaned = sql`riot_puuid NOT IN (SELECT riot_puuid FROM users WHERE riot_puuid IS NOT NULL)`;
+
+  const de = await db.delete(detectedEvents).where(orphaned);
+  const atr = await db.delete(allTimeRecords).where(orphaned);
+  const wr = await db.delete(weeklyRecords).where(orphaned);
+  const mr = await db.delete(matchRecords).where(orphaned);
+
+  return {
+    detectedEvents: de.changes ?? de.rowsAffected ?? 0,
+    allTimeRecords: atr.changes ?? atr.rowsAffected ?? 0,
+    weeklyRecords: wr.changes ?? wr.rowsAffected ?? 0,
+    matchRecords: mr.changes ?? mr.rowsAffected ?? 0,
   };
 }

@@ -14,11 +14,13 @@
  * 3. Decision: KEEP if PRESENT in any chat. DEPARTED only if at least one call succeeded
  *    AND every successful call said DEPARTED. If all calls UNKNOWN → SKIP (never purge on
  *    inconclusive data).
- * 4. For each departed (unless dryRun): purgePlayer, then once rebuildRecords if any purged.
+ * 4. For each departed (unless dryRun): purgePlayer. Then sweep orphaned record rows
+ *    whose riot_puuid is no longer in users (left by departures that bypassed purgePlayer,
+ *    e.g. the live chat-member listener). Rebuild records once if anything was purged/swept.
  */
 
 import { Cron } from 'croner';
-import { purgePlayer } from '../db/purge-player.ts';
+import { purgePlayer, sweepOrphanedRecords } from '../db/purge-player.ts';
 import { users } from '../db/schema/users.ts';
 import logger from '../lib/log.ts';
 
@@ -199,18 +201,45 @@ export async function runReconcileMembershipTick(
     }
   }
 
-  // Rebuild derived records once if any purges happened
-  if (purgedIds.length > 0) {
+  // Orphan sweep: clean record rows left behind by departures that bypassed
+  // purgePlayer (e.g. the live chat-member listener deletes only the users row,
+  // stranding records). This makes the daily reconcile the single janitor that
+  // keeps records reflecting current members regardless of how a user was removed.
+  // Guarded by allMembers.length > 0 so we never wipe records when users is
+  // unexpectedly empty (the "not in users" set would otherwise match every row).
+  let sweptAny = false;
+  if (allMembers.length > 0) {
+    try {
+      const swept = await sweepOrphanedRecords(db);
+      const total =
+        swept.detectedEvents + swept.allTimeRecords + swept.weeklyRecords + swept.matchRecords;
+      if (total > 0) {
+        sweptAny = true;
+        logger.info(
+          { module: 'reconcile-membership', ...swept },
+          'Swept orphaned record rows (riot_puuid no longer in users)',
+        );
+      }
+    } catch (err) {
+      logger.error(
+        { module: 'reconcile-membership', err },
+        'sweepOrphanedRecords failed',
+      );
+    }
+  }
+
+  // Rebuild derived records once if anything changed (a purge or an orphan sweep).
+  if (purgedIds.length > 0 || sweptAny) {
     try {
       await rebuildRecords(db);
       logger.info(
-        { module: 'reconcile-membership', purged: purgedIds.length },
-        'Records rebuilt after purge',
+        { module: 'reconcile-membership', purged: purgedIds.length, swept: sweptAny },
+        'Records rebuilt',
       );
     } catch (err) {
       logger.error(
         { module: 'reconcile-membership', err },
-        'rebuildRecords failed after purge',
+        'rebuildRecords failed',
       );
     }
   }
@@ -221,6 +250,7 @@ export async function runReconcileMembershipTick(
       checked: checkedCount,
       departed: departedIds.length,
       purged: purgedIds.length,
+      swept: sweptAny,
       skipped_unknown: skippedUnknownCount,
     },
     'Reconcile membership tick complete',
