@@ -217,4 +217,46 @@ describe('runReconcileMembershipTick', () => {
     expect(rebuildRecords).not.toHaveBeenCalled();
     expect(sqlite.prepare(`SELECT * FROM users WHERE telegram_id=9`).all()).toHaveLength(1);
   });
+
+  // (h) getChatMember rejects with Telegram 400 "member not found" → treated as
+  // DEPARTED (conclusive "not a participant"), purged. Mirrors the real prod case.
+  it('(h) 400 member not found → treated as departed and purged', async () => {
+    sqlite.exec(`INSERT INTO users (telegram_id, riot_puuid, riot_name, riot_tag) VALUES (11, 'puuid-notfound', 'GhostPlayer', 'GH')`);
+
+    const rebuildRecords = vi.fn().mockResolvedValue(undefined);
+    const notFound = Object.assign(new Error("Call to 'getChatMember' failed!"), {
+      error_code: 400,
+      description: 'Bad Request: member not found',
+    });
+    const getChatMember = vi.fn().mockRejectedValue(notFound);
+    const deps = makeDeps(db, { getChatMember, rebuildRecords });
+
+    const result = await runReconcileMembershipTick(deps);
+
+    expect(result.departed).toContain(11);
+    expect(result.purged).toContain(11);
+    expect(rebuildRecords).toHaveBeenCalledOnce();
+    expect(sqlite.prepare(`SELECT * FROM users WHERE telegram_id=11`).all()).toHaveLength(0);
+  });
+
+  // (i) a non-"not found" API error (e.g. 429 rate-limit) stays UNKNOWN → NOT purged.
+  // Proves the not-found classification is specific and doesn't swallow transient failures.
+  it('(i) 429 rate-limit error → unknown, member NOT purged', async () => {
+    sqlite.exec(`INSERT INTO users (telegram_id, riot_puuid, riot_name, riot_tag) VALUES (12, 'puuid-rl', 'RateLimited', 'RL')`);
+
+    const rebuildRecords = vi.fn().mockResolvedValue(undefined);
+    const rateLimited = Object.assign(new Error('Too Many Requests'), {
+      error_code: 429,
+      description: 'Too Many Requests: retry after 5',
+    });
+    const getChatMember = vi.fn().mockRejectedValue(rateLimited);
+    const deps = makeDeps(db, { getChatMember, rebuildRecords });
+
+    const result = await runReconcileMembershipTick(deps);
+
+    expect(result.departed).not.toContain(12);
+    expect(result.purged).not.toContain(12);
+    expect(rebuildRecords).not.toHaveBeenCalled();
+    expect(sqlite.prepare(`SELECT * FROM users WHERE telegram_id=12`).all()).toHaveLength(1);
+  });
 });
