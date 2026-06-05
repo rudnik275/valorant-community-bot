@@ -4,19 +4,19 @@ import { rankToEmojiHtml, RANK_LABEL_TO_ID, RANK_EMOJI } from './rank-emoji.ts';
 describe('rankToEmojiHtml', () => {
   it('returns correct tag for Diamond 3', () => {
     expect(rankToEmojiHtml('Diamond 3')).toBe(
-      '<tg-emoji emoji-id="5267233688634038174">💎</tg-emoji>',
+      '<tg-emoji emoji-id="5264988524544826807">💎</tg-emoji>',
     );
   });
 
   it('returns correct tag for Unranked', () => {
     expect(rankToEmojiHtml('Unranked')).toBe(
-      '<tg-emoji emoji-id="5265026152753303706">❓</tg-emoji>',
+      '<tg-emoji emoji-id="5265111296184984182">❓</tg-emoji>',
     );
   });
 
   it('returns correct tag for Radiant', () => {
     expect(rankToEmojiHtml('Radiant')).toBe(
-      '<tg-emoji emoji-id="5267169736571001201">🌟</tg-emoji>',
+      '<tg-emoji emoji-id="5267355571215962672">🌟</tg-emoji>',
     );
   });
 

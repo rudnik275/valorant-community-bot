@@ -5,32 +5,32 @@
  * Generated 2026-06-05 from valorant-api.com via scripts/launch/build-emoji-pack.ts.
  */
 export const RANK_EMOJI: Record<number, { id: string; fallback: string }> = {
-  0:  { id: '5265026152753303706', fallback: '❓' }, // Unranked
-  3:  { id: '5265134957159815781', fallback: '🪨' }, // Iron 1
-  4:  { id: '5267292688599785735', fallback: '🪨' }, // Iron 2
-  5:  { id: '5267158286188189569', fallback: '🪨' }, // Iron 3
-  6:  { id: '5264800271833275737', fallback: '🥉' }, // Bronze 1
-  7:  { id: '5267421859741209656', fallback: '🥉' }, // Bronze 2
-  8:  { id: '5264736972605264895', fallback: '🥉' }, // Bronze 3
-  9:  { id: '5267074289512781103', fallback: '🥈' }, // Silver 1
-  10: { id: '5267098672042126310', fallback: '🥈' }, // Silver 2
-  11: { id: '5267238679386035982', fallback: '🥈' }, // Silver 3
-  12: { id: '5265189979985849745', fallback: '🥇' }, // Gold 1
-  13: { id: '5264912013997417357', fallback: '🥇' }, // Gold 2
-  14: { id: '5265033359708430577', fallback: '🥇' }, // Gold 3
-  15: { id: '5267223973418014735', fallback: '🐳' }, // Platinum 1
-  16: { id: '5264840455547297024', fallback: '🐳' }, // Platinum 2
-  17: { id: '5267360927040181247', fallback: '🐳' }, // Platinum 3
-  18: { id: '5267083712671028280', fallback: '💎' }, // Diamond 1
-  19: { id: '5265099068413087642', fallback: '💎' }, // Diamond 2
-  20: { id: '5267233688634038174', fallback: '💎' }, // Diamond 3
-  21: { id: '5267139560130781844', fallback: '🟩' }, // Ascendant 1
-  22: { id: '5267384557950246335', fallback: '🟩' }, // Ascendant 2
-  23: { id: '5264896161273127395', fallback: '🟩' }, // Ascendant 3
-  24: { id: '5264803819476262754', fallback: '♦️' }, // Immortal 1
-  25: { id: '5266963281788053597', fallback: '♦️' }, // Immortal 2
-  26: { id: '5265120994221140775', fallback: '♦️' }, // Immortal 3
-  27: { id: '5267169736571001201', fallback: '🌟' }, // Radiant
+  0:  { id: '5265111296184984182', fallback: '❓' }, // Unranked
+  3:  { id: '5267500779765276084', fallback: '🪨' }, // Iron 1
+  4:  { id: '5267046213311570879', fallback: '🪨' }, // Iron 2
+  5:  { id: '5267095583960635641', fallback: '🪨' }, // Iron 3
+  6:  { id: '5267169612016950033', fallback: '🥉' }, // Bronze 1
+  7:  { id: '5264830212050297899', fallback: '🥉' }, // Bronze 2
+  8:  { id: '5265020324482683107', fallback: '🥉' }, // Bronze 3
+  9:  { id: '5267290051489862903', fallback: '🥈' }, // Silver 1
+  10: { id: '5267286684235503964', fallback: '🥈' }, // Silver 2
+  11: { id: '5264817026500696828', fallback: '🥈' }, // Silver 3
+  12: { id: '5267008735426942279', fallback: '🥇' }, // Gold 1
+  13: { id: '5265140751070703982', fallback: '🥇' }, // Gold 2
+  14: { id: '5267307248538919935', fallback: '🥇' }, // Gold 3
+  15: { id: '5265007409516026311', fallback: '🐳' }, // Platinum 1
+  16: { id: '5264832819095445772', fallback: '🐳' }, // Platinum 2
+  17: { id: '5267092826591633219', fallback: '🐳' }, // Platinum 3
+  18: { id: '5265233698457953306', fallback: '💎' }, // Diamond 1
+  19: { id: '5264929490219344084', fallback: '💎' }, // Diamond 2
+  20: { id: '5264988524544826807', fallback: '💎' }, // Diamond 3
+  21: { id: '5265036318940896089', fallback: '🟩' }, // Ascendant 1
+  22: { id: '5265246952727030216', fallback: '🟩' }, // Ascendant 2
+  23: { id: '5267391030465961034', fallback: '🟩' }, // Ascendant 3
+  24: { id: '5265033432722870934', fallback: '♦️' }, // Immortal 1
+  25: { id: '5265074011573883882', fallback: '♦️' }, // Immortal 2
+  26: { id: '5265119078665724464', fallback: '♦️' }, // Immortal 3
+  27: { id: '5267355571215962672', fallback: '🌟' }, // Radiant
 };
 
 export const RANK_LABEL_TO_ID: Record<string, number> = {
