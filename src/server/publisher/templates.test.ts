@@ -135,7 +135,7 @@ describe('renderTemplate — payload-specific behavior', () => {
     const output = renderTemplate('peak_rank_up', { from_tier_name: 'Diamond 3', to_tier_name: 'Ascendant 1' }, safeUser);
     expect(output).toContain('Повышение по службе');
     expect(output).toContain('<b>Player#TAG</b>');
-    expect(output).toContain('<tg-emoji emoji-id="5267139560130781844">🟩</tg-emoji>');
+    expect(output).toContain('<tg-emoji emoji-id="5265036318940896089">🟩</tg-emoji>');
     expect(output).toContain('Ascendant 1');
     expect(output).not.toContain('Diamond 3');
   });
@@ -143,14 +143,14 @@ describe('renderTemplate — payload-specific behavior', () => {
   it('rank_promo: Immortal 1 shows icon + full rank label', () => {
     const output = renderTemplate('peak_rank_up', { to_tier_name: 'Immortal 1' }, safeUser);
     expect(output).toContain('Повышение по службе');
-    expect(output).toContain('<tg-emoji emoji-id="5264803819476262754">♦️</tg-emoji>');
+    expect(output).toContain('<tg-emoji emoji-id="5265033432722870934">♦️</tg-emoji>');
     expect(output).toContain('Immortal 1');
   });
 
   it('rank_promo: Radiant shows icon + Radiant', () => {
     const output = renderTemplate('peak_rank_up', { to_tier_name: 'Radiant' }, safeUser);
     expect(output).toContain('Повышение по службе');
-    expect(output).toContain('<tg-emoji emoji-id="5267169736571001201">🌟</tg-emoji>');
+    expect(output).toContain('<tg-emoji emoji-id="5267355571215962672">🌟</tg-emoji>');
     expect(output).toContain('Radiant');
   });
 
