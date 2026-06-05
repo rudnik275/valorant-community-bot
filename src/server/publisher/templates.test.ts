@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { renderTemplate, renderDigestGroup, esc } from './templates.ts';
+import { mapToEmojiHtml, weaponToEmojiHtml } from './valorant-emoji.ts';
 import type { EventType } from './types.ts';
 
 const ALL_EVENT_TYPES: EventType[] = [
@@ -117,7 +118,7 @@ describe('renderTemplate — payload-specific behavior', () => {
 
   it('ace: includes map from match param', () => {
     const output = renderTemplate('ace', {}, safeUser, { map: 'Ascent' });
-    expect(output).toContain('на карте Ascent');
+    expect(output).toContain(`на карте ${mapToEmojiHtml('Ascent')} Ascent`);
   });
 
   it('ace: contains AAAAAAACE heading', () => {
@@ -134,7 +135,7 @@ describe('renderTemplate — payload-specific behavior', () => {
     const output = renderTemplate('peak_rank_up', { from_tier_name: 'Diamond 3', to_tier_name: 'Ascendant 1' }, safeUser);
     expect(output).toContain('Повышение по службе');
     expect(output).toContain('<b>Player#TAG</b>');
-    expect(output).toContain('<tg-emoji emoji-id="5188550815484256589">🟩</tg-emoji>');
+    expect(output).toContain('<tg-emoji emoji-id="5267139560130781844">🟩</tg-emoji>');
     expect(output).toContain('Ascendant 1');
     expect(output).not.toContain('Diamond 3');
   });
@@ -142,14 +143,14 @@ describe('renderTemplate — payload-specific behavior', () => {
   it('rank_promo: Immortal 1 shows icon + full rank label', () => {
     const output = renderTemplate('peak_rank_up', { to_tier_name: 'Immortal 1' }, safeUser);
     expect(output).toContain('Повышение по службе');
-    expect(output).toContain('<tg-emoji emoji-id="5188459714932943688">♦️</tg-emoji>');
+    expect(output).toContain('<tg-emoji emoji-id="5264803819476262754">♦️</tg-emoji>');
     expect(output).toContain('Immortal 1');
   });
 
   it('rank_promo: Radiant shows icon + Radiant', () => {
     const output = renderTemplate('peak_rank_up', { to_tier_name: 'Radiant' }, safeUser);
     expect(output).toContain('Повышение по службе');
-    expect(output).toContain('<tg-emoji emoji-id="5190818141604715555">🌟</tg-emoji>');
+    expect(output).toContain('<tg-emoji emoji-id="5267169736571001201">🌟</tg-emoji>');
     expect(output).toContain('Radiant');
   });
 
@@ -212,7 +213,7 @@ describe('renderTemplate — payload-specific behavior', () => {
     );
     expect(output).toContain('🏅<b>Player#TAG</b>');
     expect(output).toContain('<i>отыгрались</i> с <b>0:9</b> до <b>16:14</b>');
-    expect(output).toContain('🗺️ <a href="https://tracker.gg/valorant/match/abc">Breeze</a>');
+    expect(output).toContain(`${mapToEmojiHtml('Breeze')} <a href="https://tracker.gg/valorant/match/abc">Breeze</a>`);
     // No legacy "матч" link when map is present.
     expect(output).not.toContain('>матч<');
   });
@@ -236,7 +237,7 @@ describe('renderTemplate — payload-specific behavior', () => {
     );
     expect(output).toContain('🏅<b>Alpha#A</b>\n🏅<b>Bravo#B</b>\n🏅<b>Charlie#C</b>');
     expect(output).toContain('<i>отыгрались</i> с <b>0:9</b> до <b>16:14</b>');
-    expect(output).toContain('🗺️ <a href="https://tracker.gg/valorant/match/m-1">Breeze</a>');
+    expect(output).toContain(`${mapToEmojiHtml('Breeze')} <a href="https://tracker.gg/valorant/match/m-1">Breeze</a>`);
     // The triggering safeUser must not leak when community_players is set.
     expect(output).not.toContain('<b>Player#TAG</b>');
   });
@@ -388,7 +389,7 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('Дело принципа');
     expect(output).toContain('58 минут');
     expect(output).toContain('(30 раундов)');
-    expect(output).toContain('на карте Ascent');
+    expect(output).toContain(`на карте ${mapToEmojiHtml('Ascent')} Ascent`);
     expect(output).toContain('🏆'); // win
     // Player line: nick#tag, nick#tag — not bolded, not "проинвестировал"
     expect(output).toContain('Alice#ALI');
@@ -445,7 +446,7 @@ describe('renderTemplate — payload-specific behavior', () => {
       community_players: [{ puuid: 'p1', name: 'Champ', tag: '7777' }],
     }, safeUser, { map: 'Ascent' });
     // Single line: nick - minutes (rounds) на карте X 🏆
-    expect(output).toMatch(/Champ#7777<\/b> - 49 минут \(23 раундов\) на карте Ascent 🏆/);
+    expect(output).toContain(`Champ#7777</b> - 49 минут (23 раундов) на карте ${mapToEmojiHtml('Ascent')} Ascent 🏆`);
   });
 
   it('record_longest_match_minutes: includes match link when match_id present', () => {
@@ -482,9 +483,9 @@ describe('renderDigestGroup — record_kills_per_weapon combined section', () =>
     ]);
     expect(output).toContain('Мастера своего дела');
     expect(output).toContain('лидеры по убийствам одним оружием');
-    expect(output).toContain('🎯 Bulldog 7 - <b>Alice#AAA</b>');
-    expect(output).toContain('🎯 Sheriff 10 - <b>Bob#BBB</b>');
-    expect(output).toContain('🎯 Operator 6 - <b>Cara#CCC</b>');
+    expect(output).toContain(`${weaponToEmojiHtml('Bulldog')} Bulldog 7 - <b>Alice#AAA</b>`);
+    expect(output).toContain(`${weaponToEmojiHtml('Sheriff')} Sheriff 10 - <b>Bob#BBB</b>`);
+    expect(output).toContain(`${weaponToEmojiHtml('Operator')} Operator 6 - <b>Cara#CCC</b>`);
   });
 
   it('sorts entries by frag count descending', () => {

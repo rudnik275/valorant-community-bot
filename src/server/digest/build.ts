@@ -26,6 +26,7 @@ import { allTimeRecords } from '../db/schema/all_time_records.ts';
 import { computeAndEmitWeeklyMvpRecord } from './weekly-mvp-record.ts';
 import { NEAR_MISS_THRESHOLDS } from './near-miss-config.ts';
 import { renderTemplate, renderDigestGroup, type TemplateUser, type TemplateMatch } from '../publisher/templates.ts';
+import { agentToEmojiHtml, mapToEmojiHtml } from '../publisher/valorant-emoji.ts';
 import type { EventType } from '../publisher/types.ts';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
@@ -619,7 +620,10 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
 
     if (maps.length > 0) {
       const mapLines = maps
-        .map((m: { map: string; cnt: number }) => `• <b>${esc(String(m.map))}</b> (${Number(m.cnt)}×)`)
+        .map((m: { map: string; cnt: number }) => {
+          const icon = mapToEmojiHtml(String(m.map));
+          return `• ${icon ? `${icon} ` : ''}<b>${esc(String(m.map))}</b> (${Number(m.cnt)}×)`;
+        })
         .join('\n');
       alwaysSections.push(`🗺 Чаще всего играли на:\n${mapLines}`);
       sectionsIncluded.push('topMaps');
@@ -643,7 +647,10 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
 
     if (agents.length > 0) {
       const agentLines = agents
-        .map((a: { agent: string; cnt: number }) => `• <b>${esc(String(a.agent))}</b> (${Number(a.cnt)}×)`)
+        .map((a: { agent: string; cnt: number }) => {
+          const icon = agentToEmojiHtml(String(a.agent));
+          return `• ${icon ? `${icon} ` : ''}<b>${esc(String(a.agent))}</b> (${Number(a.cnt)}×)`;
+        })
         .join('\n');
       alwaysSections.push(`🎭 Чаще всего пикали:\n${agentLines}`);
       sectionsIncluded.push('topAgents');

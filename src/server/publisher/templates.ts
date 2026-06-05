@@ -11,6 +11,7 @@
 
 import type { EventType } from './types.ts';
 import { rankToEmojiHtml } from './rank-emoji.ts';
+import { mapToEmojiHtml, weaponToEmojiHtml } from './valorant-emoji.ts';
 
 /**
  * HTML-escape a string to prevent injection in Telegram HTML messages.
@@ -63,8 +64,19 @@ function ctxLine(text: string): string {
   return `<i>${text}</i>`;
 }
 
+/** Map custom-emoji icon followed by a space, or '' when the map is unknown. */
+function mapIcon(map: string | undefined): string {
+  const e = mapToEmojiHtml(map);
+  return e ? `${e} ` : '';
+}
+
+/** Weapon custom-emoji icon, falling back to the given unicode marker. */
+function weaponLead(weapon: string | undefined, fallback: string): string {
+  return weaponToEmojiHtml(weapon) || fallback;
+}
+
 function mapSuffix(map: string | undefined): string {
-  return map ? ` на карте ${esc(map)}` : '';
+  return map ? ` на карте ${mapIcon(map)}${esc(map)}` : '';
 }
 
 /**
@@ -281,10 +293,11 @@ const templates: Record<EventType, TemplateFn> = {
       : `🏅${playerTag(user)}`;
     const summary = `<i>отыгрались</i> с <b>${esc(String(dp))}:${esc(String(dop))}</b> до <b>${esc(String(fp))}:${esc(String(fop))}</b>`;
     let bottom = '';
+    const mIcon = match?.map ? (mapToEmojiHtml(match.map) || '🗺️') : '🗺️';
     if (match?.map && match?.match_id) {
-      bottom = `\n\n🗺️ <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">${esc(match.map)}</a>`;
+      bottom = `\n\n${mIcon} <a href="https://tracker.gg/valorant/match/${esc(match.match_id)}">${esc(match.map)}</a>`;
     } else if (match?.map) {
-      bottom = `\n\n🗺️ ${esc(match.map)}`;
+      bottom = `\n\n${mIcon} ${esc(match.map)}`;
     } else if (match?.match_id) {
       bottom = matchLine(match.match_id);
     }
@@ -298,7 +311,7 @@ const templates: Record<EventType, TemplateFn> = {
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = 'самое большое количество убийств за игру из одного оружия';
     const valueLine = `${playerTag(user)} — ${esc(String(value))} фрагов${matchLinkInline(realMatchId ? String(realMatchId) : undefined)}`;
-    return `🔫 <u>Эксперт по ${esc(String(weapon))}</u>\n${ctxLine(ctx)}\n${valueLine}${prev}`;
+    return `${weaponLead(String(weapon), '🔫')} <u>Эксперт по ${esc(String(weapon))}</u>\n${ctxLine(ctx)}\n${valueLine}${prev}`;
   },
 
   record_longest_match_minutes: (payload, user, match) => {
@@ -427,7 +440,7 @@ export function renderDigestGroup(eventType: EventType, entries: DigestEntry[]):
         return { weapon, value, user: e.user };
       })
       .sort((a, b) => b.value - a.value)
-      .map((x) => `🎯 ${esc(x.weapon)} ${x.value} - <b>${esc(x.user.riot_name)}#${esc(x.user.riot_tag)}</b>`);
+      .map((x) => `${weaponLead(x.weapon, '🎯')} ${esc(x.weapon)} ${x.value} - <b>${esc(x.user.riot_name)}#${esc(x.user.riot_tag)}</b>`);
     return `🔫 <u>Мастера своего дела</u>\n${ctxLine('лидеры по убийствам одним оружием за матч')}\n${lines.join('\n')}`;
   }
 
