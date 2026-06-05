@@ -276,7 +276,7 @@ const LEGEND =
   `🏆 - с победой в раунде\n` +
   `🎯 - Ace\n` +
   `🔪 - Заколол баранчика\n` +
-  `🔪🪿 - Распотрошил гуся` +
+  `🔪🪿 - Распотрошил гуся (убил афкашника с ножа)` +
   `</blockquote>`;
 
 /** Pure renderer — emits the combined daily post. Exported for unit tests. */

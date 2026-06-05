@@ -48,6 +48,7 @@ export interface CommunityRosterRow {
   team: string;
   riot_name: string | null;
   riot_tag: string | null;
+  agent: string | null;
 }
 
 /**
@@ -148,6 +149,7 @@ export async function getCommunityRoster(
       team: matchRosters.team,
       riot_name: users.riot_name,
       riot_tag: users.riot_tag,
+      agent: matchRosters.agent,
     })
     .from(matchRosters)
     .innerJoin(users, eq(users.riot_puuid, matchRosters.riot_puuid))

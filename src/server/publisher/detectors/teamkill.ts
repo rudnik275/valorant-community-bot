@@ -1,6 +1,6 @@
 import type { Detector, DetectedEvent, DetectorDeps, MatchRecord } from '../types.ts';
 import { decodeKillEvents } from '../../lib/match-codec.ts';
-import { getUsersByPuuids } from '../../db/queries.ts';
+import { getUsersByPuuids, getCommunityRoster } from '../../db/queries.ts';
 
 /**
  * Teamkill detector: player killed a community teammate (same team, different player,
@@ -40,6 +40,12 @@ export const teamkillDetector: Detector = {
     const communityKills = myTeamkills.filter((k) => communitySet.has(k.victim_puuid));
     if (communityKills.length === 0) return [];
 
+    // Agent each victim ran this match — drives the agent emoji next to the
+    // victim nick (#301). Sourced from the roster (all 10 players), so it's
+    // populated regardless of whether the victim has been scanned yet.
+    const roster = await getCommunityRoster(db, record.match_id);
+    const agentByPuuid = new Map(roster.map((r) => [r.riot_puuid, r.agent]));
+
     return [{
       type: 'teamkill',
       riot_puuid: puuid,
@@ -50,6 +56,7 @@ export const teamkillDetector: Detector = {
           puuid: k.victim_puuid,
           name: communityNames.get(k.victim_puuid)?.name ?? '',
           tag: communityNames.get(k.victim_puuid)?.tag ?? '',
+          agent: agentByPuuid.get(k.victim_puuid) ?? undefined,
         })),
         victim_names_for_template: communityKills.map((k) => communityNames.get(k.victim_puuid)?.name ?? ''),
       },

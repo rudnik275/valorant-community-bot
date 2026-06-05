@@ -9,6 +9,7 @@ export const matchRosters = sqliteTable(
     team: text('team').notNull(),       // 'Blue' / 'Red' (Henrik team_id)
     name: text('name'),
     tag: text('tag'),
+    agent: text('agent'),               // agent played this match (null for pre-#301 rows)
     inserted_at: integer('inserted_at').notNull().default(sql`(unixepoch() * 1000)`),
   },
   (table) => [

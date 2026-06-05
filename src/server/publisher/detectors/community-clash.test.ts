@@ -69,8 +69,9 @@ async function seedRoster(
   team: string,
   name: string | null = null,
   tag: string | null = null,
+  agent: string | null = null,
 ) {
-  await db.insert(matchRosters).values({ match_id: matchId, riot_puuid: puuid, team, name, tag });
+  await db.insert(matchRosters).values({ match_id: matchId, riot_puuid: puuid, team, name, tag, agent });
 }
 
 describe('communityClashDetector', () => {
@@ -181,6 +182,22 @@ describe('communityClashDetector', () => {
     // Second call — should be empty due to idempotency guard
     const secondEvents = await communityClashDetector.detect(record, [], { db });
     expect(secondEvents).toHaveLength(0);
+  });
+
+  it('carries each player agent from the roster into the payload (#301)', async () => {
+    await seedUser(db, 'puuid-1', 'Player1', 'TAG1');
+    await seedUser(db, 'puuid-2', 'Player2', 'TAG2');
+    await seedRoster(db, 'match-001', 'puuid-1', 'Blue', 'Player1', 'TAG1', 'Jett');
+    await seedRoster(db, 'match-001', 'puuid-2', 'Red', 'Player2', 'TAG2', 'Sage');
+
+    const record = makeRecord({ riot_puuid: 'puuid-1', match_id: 'match-001', result: 'win' });
+    const events = await communityClashDetector.detect(record, [], { db });
+
+    expect(events).toHaveLength(1);
+    const teams = events[0]!.payload['teams'] as Array<{ team_id: string; players: Array<{ puuid: string; agent: string | null }> }>;
+    const agentByPuuid = new Map(teams.flatMap((t) => t.players).map((p) => [p.puuid, p.agent]));
+    expect(agentByPuuid.get('puuid-1')).toBe('Jett');
+    expect(agentByPuuid.get('puuid-2')).toBe('Sage');
   });
 
   it('winner_team_id set correctly when result=win', async () => {

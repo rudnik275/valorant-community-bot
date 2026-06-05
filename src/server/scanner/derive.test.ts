@@ -591,12 +591,15 @@ describe('deriveMatchRoster', () => {
     expect(red).toHaveLength(5);
   });
 
-  it('includes name and tag fields for each player', () => {
+  it('includes name, tag and agent fields for each player', () => {
     const rosters = deriveMatchRoster(v4Fixture as HenrikMatchV4);
     const target = rosters.find((r) => r.riot_puuid === 'target-puuid');
     expect(target).toBeDefined();
     expect(target!.name).toBe('Player');
     expect(target!.tag).toBe('EU1');
+    // #301: roster carries each player's agent so co-player / victim nicks can
+    // render an agent emoji regardless of scan order.
+    expect(target!.agent).toBe('Jett');
   });
 
   it('uses match_id from metadata', () => {
