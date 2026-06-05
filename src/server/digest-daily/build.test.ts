@@ -164,7 +164,7 @@ describe('buildDailyAceDigest', () => {
       // The 5th line (🔪🪿) tags knife kills of AFK victims — added in the
       // AFK-knife feature; kept here in the same plain format as the others.
       expect(text).toContain(
-        '<blockquote>💀 - без победы в раунде\n🏆 - с победой в раунде\n🎯 - Ace\n🔪 - Заколол баранчика\n🔪🪿 - Распотрошил гуся</blockquote>',
+        '<blockquote>💀 - без победы в раунде\n🏆 - с победой в раунде\n🎯 - Ace\n🔪 - Заколол баранчика\n🔪🪿 - Распотрошил гуся (убил афкашника с ножа)</blockquote>',
       );
       expect(text).not.toContain('<i>💀');
       expect(text).not.toContain('<i>🏆');

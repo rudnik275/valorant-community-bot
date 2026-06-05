@@ -11,7 +11,7 @@
 
 import type { EventType } from './types.ts';
 import { rankToEmojiHtml } from './rank-emoji.ts';
-import { mapToEmojiHtml, weaponToEmojiHtml } from './valorant-emoji.ts';
+import { agentToEmojiHtml, mapToEmojiHtml, weaponToEmojiHtml } from './valorant-emoji.ts';
 
 /**
  * HTML-escape a string to prevent injection in Telegram HTML messages.
@@ -36,6 +36,8 @@ export interface TemplateUser {
 export interface TemplateMatch {
   map?: string;
   match_id?: string;
+  /** Agent the triggering player ran this match — rendered as a custom emoji next to their nick. */
+  agent?: string;
 }
 
 type TemplateFn = (
@@ -73,6 +75,16 @@ function mapIcon(map: string | undefined): string {
 /** Weapon custom-emoji icon, falling back to the given unicode marker. */
 function weaponLead(weapon: string | undefined, fallback: string): string {
   return weaponToEmojiHtml(weapon) || fallback;
+}
+
+/**
+ * Agent custom-emoji suffix for a player nick: a leading space + emoji, or ''
+ * when the agent is unknown (older matches, missing roster). Append directly
+ * after the bold nick: `${playerTag(user)}${agentLead(match?.agent)}`.
+ */
+function agentLead(agent: string | null | undefined): string {
+  const e = agentToEmojiHtml(agent);
+  return e ? ` ${e}` : '';
 }
 
 function mapSuffix(map: string | undefined): string {
@@ -132,7 +144,7 @@ const templates: Record<EventType, TemplateFn> = {
       }
     }
     const killsStr = maxKills > 5 ? ` — ${maxKills} убийств` : '';
-    const desc = `${playerTag(user)}${killsStr}${mapSuffix(match?.map)}`;
+    const desc = `${playerTag(user)}${agentLead(match?.agent)}${killsStr}${mapSuffix(match?.map)}`;
     const link = match?.match_id ? matchLine(match.match_id) : '';
     return `🎯 <u>AAAAAAACE!</u>\n\n${desc}${link}`;
   },
@@ -142,7 +154,9 @@ const templates: Record<EventType, TemplateFn> = {
     const rankEmoji = rankToEmojiHtml(to as string);
     let rankPart = '';
     if (to) {
-      rankPart = rankEmoji ? ` ${rankEmoji} ${esc(String(to))}` : ` ${esc(String(to))}`;
+      // Rank → emoji only; tier text dropped (falls back to text when the tier
+      // has no custom emoji). See #301.
+      rankPart = rankEmoji ? ` ${rankEmoji}` : ` ${esc(String(to))}`;
     }
     const desc = `${playerTag(user)} — поднялся(лась) до${rankPart}`;
     return `🎖 <u>Повышение по службе</u>\n${desc}`;
@@ -157,9 +171,13 @@ const templates: Record<EventType, TemplateFn> = {
   giant_slayer: (payload, user, match) => {
     const own = payload['own'] ?? '';
     const enemy = payload['enemy_avg'] ?? '';
-    const ownStr = own ? ` (${esc(String(own))})` : '';
-    const enemyStr = enemy ? ` (средний ранг ${esc(String(enemy))})` : '';
-    const desc = `${playerTag(user)}${ownStr} — выиграл(а) против превосходящего врага${enemyStr}`;
+    // Own + enemy-average rank → emoji only (text dropped, falls back to text
+    // when the tier has no custom emoji). See #301.
+    const ownEmoji = rankToEmojiHtml(own as string);
+    const enemyEmoji = rankToEmojiHtml(enemy as string);
+    const ownStr = ownEmoji ? ` ${ownEmoji}` : (own ? ` (${esc(String(own))})` : '');
+    const enemyStr = enemyEmoji ? ` ${enemyEmoji}` : (enemy ? ` (средний ранг ${esc(String(enemy))})` : '');
+    const desc = `${playerTag(user)}${agentLead(match?.agent)}${ownStr} — выиграл(а) против превосходящего врага${enemyStr}`;
     const link = match?.match_id ? matchLine(match.match_id) : '';
     return `💪 <u>Поводил(ла) по губам</u>\n\n${desc}${link}`;
   },
@@ -173,10 +191,21 @@ const templates: Record<EventType, TemplateFn> = {
   teamkill: (payload, user, match) => {
     const roundNumbers = Array.isArray(payload['round_numbers']) ? payload['round_numbers'] : [];
     const count = roundNumbers.length > 1 ? ` (${roundNumbers.length}× за матч)` : '';
-    const victimNames = Array.isArray(payload['victim_names_for_template']) ? payload['victim_names_for_template'] as string[] : [];
-    const uniqueVictims = Array.from(new Set(victimNames.filter((n) => n && n.length > 0)));
-    const victimStr = uniqueVictims.length > 0 ? ` (${uniqueVictims.map((n) => `<b>${esc(n)}</b>`).join(', ')})` : '';
-    const desc = `${playerTag(user)} убил(а) своего${victimStr}${count}${mapSuffix(match?.map)}`;
+    // Victim nick + their agent emoji. Dedup by nick, first-seen wins (keeps the
+    // first agent if a victim somehow appears twice). Falls back to the legacy
+    // names-only array for older payloads without per-victim agent.
+    const victims: Array<{ name?: string; agent?: string }> = Array.isArray(payload['victims'])
+      ? payload['victims'] as Array<{ name?: string; agent?: string }>
+      : (Array.isArray(payload['victim_names_for_template'])
+        ? (payload['victim_names_for_template'] as string[]).map((name) => ({ name }))
+        : []);
+    const byName = new Map<string, { name?: string; agent?: string }>();
+    for (const v of victims) {
+      if (v.name && v.name.length > 0 && !byName.has(v.name)) byName.set(v.name, v);
+    }
+    const victimParts = Array.from(byName.values()).map((v) => `<b>${esc(v.name!)}</b>${agentLead(v.agent)}`);
+    const victimStr = victimParts.length > 0 ? ` (${victimParts.join(', ')})` : '';
+    const desc = `${playerTag(user)}${agentLead(match?.agent)} убил(а) своего${victimStr}${count}${mapSuffix(match?.map)}`;
     const link = match?.match_id ? matchLine(match.match_id) : '';
     return `🐀 <u>Ля ты и крыса</u>\n\n${desc}${link}`;
   },
@@ -184,7 +213,7 @@ const templates: Record<EventType, TemplateFn> = {
   fall_damage_death: (payload, user, match) => {
     const n = Number(payload['count'] ?? 1);
     const countStr = n > 1 ? ` (${n}×)` : '';
-    const desc = `${playerTag(user)} — умер(ла) от падения${countStr}${mapSuffix(match?.map)}`;
+    const desc = `${playerTag(user)}${agentLead(match?.agent)} — умер(ла) от падения${countStr}${mapSuffix(match?.map)}`;
     const link = match?.match_id ? matchLine(match.match_id) : '';
     return `🪂 <u>1:0 в пользу гравитации</u>\n\n${desc}${link}`;
   },
@@ -193,7 +222,7 @@ const templates: Record<EventType, TemplateFn> = {
     const value = payload['value'];
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = recordContextLine('record_damage_dealt_match');
-    const valueLine = `${playerTag(user)} — ${esc(String(value))} dmg${matchLinkInline(match?.match_id)}`;
+    const valueLine = `${playerTag(user)}${agentLead(match?.agent)} — ${esc(String(value))} dmg${matchLinkInline(match?.match_id)}`;
     return `🥩 <u>Мясник</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
   },
 
@@ -201,7 +230,7 @@ const templates: Record<EventType, TemplateFn> = {
     const value = payload['value'];
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = recordContextLine('record_damage_received_match');
-    const valueLine = `${playerTag(user)} — получил(а) ${esc(String(value))} dmg${matchLinkInline(match?.match_id)}`;
+    const valueLine = `${playerTag(user)}${agentLead(match?.agent)} — получил(а) ${esc(String(value))} dmg${matchLinkInline(match?.match_id)}`;
     return `🤕 <u>Груша для битья</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
   },
 
@@ -209,7 +238,7 @@ const templates: Record<EventType, TemplateFn> = {
     const value = payload['value'];
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = recordContextLine('record_kills_match');
-    const valueLine = `${playerTag(user)} — ${esc(String(value))} фрагов${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
+    const valueLine = `${playerTag(user)}${agentLead(match?.agent)} — ${esc(String(value))} фрагов${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
     return `💀 <u>Серийный маньяк</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
   },
 
@@ -217,7 +246,7 @@ const templates: Record<EventType, TemplateFn> = {
     const value = payload['value'];
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = recordContextLine('record_deaths_match');
-    const valueLine = `${playerTag(user)} — ${esc(String(value))} смертей${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
+    const valueLine = `${playerTag(user)}${agentLead(match?.agent)} — ${esc(String(value))} смертей${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
     return `⚰️ <u>Магнит для пуль</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
   },
 
@@ -225,7 +254,7 @@ const templates: Record<EventType, TemplateFn> = {
     const value = payload['value'];
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = recordContextLine('record_headshots_match');
-    const valueLine = `${playerTag(user)} — ${esc(String(value))} попаданий в голову${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
+    const valueLine = `${playerTag(user)}${agentLead(match?.agent)} — ${esc(String(value))} попаданий в голову${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
     return `🤠 <u>Директор дикого запада</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
   },
 
@@ -233,7 +262,7 @@ const templates: Record<EventType, TemplateFn> = {
     const value = payload['value'];
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = recordContextLine('record_legshots_match');
-    const valueLine = `${playerTag(user)} — ${esc(String(value))} попаданий в ноги${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
+    const valueLine = `${playerTag(user)}${agentLead(match?.agent)} — ${esc(String(value))} попаданий в ноги${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
     return `♿️ <u>Угадай куда шмальну</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
   },
 
@@ -241,7 +270,7 @@ const templates: Record<EventType, TemplateFn> = {
     const value = payload['value'];
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = recordContextLine('record_survived_last_rounds');
-    const valueLine = `${playerTag(user)} — ${esc(String(value))} последних смертей${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
+    const valueLine = `${playerTag(user)}${agentLead(match?.agent)} — ${esc(String(value))} последних смертей${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
     return `⚓ <u>Якорь</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
   },
 
@@ -249,14 +278,14 @@ const templates: Record<EventType, TemplateFn> = {
     const value = payload['value'];
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
     const ctx = recordContextLine('record_died_first_rounds');
-    const valueLine = `${playerTag(user)} — ${esc(String(value))} первых смертей${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
+    const valueLine = `${playerTag(user)}${agentLead(match?.agent)} — ${esc(String(value))} первых смертей${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
     return `🐴 <u>Троянский конь</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
   },
 
   knife_kill: (payload, user, match) => {
     const count = Number(payload['count'] ?? 1);
     const countStr = count > 1 ? `${count} врагов` : 'врага';
-    const desc = `${playerTag(user)} — зарезал(а) ${countStr} с ножа${mapSuffix(match?.map)}`;
+    const desc = `${playerTag(user)}${agentLead(match?.agent)} — зарезал(а) ${countStr} с ножа${mapSuffix(match?.map)}`;
     const link = match?.match_id ? matchLine(match.match_id) : '';
     return `🔪 <u>Заколол баранчика</u>\n\n${desc}${link}`;
   },
@@ -283,14 +312,14 @@ const templates: Record<EventType, TemplateFn> = {
     // triggering user when community_players is absent (older events, tests
     // with minimal payloads).
     const players = Array.isArray(payload['community_players'])
-      ? payload['community_players'] as Array<{ puuid: string; name: string; tag: string }>
+      ? payload['community_players'] as Array<{ puuid: string; name: string; tag: string; agent?: string }>
       : [];
     const playerLines = players
-      .map((p) => p.name ? `🏅<b>${esc(p.name)}#${esc(p.tag ?? '')}</b>` : '')
+      .map((p) => p.name ? `🏅<b>${esc(p.name)}#${esc(p.tag ?? '')}</b>${agentLead(p.agent)}` : '')
       .filter((s) => s);
     const playersBlock = playerLines.length > 0
       ? playerLines.join('\n')
-      : `🏅${playerTag(user)}`;
+      : `🏅${playerTag(user)}${agentLead(match?.agent)}`;
     const summary = `<i>отыгрались</i> с <b>${esc(String(dp))}:${esc(String(dop))}</b> до <b>${esc(String(fp))}:${esc(String(fop))}</b>`;
     let bottom = '';
     const mIcon = match?.map ? (mapToEmojiHtml(match.map) || '🗺️') : '🗺️';
@@ -320,10 +349,10 @@ const templates: Record<EventType, TemplateFn> = {
     const result = String(payload['result'] ?? '');
     const resultEmoji = result === 'win' ? '🏆' : result === 'loss' ? '💀' : result === 'draw' ? '🏳️' : '';
     const players = Array.isArray(payload['community_players'])
-      ? payload['community_players'] as Array<{ puuid: string; name: string; tag: string }>
+      ? payload['community_players'] as Array<{ puuid: string; name: string; tag: string; agent?: string }>
       : [];
     const playersLine = players
-      .map((p) => p.name ? `<b>${esc(p.name)}#${esc(p.tag ?? '')}</b>` : '')
+      .map((p) => p.name ? `<b>${esc(p.name)}#${esc(p.tag ?? '')}</b>${agentLead(p.agent)}` : '')
       .filter((s) => s)
       .join(', ');
     const ctx = 'рекорд по длительности матча';
@@ -331,20 +360,20 @@ const templates: Record<EventType, TemplateFn> = {
     const resultPart = resultEmoji ? ` ${resultEmoji}` : '';
     // Per user: nick first, then the data line — single line.
     // Fallback to playerTag(user) when there are no community_players in payload.
-    const lead = playersLine || playerTag(user);
+    const lead = playersLine || `${playerTag(user)}${agentLead(match?.agent)}`;
     const valueLine = `${lead} - ${esc(String(minutes))} минут${roundsPart}${mapSuffix(match?.map)}${resultPart}${matchLinkInline(match?.match_id)}`;
     return `⏳ <u>Дело принципа</u>\n${ctxLine(ctx)}\n${valueLine}`;
   },
 
   community_clash: (payload, _user, match) => {
     const teams = Array.isArray(payload['teams'])
-      ? payload['teams'] as Array<{ team_id: string; players: Array<{ puuid: string; name: string | null; tag: string | null }> }>
+      ? payload['teams'] as Array<{ team_id: string; players: Array<{ puuid: string; name: string | null; tag: string | null; agent?: string | null }> }>
       : [];
     const winnerTeamId = payload['winner_team_id'] as string | null | undefined;
 
-    const renderTeam = (idx: number, players: Array<{ puuid: string; name: string | null; tag: string | null }>) => {
+    const renderTeam = (idx: number, players: Array<{ puuid: string; name: string | null; tag: string | null; agent?: string | null }>) => {
       const namesList = players
-        .map((p) => p.name ? `<b>${esc(p.name)}</b>` : `<b>${esc(p.puuid)}</b>`)
+        .map((p) => p.name ? `<b>${esc(p.name)}</b>${agentLead(p.agent)}` : `<b>${esc(p.puuid)}</b>`)
         .join(', ');
       return `Команда ${idx + 1}: ${namesList}`;
     };
@@ -421,7 +450,8 @@ export function renderDigestGroup(eventType: EventType, entries: DigestEntry[]):
       const rankEmoji = rankToEmojiHtml(to as string);
       let rankPart = '';
       if (to) {
-        rankPart = rankEmoji ? ` ${rankEmoji} ${esc(String(to))}` : ` ${esc(String(to))}`;
+        // Rank → emoji only (text dropped, falls back to text when no emoji). #301
+        rankPart = rankEmoji ? ` ${rankEmoji}` : ` ${esc(String(to))}`;
       }
       return `${playerTag(e.user)} — поднялся(лась) до${rankPart}`;
     });

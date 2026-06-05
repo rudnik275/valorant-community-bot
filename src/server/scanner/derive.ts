@@ -101,6 +101,7 @@ export interface MatchRosterInsert {
   team: string;
   name: string | null;
   tag: string | null;
+  agent: string | null;
 }
 
 /**
@@ -122,6 +123,7 @@ export function deriveMatchRoster(match: HenrikMatchV4): MatchRosterInsert[] {
       team: p.team_id!,
       name: p.name ?? null,
       tag: p.tag ?? null,
+      agent: p.agent?.name ?? null,
     }));
 }
 

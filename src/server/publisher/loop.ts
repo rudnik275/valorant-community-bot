@@ -185,7 +185,7 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
       const matchId = realMatchIdEarly ?? rawMatchId;
 
       const [matchRow] = await db
-        .select({ map: matchRecords.map })
+        .select({ map: matchRecords.map, agent: matchRecords.agent })
         .from(matchRecords)
         .where(
           and(
@@ -198,11 +198,13 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
       // Pass BOTH match_id and (when known) map to the template so links
       // render in the chat output. Previously only map was passed, which
       // is why /test_runtime_events showed a link but realtime publishing
-      // to the group did not.
-      const matchInfo: { map?: string; match_id?: string } | undefined = (matchId || matchRow?.map)
+      // to the group did not. `agent` drives the agent emoji next to the
+      // triggering player's nick (#301).
+      const matchInfo: { map?: string; match_id?: string; agent?: string } | undefined = (matchId || matchRow?.map || matchRow?.agent)
         ? {
             ...(matchRow?.map ? { map: matchRow.map as string } : {}),
             ...(matchId ? { match_id: matchId } : {}),
+            ...(matchRow?.agent ? { agent: matchRow.agent as string } : {}),
           }
         : undefined;
 

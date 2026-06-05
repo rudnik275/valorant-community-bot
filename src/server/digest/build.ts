@@ -169,6 +169,9 @@ async function renderNearMisses(
         max_value: sql<number>`MAX(${expr})`.as('max_value'),
         riot_puuid: matchRecords.riot_puuid,
         match_id: matchRecords.match_id,
+        // SQLite returns the bare columns from the MAX() row, so `agent` is the
+        // agent of the near-miss match — drives the agent emoji next to the nick (#301).
+        agent: matchRecords.agent,
       })
       .from(matchRecords)
       .where(and(gte(matchRecords.started_at, weekStart), lt(matchRecords.started_at, weekEnd)))
@@ -191,10 +194,13 @@ async function renderNearMisses(
       .limit(1);
 
     const userTag = user ? `<b>${esc(user.riot_name)}#${esc(user.riot_tag)}</b>` : `<b>${esc(String(row.riot_puuid))}</b>`;
+    // Agent emoji next to the nick — near-miss is tied to a specific match (#301).
+    const agentEmoji = agentToEmojiHtml(row.agent);
+    const agentSuffix = agentEmoji ? ` ${agentEmoji}` : '';
     // New format consistent with bright events: underlined caption, value line.
     // Drops the "(рекорд: X)" prev-record info — same call user made for the
     // record templates.
-    blocks.push(`${cfg.emoji} <u>${cfg.header}</u>\n${userTag} — ${weekMax} ${cfg.unit}`);
+    blocks.push(`${cfg.emoji} <u>${cfg.header}</u>\n${userTag}${agentSuffix} — ${weekMax} ${cfg.unit}`);
   }
 
   return blocks;
@@ -371,7 +377,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       // Fetch map from match_records
       const [matchRow] = realMatchId
         ? await db
-            .select({ map: matchRecords.map })
+            .select({ map: matchRecords.map, agent: matchRecords.agent })
             .from(matchRecords)
             .where(
               and(
@@ -383,6 +389,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
         : [undefined];
 
       const map: string | undefined = matchRow?.map ?? undefined;
+      const agent: string | undefined = matchRow?.agent ?? undefined;
 
       const tplUser: TemplateUser = {
         riot_name: user.riot_name,
@@ -394,13 +401,14 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       const tplMatch: TemplateMatch = {};
       if (map) tplMatch.map = map;
       if (ev.match_id) tplMatch.match_id = String(ev.match_id);
+      if (agent) tplMatch.agent = agent;
 
       const entry: Entry = {
         eventType: ev.event_type as EventType,
         payload,
         user: tplUser,
       };
-      if (map || ev.match_id) entry.match = tplMatch;
+      if (map || ev.match_id || agent) entry.match = tplMatch;
       entries.push(entry);
     }
 

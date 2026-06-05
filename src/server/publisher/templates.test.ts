@@ -131,27 +131,28 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('tracker.gg/valorant/match/abc123');
   });
 
-  it('rank_promo: Ascendant 1 shows "Повышение по службе" heading + icon + full rank label', () => {
+  it('rank_promo: Ascendant 1 shows "Повышение по службе" heading + icon only (no tier text)', () => {
     const output = renderTemplate('peak_rank_up', { from_tier_name: 'Diamond 3', to_tier_name: 'Ascendant 1' }, safeUser);
     expect(output).toContain('Повышение по службе');
     expect(output).toContain('<b>Player#TAG</b>');
     expect(output).toContain('<tg-emoji emoji-id="5267234697951353645">🟩</tg-emoji>');
-    expect(output).toContain('Ascendant 1');
+    // #301: rank → emoji only, tier text dropped.
+    expect(output).not.toContain('Ascendant 1');
     expect(output).not.toContain('Diamond 3');
   });
 
-  it('rank_promo: Immortal 1 shows icon + full rank label', () => {
+  it('rank_promo: Immortal 1 shows icon only (no tier text)', () => {
     const output = renderTemplate('peak_rank_up', { to_tier_name: 'Immortal 1' }, safeUser);
     expect(output).toContain('Повышение по службе');
     expect(output).toContain('<tg-emoji emoji-id="5264913804998778625">♦️</tg-emoji>');
-    expect(output).toContain('Immortal 1');
+    expect(output).not.toContain('Immortal 1');
   });
 
-  it('rank_promo: Radiant shows icon + Radiant', () => {
+  it('rank_promo: Radiant shows icon only (no tier text)', () => {
     const output = renderTemplate('peak_rank_up', { to_tier_name: 'Radiant' }, safeUser);
     expect(output).toContain('Повышение по службе');
     expect(output).toContain('<tg-emoji emoji-id="5267161374269675067">🌟</tg-emoji>');
-    expect(output).toContain('Radiant');
+    expect(output).not.toContain('Radiant');
   });
 
   it('rank_promo: no-payload produces Повышение по службе with player tag', () => {
@@ -181,15 +182,18 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('15');
   });
 
-  it('giant_slayer: shows enemy avg rank and Поводил по губам text', () => {
+  it('giant_slayer: shows enemy avg rank as emoji (no text) and Поводил по губам text', () => {
     const output = renderTemplate('giant_slayer', { own: 'Silver 2', enemy_avg: 'Platinum 1', delta: 2 }, safeUser);
-    expect(output).toContain('Platinum 1');
+    // #301: ranks → emoji only. Platinum 1 → 🐳 icon, Silver 2 → 🥈 icon.
+    expect(output).toContain('<tg-emoji emoji-id="5264763678711913942">🐳</tg-emoji>');
+    expect(output).not.toContain('Platinum 1');
     expect(output.toLowerCase()).toContain('поводил(ла) по губам');
   });
 
-  it('giant_slayer: shows own rank', () => {
+  it('giant_slayer: shows own rank as emoji (no text)', () => {
     const output = renderTemplate('giant_slayer', { own: 'Silver 2', enemy_avg: 'Platinum 1' }, safeUser);
-    expect(output).toContain('Silver 2');
+    expect(output).toContain('<tg-emoji emoji-id="5265139299371755545">🥈</tg-emoji>');
+    expect(output).not.toContain('Silver 2');
   });
 
   it('giant_slayer: includes match link when match_id present', () => {
@@ -529,5 +533,78 @@ describe('renderDigestGroup — record_kills_per_weapon combined section', () =>
     expect(output).not.toContain('<script>');
     expect(output).toContain('&lt;img&gt;');
     expect(output).toContain('&lt;script&gt;');
+  });
+});
+
+describe('renderTemplate — agent emoji next to nicks (#301)', () => {
+  // Jett → AGENT_EMOJI['jett'] = 5265124043647916479.
+  const JETT = '<tg-emoji emoji-id="5265124043647916479">';
+  const SAGE = '<tg-emoji emoji-id="5267462919628560472">';
+
+  it('ace: shows triggering player agent emoji from match.agent', () => {
+    const output = renderTemplate('ace', {}, safeUser, { agent: 'Jett' });
+    expect(output).toContain('<b>Player#TAG</b> ' + JETT);
+  });
+
+  it('record_kills_match: shows agent emoji next to nick from match.agent', () => {
+    const output = renderTemplate('record_kills_match', { value: 30 }, safeUser, { agent: 'Jett' });
+    expect(output).toContain('<b>Player#TAG</b> ' + JETT);
+    expect(output).toContain('30 фрагов');
+  });
+
+  it('record_kills_match: no agent emoji when match.agent absent', () => {
+    const output = renderTemplate('record_kills_match', { value: 30 }, safeUser, {});
+    expect(output).not.toContain('<tg-emoji');
+    expect(output).toContain('<b>Player#TAG</b> — 30 фрагов');
+  });
+
+  it('teamkill: killer + community victim each show their agent emoji', () => {
+    const output = renderTemplate(
+      'teamkill',
+      { round_numbers: [3], victims: [{ name: 'Friendly', tag: 'GG', agent: 'Sage' }] },
+      safeUser,
+      { agent: 'Jett' },
+    );
+    expect(output).toContain('<b>Player#TAG</b> ' + JETT); // killer
+    expect(output).toContain('<b>Friendly</b> ' + SAGE); // victim
+  });
+
+  it('record_mvp_count_week: no agent emoji (weekly aggregate, not one match)', () => {
+    const output = renderTemplate('record_mvp_count_week', { value: 6 }, safeUser, { agent: 'Jett' });
+    expect(output).not.toContain('<tg-emoji');
+  });
+
+  it('record_kills_per_weapon: weapon icon only, no agent emoji next to nick', () => {
+    const output = renderTemplate('record_kills_per_weapon', { weapon: 'Vandal', value: 7 }, safeUser, { agent: 'Jett' });
+    expect(output).not.toContain(JETT);
+  });
+
+  it('community_clash: each player shows their agent emoji from payload', () => {
+    const output = renderTemplate(
+      'community_clash',
+      {
+        teams: [
+          { team_id: 'Blue', players: [{ puuid: 'a', name: 'Alice', tag: 'A', agent: 'Jett' }] },
+          { team_id: 'Red', players: [{ puuid: 'b', name: 'Bob', tag: 'B', agent: 'Sage' }] },
+        ],
+        winner_team_id: 'Blue',
+      },
+      safeUser,
+    );
+    expect(output).toContain('<b>Alice</b> ' + JETT);
+    expect(output).toContain('<b>Bob</b> ' + SAGE);
+  });
+
+  it('match_comeback: each community player shows their agent emoji from payload', () => {
+    const output = renderTemplate(
+      'match_comeback',
+      {
+        deficit_score_player: 3, deficit_score_opponent: 11,
+        final_score_player: 13, final_score_opponent: 11,
+        community_players: [{ puuid: 'a', name: 'Alice', tag: 'A', agent: 'Jett' }],
+      },
+      safeUser,
+    );
+    expect(output).toContain('🏅<b>Alice#A</b> ' + JETT);
   });
 });

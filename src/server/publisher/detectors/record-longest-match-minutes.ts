@@ -51,6 +51,7 @@ export const recordLongestMatchMinutesDetector: Detector = {
             puuid: c.riot_puuid,
             name: c.riot_name ?? '',
             tag: c.riot_tag ?? '',
+            agent: c.agent ?? undefined,
           })),
         },
       },

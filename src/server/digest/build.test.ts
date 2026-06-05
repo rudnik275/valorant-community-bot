@@ -354,8 +354,9 @@ describe('buildDigest', () => {
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       expect(result.sectionsIncluded).toContain('peak_rank_up');
-      // New format drops `from_tier_name` from output — only `to_tier_name` shown
-      expect(result.text).toContain('Platinum 1');
+      // #301: rank → emoji only (Platinum 1 → 🐳), tier text dropped.
+      expect(result.text).toContain('<tg-emoji emoji-id="5264763678711913942">🐳</tg-emoji>');
+      expect(result.text).not.toContain('Platinum 1');
       expect(result.text).toContain('Climber');
       expect(result.text).toContain('Повышение по службе');
     });
@@ -380,11 +381,12 @@ describe('buildDigest', () => {
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       const text = result.text!;
       expect(result.sectionsIncluded).toContain('peak_rank_up');
-      // Only the final (highest) rank survives, exactly once.
-      expect(text).toContain('Diamond 3');
-      expect(text).not.toContain('Diamond 1');
-      expect(text).not.toContain('Diamond 2');
-      expect(text.split('Diamond 3').length - 1).toBe(1);
+      // #301: rank → emoji only. Only the final (highest) rank survives, once.
+      // Diamond 3 → id 5265219666799795636; Diamond 1/2 ids must be absent.
+      expect(text).toContain('emoji-id="5265219666799795636"');
+      expect(text).not.toContain('emoji-id="5265104119294632981"'); // Diamond 1
+      expect(text).not.toContain('emoji-id="5267319149893295528"'); // Diamond 2
+      expect(text.split('emoji-id="5265219666799795636"').length - 1).toBe(1);
       // One player ⇒ singular header.
       expect(text).toContain('Повышение по службе');
       expect(text).not.toContain('Повышения по службе');
@@ -415,11 +417,11 @@ describe('buildDigest', () => {
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       const text = result.text!;
-      // Each player appears once, at their highest rank.
-      expect(text).toContain('Diamond 2');
-      expect(text).toContain('Platinum 3');
-      expect(text).not.toContain('Diamond 1');
-      expect(text).not.toContain('Platinum 1');
+      // #301: rank → emoji only. Each player appears once, at their highest rank.
+      expect(text).toContain('emoji-id="5267319149893295528"'); // p1 Diamond 2
+      expect(text).toContain('emoji-id="5267162911867968040"'); // p2 Platinum 3
+      expect(text).not.toContain('emoji-id="5265104119294632981"'); // Diamond 1
+      expect(text).not.toContain('emoji-id="5264763678711913942"'); // Platinum 1
       expect(text).toContain('Climber');
       expect(text).toContain('Rocket');
       // Two players ⇒ plural header.

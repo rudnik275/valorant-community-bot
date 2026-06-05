@@ -1,0 +1,1 @@
+ALTER TABLE `match_rosters` ADD `agent` text;

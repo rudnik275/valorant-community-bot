@@ -71,6 +71,7 @@ export const matchComebackDetector: Detector = {
       puuid: r.riot_puuid,
       name: r.riot_name ?? '',
       tag: r.riot_tag ?? '',
+      agent: r.agent ?? undefined,
     }));
 
     return [{

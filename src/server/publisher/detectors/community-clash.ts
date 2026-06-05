@@ -15,10 +15,10 @@ export const communityClashDetector: Detector = {
     if (rosters.length < 2) return [];
 
     // Group by team
-    const byTeam = new Map<string, Array<{ puuid: string; name: string | null; tag: string | null }>>();
+    const byTeam = new Map<string, Array<{ puuid: string; name: string | null; tag: string | null; agent: string | null }>>();
     for (const r of rosters) {
       if (!byTeam.has(r.team)) byTeam.set(r.team, []);
-      byTeam.get(r.team)!.push({ puuid: r.riot_puuid, name: r.riot_name, tag: r.riot_tag });
+      byTeam.get(r.team)!.push({ puuid: r.riot_puuid, name: r.riot_name, tag: r.riot_tag, agent: r.agent });
     }
 
     // Need at least 2 different teams with community members
