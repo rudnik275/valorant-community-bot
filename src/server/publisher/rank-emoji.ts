@@ -1,35 +1,36 @@
 /**
- * Custom-emoji IDs for Valorant rank icons.
- * Pack: https://t.me/addemoji/valorant_ranks_by_valorant_comunity_bot
- * Generated 2026-05-10 via scripts/launch/build-emoji-pack.ts.
+ * Custom-emoji IDs for Valorant rank icons, keyed by competitive tier number.
+ * Pack: https://t.me/addemoji/valorant_npc_by_valorant_comunity_bot — the group's
+ * single designated emoji pack (see scripts/launch/build-emoji-pack.ts for why one).
+ * Generated 2026-06-05 from valorant-api.com via scripts/launch/build-emoji-pack.ts.
  */
 export const RANK_EMOJI: Record<number, { id: string; fallback: string }> = {
-  0:  { id: '5188639300400487669', fallback: '❓' }, // Unranked
-  3:  { id: '5188197266661353360', fallback: '🪨' }, // Iron 1
-  4:  { id: '5188670911359784625', fallback: '🪨' }, // Iron 2
-  5:  { id: '5188609832629867426', fallback: '🪨' }, // Iron 3
-  6:  { id: '5188458263233992211', fallback: '🥉' }, // Bronze 1
-  7:  { id: '5190867280325552061', fallback: '🥉' }, // Bronze 2
-  8:  { id: '5188398296900608799', fallback: '🥉' }, // Bronze 3
-  9:  { id: '5188209533087946334', fallback: '🥈' }, // Silver 1
-  10: { id: '5188578771426384622', fallback: '🥈' }, // Silver 2
-  11: { id: '5188470989222091128', fallback: '🥈' }, // Silver 3
-  12: { id: '5190945942651574433', fallback: '🥇' }, // Gold 1
-  13: { id: '5188245529208854398', fallback: '🥇' }, // Gold 2
-  14: { id: '5188211435758458280', fallback: '🥇' }, // Gold 3
-  15: { id: '5188347676416056675', fallback: '🐳' }, // Platinum 1
-  16: { id: '5188190789850666271', fallback: '🐳' }, // Platinum 2
-  17: { id: '5190917604457357406', fallback: '🐳' }, // Platinum 3
-  18: { id: '5190476275092855352', fallback: '💎' }, // Diamond 1
-  19: { id: '5190805578825376762', fallback: '💎' }, // Diamond 2
-  20: { id: '5190612593059864801', fallback: '💎' }, // Diamond 3
-  21: { id: '5188550815484256589', fallback: '🟩' }, // Ascendant 1
-  22: { id: '5190617957474017123', fallback: '🟩' }, // Ascendant 2
-  23: { id: '5188300646524165600', fallback: '🟩' }, // Ascendant 3
-  24: { id: '5188459714932943688', fallback: '♦️' }, // Immortal 1
-  25: { id: '5190871815811012515', fallback: '♦️' }, // Immortal 2
-  26: { id: '5188596617015497449', fallback: '♦️' }, // Immortal 3
-  27: { id: '5190818141604715555', fallback: '🌟' }, // Radiant
+  0:  { id: '5265026152753303706', fallback: '❓' }, // Unranked
+  3:  { id: '5265134957159815781', fallback: '🪨' }, // Iron 1
+  4:  { id: '5267292688599785735', fallback: '🪨' }, // Iron 2
+  5:  { id: '5267158286188189569', fallback: '🪨' }, // Iron 3
+  6:  { id: '5264800271833275737', fallback: '🥉' }, // Bronze 1
+  7:  { id: '5267421859741209656', fallback: '🥉' }, // Bronze 2
+  8:  { id: '5264736972605264895', fallback: '🥉' }, // Bronze 3
+  9:  { id: '5267074289512781103', fallback: '🥈' }, // Silver 1
+  10: { id: '5267098672042126310', fallback: '🥈' }, // Silver 2
+  11: { id: '5267238679386035982', fallback: '🥈' }, // Silver 3
+  12: { id: '5265189979985849745', fallback: '🥇' }, // Gold 1
+  13: { id: '5264912013997417357', fallback: '🥇' }, // Gold 2
+  14: { id: '5265033359708430577', fallback: '🥇' }, // Gold 3
+  15: { id: '5267223973418014735', fallback: '🐳' }, // Platinum 1
+  16: { id: '5264840455547297024', fallback: '🐳' }, // Platinum 2
+  17: { id: '5267360927040181247', fallback: '🐳' }, // Platinum 3
+  18: { id: '5267083712671028280', fallback: '💎' }, // Diamond 1
+  19: { id: '5265099068413087642', fallback: '💎' }, // Diamond 2
+  20: { id: '5267233688634038174', fallback: '💎' }, // Diamond 3
+  21: { id: '5267139560130781844', fallback: '🟩' }, // Ascendant 1
+  22: { id: '5267384557950246335', fallback: '🟩' }, // Ascendant 2
+  23: { id: '5264896161273127395', fallback: '🟩' }, // Ascendant 3
+  24: { id: '5264803819476262754', fallback: '♦️' }, // Immortal 1
+  25: { id: '5266963281788053597', fallback: '♦️' }, // Immortal 2
+  26: { id: '5265120994221140775', fallback: '♦️' }, // Immortal 3
+  27: { id: '5267169736571001201', fallback: '🌟' }, // Radiant
 };
 
 export const RANK_LABEL_TO_ID: Record<string, number> = {

@@ -4,6 +4,7 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { join } from 'node:path';
 import { buildDailyAceDigest } from './build.ts';
+import { agentToEmojiHtml, mapToEmojiHtml } from '../publisher/valorant-emoji.ts';
 
 vi.mock('../lib/log.ts', () => ({
   default: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -190,7 +191,8 @@ describe('buildDailyAceDigest', () => {
       expect(result.includedEventIds).toEqual([id]);
 
       const text = result.text!;
-      expect(text).toMatch(/🎯 \d{2}:\d{2} <b>AcePlayer#ACE<\/b> · Omen · 🏆round 2 · 🗺<a href="https:\/\/tracker\.gg\/valorant\/match\/m1">Ascent<\/a>/);
+      expect(text).toMatch(/🎯 \d{2}:\d{2} <b>AcePlayer#ACE<\/b>/);
+      expect(text).toContain(`<b>AcePlayer#ACE</b> · ${agentToEmojiHtml('Omen')} Omen · 🏆round 2 · ${mapToEmojiHtml('Ascent')}<a href="https://tracker.gg/valorant/match/m1">Ascent</a>`);
     });
 
     it('uses 💀 when the ace round was lost', async () => {
@@ -231,7 +233,7 @@ describe('buildDailyAceDigest', () => {
       expect(text).not.toContain('x2 (');
 
       // Two MultiAce lines, ascending by round (round 1 before round 11).
-      const matches = [...text.matchAll(/🎯 (\d{2}:\d{2}) <b>MultiAce#MA<\/b> · Jett · (💀|🏆)round (\d+) · 🗺/g)];
+      const matches = [...text.matchAll(/🎯 (\d{2}:\d{2}) <b>MultiAce#MA<\/b> · .+? · (💀|🏆)round (\d+) ·/g)];
       expect(matches.length).toBe(2);
       expect(matches[0]![3]).toBe('1');
       expect(matches[0]![2]).toBe('💀');

@@ -35,6 +35,7 @@ import { detectedEvents } from '../db/schema/detected_events.ts';
 import { users } from '../db/schema/users.ts';
 import { matchRecords } from '../db/schema/match_records.ts';
 import { esc } from '../publisher/templates.ts';
+import { agentToEmojiHtml, mapToEmojiHtml } from '../publisher/valorant-emoji.ts';
 import { decodeKillEvents, decodeRounds } from '../lib/match-codec.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -292,11 +293,13 @@ function renderEntry(e: Entry): string {
         : '🔪';
   const time = formatKyivHHMM(e.detectedAt);
   const player = `<b>${esc(e.riotName)}#${esc(e.riotTag)}</b>`;
-  const agentPart = e.agent ? ` · ${esc(e.agent)}` : '';
+  const agentIcon = e.agent ? agentToEmojiHtml(e.agent) : '';
+  const agentPart = e.agent ? ` · ${agentIcon ? `${agentIcon} ` : ''}${esc(e.agent)}` : '';
   const resultEmoji = e.won === null ? '' : e.won ? '🏆' : '💀';
   const roundPart = ` · ${resultEmoji}round ${e.round0 + 1}`;
+  const mapIcon = e.map ? (mapToEmojiHtml(e.map) || MAP_EMOJI) : MAP_EMOJI;
   const mapPart = e.map
-    ? ` · ${MAP_EMOJI}<a href="https://tracker.gg/valorant/match/${esc(e.matchId)}">${esc(e.map)}</a>`
+    ? ` · ${mapIcon}<a href="https://tracker.gg/valorant/match/${esc(e.matchId)}">${esc(e.map)}</a>`
     : '';
 
   return `${typeEmoji} ${time} ${player}${agentPart}${roundPart}${mapPart}`;
