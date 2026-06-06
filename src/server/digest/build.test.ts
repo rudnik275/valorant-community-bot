@@ -868,7 +868,7 @@ describe('buildDigest', () => {
       expect(result.sectionsIncluded).toContain('nearMiss');
       // Both near-miss blocks should appear
       expect(result.text).toContain('рекорду по киллам');
-      expect(result.text).toContain('жертвой насилия');
+      expect(result.text).toContain('Магнитом для пуль');
     });
 
     it('does NOT render near-miss when no all-time record row exists for that type', async () => {
