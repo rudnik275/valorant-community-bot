@@ -22,7 +22,7 @@ export interface NearMissThreshold {
 
 export const NEAR_MISS_THRESHOLDS: NearMissThreshold[] = [
   { recordType: 'kills_match',           threshold: 2,    source: 'kills',                emoji: '💀', header: 'Был(ла) близко к рекорду по киллам',                                  unit: 'фрагов'   },
-  { recordType: 'deaths_match',          threshold: 2,    source: 'deaths',               emoji: '⚰️', header: 'Был(ла) близко к тому чтоб стать новой жертвой насилия',              unit: 'смертей'  },
+  { recordType: 'deaths_match',          threshold: 2,    source: 'deaths',               emoji: '⚰️', header: 'Был(ла) близко к тому чтоб стать новым Магнитом для пуль',           unit: 'смертей'  },
   { recordType: 'headshots_match',       threshold: 2,    source: 'headshots',            emoji: '🤠', header: 'Чуть не разорвал(а) рекорд по попаданиям в голову',                  unit: 'попаданий' },
   { recordType: 'legshots_match',        threshold: 2,    source: 'legshots',             emoji: '♿️', header: 'Был(а) близок(ка) к рекорду по попаданиям в ноги',                    unit: 'попаданий' },
   { recordType: 'damage_dealt_match',    threshold: 1000, source: 'damage_dealt',         emoji: '🥩', header: 'Был(ла) близко к тому чтоб стать мясником недели',                    unit: 'dmg'      },
