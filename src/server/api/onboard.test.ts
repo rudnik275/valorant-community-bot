@@ -369,4 +369,34 @@ describe('POST /api/onboard', () => {
       expect.stringContaining('Failed to unrestrict'),
     );
   });
+
+  it('pending onboard (inactive account) for a restricted user → restriction lifted; entering a nick is enough', async () => {
+    // The «полгода не играл» case: account is inactive (no puuid resolves) but the
+    // user entered a nick. They must be unmuted on nick entry, not left waiting.
+    const RESTRICTED_AT = Date.now() - 86_400_000;
+    sqlite.exec(`UPDATE users SET restricted_at = ${RESTRICTED_AT} WHERE telegram_id = 42`);
+
+    const restrictChatMember = vi.fn().mockResolvedValue(undefined);
+    const app = makeApp(db, {
+      validateAccount: vi.fn().mockRejectedValue(new HenrikInactiveAccountError()),
+      restrictChatMember,
+      getAllowedChatIds: () => new Set([ALLOWED_CHAT_ID]),
+    });
+
+    const res = await postOnboard(app, { name: 'InactivePlayer', tag: 'EU1' });
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.pending).toBe(true);
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Restriction lifted with FULL_PERMISSIONS even though no puuid resolved
+    expect(restrictChatMember).toHaveBeenCalledWith(ALLOWED_CHAT_ID, 42, FULL_PERMISSIONS);
+
+    const row = sqlite
+      .prepare('SELECT restricted_at, riot_name FROM users WHERE telegram_id = 42')
+      .get() as { restricted_at: number | null; riot_name: string | null };
+    expect(row.restricted_at).toBeNull();
+    expect(row.riot_name).toBe('InactivePlayer');
+  });
 });

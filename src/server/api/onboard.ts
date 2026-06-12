@@ -51,6 +51,50 @@ export function makeOnboardHandler(deps: OnboardHandlerDeps) {
   const restrictChatMember = deps.restrictChatMember;
   const getAllowedChatIds = deps.getAllowedChatIds;
 
+  /**
+   * Lift the read-only restriction if the user is currently restricted.
+   * Called the moment a nick is entered — both on a successful link AND on the
+   * pending path (inactive/stale account). Entering a nick is the criterion for
+   * being a participant, so a still-unresolved account must not stay muted.
+   * Clears restricted_at only when every chat unrestrict succeeds; otherwise the
+   * next onboard call retries.
+   */
+  const liftRestrictionIfAny = async (telegramId: number): Promise<void> => {
+    if (!restrictChatMember || !getAllowedChatIds) return;
+
+    const [currentRow] = await deps.db
+      .select({ restricted_at: users.restricted_at })
+      .from(users)
+      .where(and(isNotNull(users.restricted_at), eq(users.telegram_id, telegramId)))
+      .limit(1);
+    if (!currentRow) return;
+
+    const chatIds = getAllowedChatIds();
+    let anyUnrestrictFailed = false;
+    for (const chatId of chatIds) {
+      try {
+        await restrictChatMember(chatId, telegramId, FULL_PERMISSIONS);
+      } catch (err) {
+        logger.warn(
+          { module: 'onboard', telegram_id: telegramId, chat_id: chatId, err },
+          'Failed to unrestrict user in chat — will retry on next onboard',
+        );
+        anyUnrestrictFailed = true;
+      }
+    }
+
+    if (!anyUnrestrictFailed) {
+      await deps.db
+        .update(users)
+        .set({ restricted_at: null })
+        .where(eq(users.telegram_id, telegramId));
+      logger.info(
+        { module: 'onboard', telegram_id: telegramId },
+        'User restriction lifted after onboard',
+      );
+    }
+  };
+
   return async (c: Context) => {
     const telegramUser = c.get('telegramUser');
     const telegramId: number = telegramUser.id;
@@ -89,6 +133,9 @@ export function makeOnboardHandler(deps: OnboardHandlerDeps) {
           { module: 'onboard', telegramId, riot_name: name, riot_tag: tag },
           'Saved pending onboard (account inactive — will retry via cron)',
         );
+        // Entering a nick is enough to be a participant — lift read-only now even
+        // though the account is still unresolved (won't stay muted waiting on Henrik).
+        await liftRestrictionIfAny(telegramId);
         return c.json({
           status: 'ok',
           riot_name: name,
@@ -157,41 +204,7 @@ export function makeOnboardHandler(deps: OnboardHandlerDeps) {
     );
 
     // Auto-unrestrict: if user was previously restricted, lift restriction now
-    if (restrictChatMember && getAllowedChatIds) {
-      const [currentRow] = await deps.db
-        .select({ restricted_at: users.restricted_at })
-        .from(users)
-        .where(and(isNotNull(users.restricted_at), eq(users.telegram_id, telegramId)))
-        .limit(1);
-
-      if (currentRow) {
-        const chatIds = getAllowedChatIds();
-        let anyUnrestrictFailed = false;
-
-        for (const chatId of chatIds) {
-          try {
-            await restrictChatMember(chatId, telegramId, FULL_PERMISSIONS);
-          } catch (err) {
-            logger.warn(
-              { module: 'onboard', telegram_id: telegramId, chat_id: chatId, err },
-              'Failed to unrestrict user in chat — will retry on next onboard',
-            );
-            anyUnrestrictFailed = true;
-          }
-        }
-
-        if (!anyUnrestrictFailed) {
-          await deps.db
-            .update(users)
-            .set({ restricted_at: null })
-            .where(eq(users.telegram_id, telegramId));
-          logger.info(
-            { module: 'onboard', telegram_id: telegramId },
-            'User restriction lifted after onboard',
-          );
-        }
-      }
-    }
+    await liftRestrictionIfAny(telegramId);
 
     // Await backfill scan with interactive priority — onboard is user-facing,
     // we want rank+matches populated before responding. Failures are non-fatal:

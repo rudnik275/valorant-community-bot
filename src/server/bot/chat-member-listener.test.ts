@@ -15,6 +15,8 @@ import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { makeChatMemberListener } from './chat-member-listener.ts';
 import { users } from '../db/schema/users.ts';
+import { READONLY_PERMISSIONS } from '../cron/restrict-grace.ts';
+import logger from '../lib/log.ts';
 
 vi.mock('../lib/log.ts', () => ({
   default: {
@@ -279,5 +281,137 @@ describe('makeChatMemberListener', () => {
     const rows = db.select().from(users).where(eq(users.telegram_id, 111)).all();
     expect(rows).toHaveLength(1);
     expect(rows[0]!.telegram_username).toBe('judy_new');
+  });
+
+  // ── Nick-gate: restrict fresh joiners without a nick on join ──────────────────
+  describe('on-join nick-gate restriction', () => {
+    function makeRestrictDeps(
+      database: typeof db,
+      overrides: {
+        restrictChatMember?: ReturnType<typeof vi.fn>;
+        getChatAdministrators?: ReturnType<typeof vi.fn>;
+      } = {},
+    ) {
+      return {
+        db: database,
+        isAllowedChat,
+        restrictChatMember: overrides.restrictChatMember ?? vi.fn().mockResolvedValue(undefined),
+        getChatAdministrators: overrides.getChatAdministrators ?? vi.fn().mockResolvedValue([]),
+      };
+    }
+
+    it('fresh join with no nick → restricted read-only, restricted_at set', async () => {
+      const restrictChatMember = vi.fn().mockResolvedValue(undefined);
+      const handler = makeChatMemberListener(makeRestrictDeps(db, { restrictChatMember }));
+
+      await handler(makeCtx(makeChatMember(201, 'member', { username: 'newbie' })) as never);
+
+      expect(restrictChatMember).toHaveBeenCalledOnce();
+      expect(restrictChatMember).toHaveBeenCalledWith(ALLOWED_CHAT_ID, 201, READONLY_PERMISSIONS);
+
+      const row = db.select().from(users).where(eq(users.telegram_id, 201)).all()[0]!;
+      expect(row.restricted_at).toBeGreaterThan(0);
+    });
+
+    it('fresh join of a user who already entered a nick → NOT restricted', async () => {
+      const restrictChatMember = vi.fn().mockResolvedValue(undefined);
+      const handler = makeChatMemberListener(makeRestrictDeps(db, { restrictChatMember }));
+
+      // Returning member who previously entered a nick (riot_name set, account stale → no puuid)
+      db.insert(users).values({
+        telegram_id: 202,
+        telegram_username: 'veteran',
+        riot_name: 'OldTimer',
+        riot_tag: 'EU1',
+      }).run();
+
+      await handler(makeCtx(makeChatMember(202, 'member', { username: 'veteran' })) as never);
+
+      expect(restrictChatMember).not.toHaveBeenCalled();
+      const row = db.select().from(users).where(eq(users.telegram_id, 202)).all()[0]!;
+      expect(row.restricted_at).toBeNull();
+    });
+
+    it('admin who joins/updates as member → NOT restricted', async () => {
+      const restrictChatMember = vi.fn().mockResolvedValue(undefined);
+      const getChatAdministrators = vi.fn().mockResolvedValue([{ user: { id: 203 } }]);
+      const handler = makeChatMemberListener(
+        makeRestrictDeps(db, { restrictChatMember, getChatAdministrators }),
+      );
+
+      await handler(makeCtx(makeChatMember(203, 'member', { username: 'boss' })) as never);
+
+      expect(restrictChatMember).not.toHaveBeenCalled();
+      const row = db.select().from(users).where(eq(users.telegram_id, 203)).all()[0]!;
+      expect(row.restricted_at).toBeNull();
+    });
+
+    it('status=restricted echo (our own restrict) → does NOT re-restrict (no loop)', async () => {
+      const restrictChatMember = vi.fn().mockResolvedValue(undefined);
+      const handler = makeChatMemberListener(makeRestrictDeps(db, { restrictChatMember }));
+
+      await handler(
+        makeCtx(makeChatMember(204, 'restricted', { username: 'muted', is_member: true })) as never,
+      );
+
+      expect(restrictChatMember).not.toHaveBeenCalled();
+    });
+
+    it('already-restricted user re-emitting member status → NOT re-restricted', async () => {
+      const restrictChatMember = vi.fn().mockResolvedValue(undefined);
+      const handler = makeChatMemberListener(makeRestrictDeps(db, { restrictChatMember }));
+
+      db.insert(users).values({
+        telegram_id: 205,
+        telegram_username: 'already',
+        restricted_at: 1_700_000_000_000,
+      }).run();
+
+      await handler(makeCtx(makeChatMember(205, 'member', { username: 'already' })) as never);
+
+      expect(restrictChatMember).not.toHaveBeenCalled();
+    });
+
+    it('restrictChatMember fails → restricted_at NOT set, no crash, warning logged', async () => {
+      const restrictChatMember = vi.fn().mockRejectedValue(new Error('not enough rights'));
+      const handler = makeChatMemberListener(makeRestrictDeps(db, { restrictChatMember }));
+
+      await expect(
+        handler(makeCtx(makeChatMember(206, 'member', { username: 'nope' })) as never),
+      ).resolves.toBeUndefined();
+
+      const row = db.select().from(users).where(eq(users.telegram_id, 206)).all()[0]!;
+      expect(row.restricted_at).toBeNull();
+      expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'restrict_on_join_failed', user_id: 206 }),
+        expect.stringContaining('restrictChatMember failed on join'),
+      );
+    });
+
+    it('getChatAdministrators fails → restriction skipped, no restricted_at, no crash', async () => {
+      const restrictChatMember = vi.fn().mockResolvedValue(undefined);
+      const getChatAdministrators = vi.fn().mockRejectedValue(new Error('Forbidden'));
+      const handler = makeChatMemberListener(
+        makeRestrictDeps(db, { restrictChatMember, getChatAdministrators }),
+      );
+
+      await expect(
+        handler(makeCtx(makeChatMember(207, 'member', { username: 'unknown' })) as never),
+      ).resolves.toBeUndefined();
+
+      expect(restrictChatMember).not.toHaveBeenCalled();
+      const row = db.select().from(users).where(eq(users.telegram_id, 207)).all()[0]!;
+      expect(row.restricted_at).toBeNull();
+    });
+
+    it('deps absent (no restrictChatMember) → membership tracked, no restriction attempted', async () => {
+      const handler = makeChatMemberListener({ db, isAllowedChat });
+
+      await handler(makeCtx(makeChatMember(208, 'member', { username: 'plain' })) as never);
+
+      const row = db.select().from(users).where(eq(users.telegram_id, 208)).all()[0]!;
+      expect(row.telegram_id).toBe(208);
+      expect(row.restricted_at).toBeNull();
+    });
   });
 });
