@@ -67,7 +67,14 @@ if (botToken) {
   bot.callbackQuery(/^congrats:/, makeCongratsCallbackHandler({ db, bot, getPrimaryChatId }));
   const lastMessageHandler = makeLastMessageHandler({ db, isAllowedChat });
   bot.on('message', lastMessageHandler);
-  bot.on('chat_member', makeChatMemberListener({ db, isAllowedChat }));
+  bot.on('chat_member', makeChatMemberListener({
+    db,
+    isAllowedChat,
+    // Nick-gate: restrict fresh joiners without a nick to read-only immediately.
+    restrictChatMember: (chatId, userId, permissions) =>
+      bot!.api.restrictChatMember(chatId, userId, permissions).then(() => undefined),
+    getChatAdministrators: (chatId) => bot!.api.getChatAdministrators(chatId),
+  }));
   bot.start({
     drop_pending_updates: true,
     allowed_updates: ['message', 'my_chat_member', 'chat_member', 'callback_query'],

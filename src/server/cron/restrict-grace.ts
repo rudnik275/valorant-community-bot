@@ -1,13 +1,22 @@
 /**
- * restrict-grace.ts — Daily cron: restrict unlinked users after 30-day grace period.
+ * restrict-grace.ts — Daily cron: restrict any member who hasn't entered a Riot nick.
+ *
+ * Policy (2026-06-12): no grace period. Anyone may JOIN the group, but to WRITE
+ * they must have entered a nick (riot_name set). The read-only restriction exists
+ * precisely to coerce nick entry. The 30-day onboard grace (issue #118) is removed.
+ *
+ * The criterion is `riot_name IS NULL` — the user never entered a nick at all.
+ * A user who entered a nick whose account is inactive/stale (riot_name set, no
+ * riot_puuid) still counts as engaged and is NEVER restricted — they stay a full
+ * participant. This is the daily safety-net sweep; new joiners are restricted
+ * immediately on join by chat-member-listener.ts.
  *
  * Croner '0 6 * * *' (06:00 daily) timezone Europe/Kyiv.
  *
  * Per tick, for each chat in TELEGRAM_ALLOWED_CHAT_IDS:
  * 1. Fetch getChatAdministrators — collect admin user IDs (cache for this tick).
  *    If that fails (bot lost admin) → log warning, skip whole chat.
- * 2. SELECT users WHERE riot_name IS NULL AND restricted_at IS NULL AND joined_at <= now - 30d.
- *    (riot_name IS NOT NULL means the user has attempted to link — treat as engaged, skip.)
+ * 2. SELECT users WHERE riot_name IS NULL AND restricted_at IS NULL.
  * 3. Skip admins, the bot itself.
  * 4. For each remaining user: call restrictChatMember with all permissions FALSE.
  *    On success → UPDATE restricted_at = now.
@@ -15,7 +24,7 @@
  */
 
 import { Cron } from 'croner';
-import { isNull, lte, and, eq } from 'drizzle-orm';
+import { isNull, and, eq } from 'drizzle-orm';
 import { users } from '../db/schema/users.ts';
 import logger from '../lib/log.ts';
 
@@ -48,8 +57,6 @@ export const FULL_PERMISSIONS = {
   can_add_web_page_previews: true,
 } as const;
 
-const GRACE_PERIOD_MS = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
-
 export interface RestrictGraceDeps {
   db: AnyDb;
   /** Returns the set of allowed Telegram chat IDs. */
@@ -73,11 +80,8 @@ export async function runRestrictGraceTick(deps: RestrictGraceDeps): Promise<voi
   const botId = getBotId();
   const getNowMs = deps.getNowMs ?? (() => Date.now());
 
-  const nowMs = getNowMs();
-  const graceCutoffMs = nowMs - GRACE_PERIOD_MS;
-
-  // Select users who have never attempted to link (riot_name IS NULL),
-  // are not yet restricted, and are past the 30-day grace period.
+  // Select users who never entered a nick (riot_name IS NULL) and are not yet
+  // restricted. No grace window — entering a nick is the only way out of read-only.
   // Users with riot_name set (pending or fully linked) are treated as engaged — skip them.
   const unlinkedUsers: Array<{ telegram_id: number }> = await db
     .select({ telegram_id: users.telegram_id })
@@ -86,7 +90,6 @@ export async function runRestrictGraceTick(deps: RestrictGraceDeps): Promise<voi
       and(
         isNull(users.riot_name),
         isNull(users.restricted_at),
-        lte(users.joined_at, graceCutoffMs),
       ),
     );
 

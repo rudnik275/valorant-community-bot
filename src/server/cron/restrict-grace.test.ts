@@ -1,8 +1,9 @@
 /**
- * restrict-grace.test.ts — Unit tests for the daily grace-period restrict cron.
+ * restrict-grace.test.ts — Unit tests for the daily nick-gate restrict cron.
  *
  * Uses better-sqlite3 (in-memory) + drizzle/better-sqlite3.
- * 8 cases per issue #118 spec.
+ * Policy (2026-06-12): no grace period — any member with riot_name IS NULL is
+ * restricted regardless of join date. join-time matters only as a row attribute.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
@@ -36,12 +37,11 @@ function makeTestDb() {
 const BOT_ID = 999;
 const CHAT_ID = -100100;
 const NOW_MS = 1_750_000_000_000; // arbitrary fixed time
-const GRACE_MS = 30 * 24 * 60 * 60 * 1000;
 
-/** joined_at 31 days ago (past grace) */
-const JOINED_31D_AGO = NOW_MS - GRACE_MS - 86_400_000;
-/** joined_at 5 days ago (within grace) */
-const JOINED_5D_AGO = NOW_MS - 5 * 86_400_000;
+/** joined_at long ago */
+const JOINED_LONG_AGO = NOW_MS - 60 * 86_400_000;
+/** joined_at just now (would have been "within grace" under the old policy) */
+const JOINED_JUST_NOW = NOW_MS - 60_000;
 
 function makeDeps(
   db: ReturnType<typeof makeTestDb>['db'],
@@ -75,7 +75,7 @@ describe('runRestrictGraceTick', () => {
   it('pending-onboard user (riot_name set, riot_puuid NULL) → not restricted', async () => {
     sqlite.exec(
       `INSERT INTO users (telegram_id, telegram_username, riot_name, riot_tag, joined_at)
-       VALUES (10, 'pending', 'InactivePlayer', 'EU1', ${JOINED_31D_AGO})`,
+       VALUES (10, 'pending', 'InactivePlayer', 'EU1', ${JOINED_LONG_AGO})`,
     );
 
     const restrictChatMember = vi.fn().mockResolvedValue(undefined);
@@ -93,7 +93,7 @@ describe('runRestrictGraceTick', () => {
   it('linked user (riot_name + riot_puuid set) → not restricted', async () => {
     sqlite.exec(
       `INSERT INTO users (telegram_id, telegram_username, riot_name, riot_tag, riot_puuid, joined_at)
-       VALUES (1, 'alice', 'Alice', 'EU1', 'puuid-alice', ${JOINED_31D_AGO})`,
+       VALUES (1, 'alice', 'Alice', 'EU1', 'puuid-alice', ${JOINED_LONG_AGO})`,
     );
 
     const restrictChatMember = vi.fn().mockResolvedValue(undefined);
@@ -107,11 +107,11 @@ describe('runRestrictGraceTick', () => {
     expect(row.restricted_at).toBeNull();
   });
 
-  // Case 2: Unlinked, joined_at = now - 31d → restricted; restricted_at populated
-  it('unlinked user joined 31d ago → restricted; restricted_at set', async () => {
+  // Case 2: Unlinked (riot_name NULL) → restricted; restricted_at populated
+  it('unlinked user (no nick) → restricted; restricted_at set', async () => {
     sqlite.exec(
       `INSERT INTO users (telegram_id, telegram_username, joined_at)
-       VALUES (2, 'bob', ${JOINED_31D_AGO})`,
+       VALUES (2, 'bob', ${JOINED_LONG_AGO})`,
     );
 
     const restrictChatMember = vi.fn().mockResolvedValue(undefined);
@@ -126,11 +126,11 @@ describe('runRestrictGraceTick', () => {
     expect(row.restricted_at).toBe(NOW_MS);
   });
 
-  // Case 3: Unlinked, joined_at = now - 5d → not restricted (within grace)
-  it('unlinked user joined 5d ago → not restricted (within grace)', async () => {
+  // Case 3: Unlinked, joined just now → restricted immediately (no grace window)
+  it('unlinked user who joined just now → restricted immediately (no grace)', async () => {
     sqlite.exec(
       `INSERT INTO users (telegram_id, telegram_username, joined_at)
-       VALUES (3, 'carol', ${JOINED_5D_AGO})`,
+       VALUES (3, 'carol', ${JOINED_JUST_NOW})`,
     );
 
     const restrictChatMember = vi.fn().mockResolvedValue(undefined);
@@ -138,10 +138,11 @@ describe('runRestrictGraceTick', () => {
 
     await runRestrictGraceTick(deps);
 
-    expect(restrictChatMember).not.toHaveBeenCalled();
+    expect(restrictChatMember).toHaveBeenCalledOnce();
+    expect(restrictChatMember).toHaveBeenCalledWith(CHAT_ID, 3, READONLY_PERMISSIONS);
 
     const row = sqlite.prepare('SELECT restricted_at FROM users WHERE telegram_id = 3').get() as { restricted_at: number | null };
-    expect(row.restricted_at).toBeNull();
+    expect(row.restricted_at).toBe(NOW_MS);
   });
 
   // Case 4: Already-restricted (restricted_at NOT NULL) → no second API call
@@ -149,7 +150,7 @@ describe('runRestrictGraceTick', () => {
     const ALREADY_RESTRICTED_AT = NOW_MS - 86_400_000; // restricted yesterday
     sqlite.exec(
       `INSERT INTO users (telegram_id, telegram_username, joined_at, restricted_at)
-       VALUES (4, 'dave', ${JOINED_31D_AGO}, ${ALREADY_RESTRICTED_AT})`,
+       VALUES (4, 'dave', ${JOINED_LONG_AGO}, ${ALREADY_RESTRICTED_AT})`,
     );
 
     const restrictChatMember = vi.fn().mockResolvedValue(undefined);
@@ -164,7 +165,7 @@ describe('runRestrictGraceTick', () => {
   it('admin user → not restricted', async () => {
     sqlite.exec(
       `INSERT INTO users (telegram_id, telegram_username, joined_at)
-       VALUES (5, 'eve', ${JOINED_31D_AGO})`,
+       VALUES (5, 'eve', ${JOINED_LONG_AGO})`,
     );
 
     const restrictChatMember = vi.fn().mockResolvedValue(undefined);
@@ -183,7 +184,7 @@ describe('runRestrictGraceTick', () => {
   it('bot user (telegram_id = botId) → not restricted', async () => {
     sqlite.exec(
       `INSERT INTO users (telegram_id, telegram_username, joined_at)
-       VALUES (${BOT_ID}, 'mybot', ${JOINED_31D_AGO})`,
+       VALUES (${BOT_ID}, 'mybot', ${JOINED_LONG_AGO})`,
     );
 
     const restrictChatMember = vi.fn().mockResolvedValue(undefined);
@@ -201,7 +202,7 @@ describe('runRestrictGraceTick', () => {
   it('restrictChatMember fails → restricted_at NOT updated, no crash', async () => {
     sqlite.exec(
       `INSERT INTO users (telegram_id, telegram_username, joined_at)
-       VALUES (7, 'frank', ${JOINED_31D_AGO})`,
+       VALUES (7, 'frank', ${JOINED_LONG_AGO})`,
     );
 
     const restrictChatMember = vi.fn().mockRejectedValue(new Error('not enough rights'));
@@ -225,7 +226,7 @@ describe('runRestrictGraceTick', () => {
   it('getChatAdministrators fails → whole chat skipped, warning logged, no crash', async () => {
     sqlite.exec(
       `INSERT INTO users (telegram_id, telegram_username, joined_at)
-       VALUES (8, 'grace', ${JOINED_31D_AGO})`,
+       VALUES (8, 'grace', ${JOINED_LONG_AGO})`,
     );
 
     const restrictChatMember = vi.fn().mockResolvedValue(undefined);
