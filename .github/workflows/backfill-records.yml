@@ -8,11 +8,19 @@ jobs:
     name: Seed all_time_records and weekly_records from history
     runs-on: ubuntu-latest
     steps:
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@v4
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          SSH_PRIVATE_KEY: "op://valorant-community-bot/valorant-deploy-1p/private key?ssh-format=openssh"
+
       - name: Run backfill inside running container
         uses: appleboy/ssh-action@v1
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          host: 46.62.229.131
+          username: deploy
+          key: ${{ env.SSH_PRIVATE_KEY }}
           script: |
             docker exec valorant-bot-app bun run scripts/launch/backfill-records.ts

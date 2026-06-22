@@ -16,12 +16,20 @@ jobs:
       packages: read
       contents: read
     steps:
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@v4
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          SSH_PRIVATE_KEY: "op://valorant-community-bot/valorant-deploy-1p/private key?ssh-format=openssh"
+
       - name: Pull specific image and restart app
         uses: appleboy/ssh-action@v1
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          host: 46.62.229.131
+          username: deploy
+          key: ${{ env.SSH_PRIVATE_KEY }}
           script: |
             PREV_IMAGE=$(docker inspect --format '{{.Image}}' valorant-bot-app 2>/dev/null || echo "none")
             echo "$PREV_IMAGE" > /opt/valorant-bot/.last-image-id
@@ -33,9 +41,9 @@ jobs:
       - name: Health-gate (60s poll)
         uses: appleboy/ssh-action@v1
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          host: 46.62.229.131
+          username: deploy
+          key: ${{ env.SSH_PRIVATE_KEY }}
           script: |
             for i in $(seq 1 12); do
               status=$(docker inspect --format '{{.State.Health.Status}}' valorant-bot-app 2>/dev/null || echo "none")
@@ -48,9 +56,9 @@ jobs:
         if: failure()
         uses: appleboy/ssh-action@v1
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          host: 46.62.229.131
+          username: deploy
+          key: ${{ env.SSH_PRIVATE_KEY }}
           script: |
             PREV=$(cat /opt/valorant-bot/.last-image-id)
             if [ "$PREV" != "none" ] && [ -n "$PREV" ]; then
