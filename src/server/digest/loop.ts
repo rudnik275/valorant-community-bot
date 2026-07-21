@@ -30,6 +30,7 @@ import {
   type DigestSpec,
   type DigestWindow,
   type SendMessage,
+  type SendRichMessage,
 } from '../lib/scheduled-digest.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -38,6 +39,13 @@ type AnyDb = any;
 export interface DigestLoopDeps {
   db: AnyDb;
   sendMessage: SendMessage;
+  /**
+   * Rich Message send (#309) — `sendRichMessage` via grammY's raw proxy,
+   * wired in index.ts. When present, the weekly publish path posts the digest
+   * as a rich message, falling back to `sendMessage` (legacy text) on any
+   * error. When absent, the publish path is legacy text only.
+   */
+  sendRichMessage?: SendRichMessage;
   getPrimaryChatId: () => number;
   /** Healthchecks.io URL. Defaults to HEALTHCHECK_DIGEST_URL env var. */
   healthcheckUrl?: string;
@@ -151,12 +159,14 @@ function makeWeeklySpec(deps: DigestLoopDeps): DigestSpec {
       return { nowMs, windowStart: weekStart, windowEnd: weekEnd, dedupKey: weekIso };
     },
     build: async (db, w) => {
-      const { text, sectionsIncluded } = await buildDigest({
+      const { text, richHtml, sectionsIncluded } = await buildDigest({
         db,
         weekStart: w.windowStart,
         weekEnd: w.windowEnd,
       });
-      return { text, meta: sectionsIncluded };
+      // Thread richHtml through meta so recordSuccess can persist it on the
+      // non-override path (#309). (The override path persists it directly.)
+      return { text, meta: { sectionsIncluded, richHtml } };
     },
     findExisting: async (db, weekIso) => {
       const [existing] = await db
@@ -173,6 +183,10 @@ function makeWeeklySpec(deps: DigestLoopDeps): DigestSpec {
         .onConflictDoNothing();
     },
     recordSuccess: async (db, w, sent, meta) => {
+      const { sectionsIncluded, richHtml } = meta as {
+        sectionsIncluded: string[];
+        richHtml: string | null;
+      };
       await db
         .insert(digestRuns)
         .values({
@@ -181,10 +195,11 @@ function makeWeeklySpec(deps: DigestLoopDeps): DigestSpec {
           posted_at: sent.postedAt,
           posted_message_id: sent.messageId,
           posted_text: sent.text,
+          rich_html: richHtml,
         })
         .onConflictDoNothing();
       logger.info(
-        { module: 'digest', week_iso: w.dedupKey, sections: meta as string[] },
+        { module: 'digest', week_iso: w.dedupKey, sections: sectionsIncluded },
         'Weekly digest sections recorded',
       );
     },
@@ -195,6 +210,7 @@ export async function runDigestNow(deps: DigestLoopDeps): Promise<void> {
   await runScheduledDigest(makeWeeklySpec(deps), {
     db: deps.db,
     sendMessage: deps.sendMessage,
+    ...(deps.sendRichMessage ? { sendRichMessage: deps.sendRichMessage } : {}),
     getPrimaryChatId: deps.getPrimaryChatId,
   });
 }
@@ -203,6 +219,7 @@ export function startDigestLoop(deps: DigestLoopDeps): () => void {
   return startScheduledDigest(makeWeeklySpec(deps), {
     db: deps.db,
     sendMessage: deps.sendMessage,
+    ...(deps.sendRichMessage ? { sendRichMessage: deps.sendRichMessage } : {}),
     getPrimaryChatId: deps.getPrimaryChatId,
   });
 }

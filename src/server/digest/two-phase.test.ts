@@ -70,6 +70,7 @@ interface Row {
   prepared_top_agent: string | null;
   prepared_top_map: string | null;
   story_image_path: string | null;
+  rich_html: string | null;
 }
 
 function getRow(sqlite: Database.Database, weekIso: string): Row | undefined {
@@ -330,6 +331,180 @@ describe('two-phase weekly digest (#227)', () => {
     // already owns this weekIso, so it is left intact (not published).
     expect(row?.prepared_text).toContain('Дайджест');
     expect(row?.posted_at).toBeNull();
+  });
+});
+
+// ── Rich weekly digest publish path (#309) ──────────────────────────────────
+describe('rich weekly digest publish (#309)', () => {
+  let db: ReturnType<typeof makeTestDb>['db'];
+  let sqlite: Database.Database;
+  let sendMessage: ReturnType<typeof vi.fn>;
+  let sendRichMessage: ReturnType<typeof vi.fn>;
+  let sendPhotoReply: ReturnType<typeof vi.fn>;
+  const CHAT = -1001234567890;
+  const RICH_HTML = '<h2>📅 Дайджест за неделю · дата</h2><br><br>📊 <b>3</b> матчей<br><br>#digest';
+  const LEGACY_TEXT = '📅 <b>Дайджест недели</b>\n\nTest content';
+
+  beforeEach(async () => {
+    ({ db, sqlite } = makeTestDb());
+    fsState.files.clear();
+    sendMessage = vi.fn().mockResolvedValue({ message_id: 42 });
+    sendRichMessage = vi.fn().mockResolvedValue({ message_id: 77 });
+    sendPhotoReply = vi.fn().mockResolvedValue(undefined);
+    process.env['STORIES_DIR'] = STORIES_DIR_309;
+
+    const { buildDigest } = await import('./build.ts');
+    (buildDigest as ReturnType<typeof vi.fn>).mockResolvedValue({
+      text: LEGACY_TEXT,
+      richHtml: RICH_HTML,
+      sectionsIncluded: ['pulse'],
+      topAgent: 'Jett',
+      topMap: 'Ascent',
+    });
+    const { runStoryGeneration } = await import('../story/run.ts');
+    (runStoryGeneration as ReturnType<typeof vi.fn>).mockResolvedValue({
+      buffer: Buffer.from('png-bytes'),
+    });
+  });
+
+  afterEach(() => {
+    sqlite.close();
+    delete process.env['STORIES_DIR'];
+    vi.clearAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  const STORIES_DIR_309 = '/tmp/test-stories-309';
+
+  function publishDeps() {
+    return {
+      db,
+      sendMessage,
+      sendRichMessage,
+      getPrimaryChatId: () => CHAT,
+      getNowKyiv: () => DEFAULT_KYIV,
+      sendPhotoReply,
+    };
+  }
+  function prepareDeps() {
+    return {
+      db,
+      getPrimaryChatId: () => CHAT,
+      getOpenAIKey: () => 'sk-test',
+      getNowKyiv: () => DEFAULT_KYIV,
+    };
+  }
+
+  // ── fresh-build (prepare missed) — the LIVE prod path ──────────────────────
+  it('rich success: fresh build posts via sendRichMessage, not legacy sendMessage', async () => {
+    await runDigestNow(publishDeps());
+
+    expect(sendRichMessage).toHaveBeenCalledOnce();
+    expect(sendRichMessage).toHaveBeenCalledWith(CHAT, RICH_HTML);
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    const row = getRow(sqlite, FIXED_WEEK_ISO);
+    expect(row?.posted_at).not.toBeNull();
+    expect(row?.posted_message_id).toBe(77); // rich message id
+    expect(row?.posted_text).toBe(LEGACY_TEXT); // legacy text still stored
+    expect(row?.rich_html).toBe(RICH_HTML);
+  });
+
+  it('rich fails → falls back to legacy sendMessage; digest still published', async () => {
+    sendRichMessage.mockRejectedValue(new Error('Bad Request: rich message rejected'));
+
+    await runDigestNow(publishDeps());
+
+    expect(sendRichMessage).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalledWith(
+      CHAT,
+      LEGACY_TEXT,
+      expect.objectContaining({ parse_mode: 'HTML' }),
+    );
+    const row = getRow(sqlite, FIXED_WEEK_ISO);
+    expect(row?.posted_at).not.toBeNull();
+    expect(row?.posted_message_id).toBe(42); // legacy message id
+  });
+
+  it('rich_html NULL (prepared before #309) → legacy path, no rich attempt', async () => {
+    // Prepared row with rich_html = NULL, mimicking a row prepared pre-#309.
+    sqlite
+      .prepare(
+        `INSERT INTO digest_runs (week_iso, started_at, prepared_text, rich_html)
+         VALUES (?, ?, ?, NULL)`,
+      )
+      .run(FIXED_WEEK_ISO, FIXED_NOW, LEGACY_TEXT);
+
+    await runDigestNow(publishDeps());
+
+    expect(sendRichMessage).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalledWith(
+      CHAT,
+      LEGACY_TEXT,
+      expect.objectContaining({ parse_mode: 'HTML' }),
+    );
+    const row = getRow(sqlite, FIXED_WEEK_ISO);
+    expect(row?.posted_at).not.toBeNull();
+    expect(row?.posted_message_id).toBe(42);
+  });
+
+  it('no sendRichMessage wired (legacy caller) → legacy path, digest published', async () => {
+    // Drop the rich dep entirely — the scaffold injects an always-rejecting
+    // stub, so the override falls back to legacy text.
+    const deps = publishDeps();
+    // @ts-expect-error intentionally omit sendRichMessage
+    delete deps.sendRichMessage;
+
+    await runDigestNow(deps);
+
+    expect(sendMessage).toHaveBeenCalledOnce();
+    const row = getRow(sqlite, FIXED_WEEK_ISO);
+    expect(row?.posted_at).not.toBeNull();
+    expect(row?.posted_message_id).toBe(42);
+  });
+
+  // ── prepared-row branch: rich stored at prepare, posted at publish ─────────
+  it('prepared row with rich_html: publish posts rich, then photo-reply on the rich message', async () => {
+    await runPrepareTick(prepareDeps());
+    let row = getRow(sqlite, FIXED_WEEK_ISO);
+    expect(row?.rich_html).toBe(RICH_HTML); // stored at prepare
+    expect(row?.prepared_text).toBe(LEGACY_TEXT);
+
+    await runDigestNow(publishDeps());
+
+    expect(sendRichMessage).toHaveBeenCalledOnce();
+    expect(sendMessage).not.toHaveBeenCalled();
+    // Photo reply best-effort, on the RICH message id (77).
+    expect(sendPhotoReply).toHaveBeenCalledWith(
+      CHAT,
+      expect.any(Buffer),
+      `${FIXED_WEEK_ISO}.png`,
+      77,
+    );
+    row = getRow(sqlite, FIXED_WEEK_ISO);
+    expect(row?.posted_at).not.toBeNull();
+    expect(row?.posted_message_id).toBe(77);
+  });
+
+  it('prepared row, rich fails at publish → legacy fallback, still photo-reply on the legacy message', async () => {
+    await runPrepareTick(prepareDeps());
+    sendRichMessage.mockRejectedValue(new Error('Telegram 400 on sendRichMessage'));
+
+    await runDigestNow(publishDeps());
+
+    expect(sendRichMessage).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalledOnce();
+    // Photo reply lands on the legacy message id (42).
+    expect(sendPhotoReply).toHaveBeenCalledWith(
+      CHAT,
+      expect.any(Buffer),
+      `${FIXED_WEEK_ISO}.png`,
+      42,
+    );
+    const row = getRow(sqlite, FIXED_WEEK_ISO);
+    expect(row?.posted_message_id).toBe(42);
   });
 });
 

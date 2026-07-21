@@ -26,8 +26,9 @@ import { allTimeRecords } from '../db/schema/all_time_records.ts';
 import { computeAndEmitWeeklyMvpRecord } from './weekly-mvp-record.ts';
 import { NEAR_MISS_THRESHOLDS } from './near-miss-config.ts';
 import { renderTemplate, renderDigestGroup, type TemplateUser, type TemplateMatch } from '../publisher/templates.ts';
-import { agentToEmojiHtml, mapToEmojiHtml } from '../publisher/valorant-emoji.ts';
+import { agentToEmojiHtml, mapToEmojiHtml, weaponToEmojiHtml } from '../publisher/valorant-emoji.ts';
 import type { EventType } from '../publisher/types.ts';
+import { renderRichDigest, type RichDigestModel, type RichWeaponMaster } from './rich-render.ts';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
 
@@ -217,6 +218,13 @@ export interface BuildDigestDeps {
 export interface BuildDigestResult {
   /** Null when no sections produce content — don't post. */
   text: string | null;
+  /**
+   * Rich Message (Bot API 10.1+) HTML rendering of the SAME digest content
+   * (#309). Null iff `text` is null (empty week). Produced in the same single
+   * pass over the data as `text`; never drifts from it. Used by the publish
+   * tick to `sendRichMessage`, with `text` as the legacy fallback.
+   */
+  richHtml: string | null;
   sectionsIncluded: string[];
   /**
    * Most-played map this window (top of the Top-Maps GROUP BY), or null.
@@ -280,7 +288,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
   const totalMatches = Number(totalRow?.count ?? 0);
 
   if (totalMatches === 0) {
-    return { text: null, sectionsIncluded: [], topMap: null, topAgent: null };
+    return { text: null, richHtml: null, sectionsIncluded: [], topMap: null, topAgent: null };
   }
 
   // Hoisted out of the Top-Maps / Top-Agents scoped blocks below so the
@@ -303,6 +311,10 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
   // Weapons section renders last in the bright area — collected separately so
   // it can be appended after near-miss blocks too.
   const weaponsBlocks: string[] = [];
+  // Structured weapons-masters rows for the rich «Мастера своего дела» table
+  // (#309). Populated from the same merged weapons group that produces the
+  // legacy text block — sorted desc by value, mirroring renderDigestGroup.
+  const richWeaponMasters: RichWeaponMaster[] = [];
 
   {
     const optedOut = await getOptOutSet();
@@ -551,6 +563,19 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
     if (weaponsGroup) {
       weaponsBlocks.push(renderGroup(weaponsGroup));
       sectionsIncluded.push(weaponsGroup.eventType);
+      // Capture structured rows for the rich table — same weapon/value/player
+      // and same desc-by-value sort as renderDigestGroup's weapons branch.
+      for (const e of [...weaponsGroup.entries].sort(
+        (a, b) => Number(b.payload['value'] ?? 0) - Number(a.payload['value'] ?? 0),
+      )) {
+        const weapon = String(e.payload['weapon'] ?? '?');
+        richWeaponMasters.push({
+          weaponEmojiHtml: weaponToEmojiHtml(weapon) || '🎯',
+          weapon,
+          value: Number(e.payload['value'] ?? 0),
+          playerHtml: `<b>${esc(e.user.riot_name)}#${esc(e.user.riot_tag)}</b>`,
+        });
+      }
     }
   }
 
@@ -574,6 +599,12 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
 
   // ─── ALWAYS-SECTIONS ─────────────────────────────────────────────────────────
   const alwaysSections: string[] = [];
+
+  // Structured rich-model fields for the bottom sections (#309), captured in
+  // the same pass as the legacy text.
+  let richMostActive: { nameHtml: string; count: number } | null = null;
+  const richTopMaps: RichDigestModel['topMaps'] = [];
+  const richTopAgents: RichDigestModel['topAgents'] = [];
 
   // Pulse (simplified)
   {
@@ -606,6 +637,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
 
       const name = `<b>${esc(user.riot_name)}#${esc(user.riot_tag)}</b>`;
       alwaysSections.push(`🏆 Больше всех матчей\n${name} - ${cnt} за неделю`);
+      richMostActive = { nameHtml: name, count: cnt };
       sectionsIncluded.push('mostActive');
       break;
     }
@@ -634,6 +666,13 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
         })
         .join('\n');
       alwaysSections.push(`🗺 Чаще всего играли на:\n${mapLines}`);
+      for (const m of maps as Array<{ map: string; cnt: number }>) {
+        richTopMaps.push({
+          emojiHtml: mapToEmojiHtml(String(m.map)),
+          map: String(m.map),
+          count: Number(m.cnt),
+        });
+      }
       sectionsIncluded.push('topMaps');
     }
   }
@@ -661,6 +700,13 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
         })
         .join('\n');
       alwaysSections.push(`🎭 Чаще всего пикали:\n${agentLines}`);
+      for (const a of agents as Array<{ agent: string; cnt: number }>) {
+        richTopAgents.push({
+          emojiHtml: agentToEmojiHtml(String(a.agent)),
+          agent: String(a.agent),
+          count: Number(a.cnt),
+        });
+      }
       sectionsIncluded.push('topAgents');
     }
   }
@@ -685,7 +731,23 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
   parts.push('#digest');
 
   const text = parts.join('\n');
-  return { text, sectionsIncluded, topMap, topAgent };
+
+  // ─── Rich rendering (#309) — SAME data, parallel renderer ────────────────────
+  // Built from the structured section data captured above, so every section in
+  // the legacy `text` is present in the rich HTML. `brightBlocks` carry the
+  // non-weapons bright events (weapons → table via richWeaponMasters).
+  const richHtml = renderRichDigest({
+    headerDate,
+    brightBlocks,
+    weaponMasters: richWeaponMasters,
+    nearMissBlocks,
+    totalMatches,
+    mostActive: richMostActive,
+    topMaps: richTopMaps,
+    topAgents: richTopAgents,
+  });
+
+  return { text, richHtml, sectionsIncluded, topMap, topAgent };
 }
 
 /**
