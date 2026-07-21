@@ -6,7 +6,6 @@ import {
   makeTestDigestHandler,
   makeTestRuntimeEventsHandler,
   collapseGroupableEvents,
-  buildRichDigestPayload,
 } from './test-commands.ts';
 
 describe('isOwner', () => {
@@ -104,55 +103,6 @@ describe('admin gate (non-owner is silently ignored)', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await handler(ctx as any, async () => {});
     expect(bot.api.sendMessage).not.toHaveBeenCalled();
-  });
-});
-
-describe('buildRichDigestPayload', () => {
-  const DIGEST = '<b>Дайджест</b>\nстрока 2 <tg-emoji emoji-id="123">🐳</tg-emoji>';
-
-  it('returns exactly one of html/markdown/blocks (only html)', () => {
-    const payload = buildRichDigestPayload(DIGEST) as unknown as Record<string, unknown>;
-    const keysUsed = ['html', 'markdown', 'blocks'].filter((k) => k in payload);
-    expect(keysUsed).toEqual(['html']);
-    expect(typeof payload['html']).toBe('string');
-  });
-
-  it('keeps the digest as a prefix with newlines converted to <br>', () => {
-    const { html } = buildRichDigestPayload(DIGEST);
-    // Rich HTML collapses raw \n browser-style (verified on the first spike run),
-    // so the builder must convert them; everything else stays untouched.
-    expect(html.startsWith(DIGEST.replaceAll('\n', '<br>'))).toBe(true);
-    expect(html).not.toContain('\n');
-  });
-
-  it('appends a section heading, a table, and a collapsible Details section', () => {
-    const { html } = buildRichDigestPayload(DIGEST);
-    // section heading
-    expect(html).toContain('<h3>Тест rich-блоков</h3>');
-    // table with 3 header columns
-    expect(html).toContain('<table>');
-    expect(html).toContain('<th>Карта</th>');
-    expect(html).toContain('<th>Матчи</th>');
-    expect(html).toContain('<th>Эмодзи</th>');
-    expect(html).toContain('</table>');
-    // collapsible details with summary + multi-line body
-    expect(html).toContain('<details><summary>Подробности (свернуто)</summary>');
-    expect(html).toContain('</details>');
-  });
-
-  it('embeds a real custom emoji (tg-emoji) inside a table cell', () => {
-    const { html } = buildRichDigestPayload(DIGEST);
-    // Ascent map emoji id from the group's pack (valorant-emoji.ts).
-    expect(html).toContain('<td><tg-emoji emoji-id="5267510877233387981">🗺️</tg-emoji></td>');
-  });
-
-  it('only appends after the converted digest — no other mutation', () => {
-    const { html } = buildRichDigestPayload(DIGEST);
-    const converted = DIGEST.replaceAll('\n', '<br>');
-    const appended = html.slice(converted.length);
-    // everything after the converted prefix is the test block, nothing before it
-    expect(appended).toContain('<h3>Тест rich-блоков</h3>');
-    expect(html.indexOf(converted)).toBe(0);
   });
 });
 

@@ -1,0 +1,1 @@
+ALTER TABLE `digest_runs` ADD `rich_html` text;

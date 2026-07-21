@@ -19,6 +19,12 @@ export const digestRuns = sqliteTable('digest_runs', {
   prepared_top_agent: text('prepared_top_agent'),
   prepared_top_map: text('prepared_top_map'),
   story_image_path: text('story_image_path'),
+  // ─── Rich weekly digest (#309) ────────────────────────────────────────────
+  // The prepare tick (and the fresh-build publish fallback) stash the rich
+  // HTML rendering here alongside the legacy `prepared_text`. Nullable: rows
+  // prepared before this deploy have rich_html = NULL, so the publish tick
+  // falls back to the exact legacy sendMessage path for them.
+  rich_html: text('rich_html'),
 }, (table) => [
   uniqueIndex('idx_digest_runs_week_iso').on(table.week_iso),
 ]);

@@ -1007,4 +1007,93 @@ describe('buildDigest', () => {
       expect(result.text).toContain('AlmostTrojan');
     });
   });
+
+  // ─── Rich HTML rendering (#309) — produced from the SAME data pass ────────────
+  describe('richHtml rendering (#309)', () => {
+    it('richHtml is null exactly when text is null (empty week)', async () => {
+      seedUser(sqlite, 1, 'p1');
+      seedMatch(sqlite, { puuid: 'p1', startedAt: OUT_OF_WINDOW });
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.text).toBeNull();
+      expect(result.richHtml).toBeNull();
+    });
+
+    it('richHtml has the <h2> title, pulse, #digest footer, and no raw newline', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Alpha', riotTag: 'AAA' });
+      for (let i = 0; i < 3; i++) {
+        seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW + i * 1000, map: 'Ascent', agent: 'Jett' });
+      }
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      const html = result.richHtml!;
+      expect(html).toContain('<h2>📅 Дайджест за неделю');
+      expect(html).toContain('📊 За неделю мы сыграли <b>3</b> матчей');
+      expect(html.endsWith('#digest')).toBe(true);
+      // Rich HTML must carry no raw newline — every break is <br> or block markup.
+      expect(html).not.toContain('\n');
+    });
+
+    it('renders top-maps and top-agents as tables', async () => {
+      seedUser(sqlite, 1, 'p1');
+      for (let i = 0; i < 4; i++) seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW + i * 1000, map: 'Ascent', agent: 'Jett' });
+      for (let i = 0; i < 2; i++) seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW + (i + 10) * 1000, map: 'Bind', agent: 'Sage' });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      const html = result.richHtml!;
+      expect(html).toContain('<h3>🗺 Чаще всего играли на</h3>');
+      expect(html).toContain('<table><tr><th>Карта</th><th>Матчей</th></tr>');
+      expect(html).toContain('Ascent</td><td>4</td>');
+      expect(html).toContain('<h3>🎭 Чаще всего пикали</h3>');
+      expect(html).toContain('<table><tr><th>Агент</th><th>Пиков</th></tr>');
+      expect(html).toContain('Jett</td><td>4</td>');
+    });
+
+    it('renders «Мастера своего дела» as a table with weapon/frags/player and keeps custom emoji in cells', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Sniper', riotTag: 'SNP' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'kpw-m1', startedAt: IN_WINDOW });
+      // Sheriff is in DIGEST_ALLOWED_WEAPONS (Vandal/Phantom are deliberately excluded).
+      seedEvent(sqlite, {
+        puuid: 'p1',
+        matchId: 'kpw-m1#kpw-Sheriff',
+        eventType: 'record_kills_per_weapon',
+        payload: { weapon: 'Sheriff', value: 22, real_match_id: 'kpw-m1' },
+        detectedAt: IN_WINDOW,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      const html = result.richHtml!;
+      expect(html).toContain('<h3>🔫 Мастера своего дела</h3>');
+      expect(html).toContain('<table><tr><th>Оружие</th><th>Фраги</th><th>Игрок</th></tr>');
+      // Sheriff weapon emoji id from valorant-emoji.ts, kept inside the cell.
+      expect(html).toContain('<td><tg-emoji emoji-id="5265082472659459467">🔫</tg-emoji> Sheriff</td><td>22</td><td><b>Sniper#SNP</b></td>');
+      // Legacy text still carries the weapons block byte-for-byte (regression).
+      expect(result.text).toContain('🔫 <u>Мастера своего дела</u>');
+    });
+
+    it('wraps near-miss content in a collapsible <details>💨 Почти рекорды', async () => {
+      seedUser(sqlite, 99, 'p-holder', { riotName: 'Holder', riotTag: 'HLD' });
+      seedAllTimeRecord(sqlite, { recordType: 'kills_match', value: 30, puuid: 'p-holder', matchId: 'old-kills' });
+      seedUser(sqlite, 1, 'p1', { riotName: 'NearMisser', riotTag: 'NM' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'nm-match', startedAt: IN_WINDOW, kills: 29 });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      const html = result.richHtml!;
+      expect(html).toContain('<details><summary>💨 Почти рекорды</summary>');
+      expect(html).toContain('</details>');
+      expect(html).toContain('NearMisser');
+      expect(html).not.toContain('\n');
+    });
+
+    it('renders bright events (non-weapons) with newlines converted to <br>', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Streaker', riotTag: 'STR' });
+      seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW });
+      seedEvent(sqlite, { puuid: 'p1', eventType: 'winstreak_10plus', payload: { streak: 11 }, detectedAt: IN_WINDOW });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      const html = result.richHtml!;
+      expect(html).toContain('Винстрик недели');
+      expect(html).toContain('Streaker');
+      expect(html).toContain('<br>');
+      expect(html).not.toContain('\n');
+    });
+  });
 });

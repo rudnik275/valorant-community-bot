@@ -58,6 +58,17 @@ export type SendMessage = (
   opts?: { parse_mode?: string; disable_web_page_preview?: boolean },
 ) => Promise<{ message_id: number }>;
 
+/**
+ * Send a Rich Message (Bot API 10.1+ `sendRichMessage`) to the chat (#309).
+ * Resolves to the posted message id on success; REJECTS on any API error so
+ * the caller can fall back to the legacy `SendMessage` text path. Injected so
+ * this module (and the digest loop) stay free of grammY / the raw-API proxy.
+ */
+export type SendRichMessage = (
+  chatId: number,
+  richHtml: string,
+) => Promise<{ message_id: number }>;
+
 /** The window + dedup key resolved from a given moment. */
 export interface DigestWindow {
   /** The instant the tick fired (Unix ms). */
@@ -146,7 +157,11 @@ export interface DigestSpec {
   publishOverride?: (
     db: AnyDb,
     w: DigestWindow,
-    deps: { sendMessage: SendMessage; getPrimaryChatId: () => number },
+    deps: {
+      sendMessage: SendMessage;
+      sendRichMessage: SendRichMessage;
+      getPrimaryChatId: () => number;
+    },
   ) => Promise<void>;
   /**
    * Healthchecks.io URL to ping (fire-and-forget) after a successful post.
@@ -161,7 +176,13 @@ export interface DigestSpec {
  */
 export async function runScheduledDigest(
   spec: DigestSpec,
-  deps: { db: AnyDb; sendMessage: SendMessage; getPrimaryChatId: () => number },
+  deps: {
+    db: AnyDb;
+    sendMessage: SendMessage;
+    /** Optional rich send (#309). Only the weekly two-phase override uses it. */
+    sendRichMessage?: SendRichMessage;
+    getPrimaryChatId: () => number;
+  },
 ): Promise<void> {
   const { db, sendMessage, getPrimaryChatId } = deps;
   const { module } = spec;
@@ -182,7 +203,13 @@ export async function runScheduledDigest(
     // 2b. Weekly two-phase publish override (#227). Daily never sets this,
     //     so daily continues through the unchanged steps 3–8 below.
     if (spec.publishOverride) {
-      await spec.publishOverride(db, w, { sendMessage, getPrimaryChatId });
+      // A no-op rich sender (always rejects) when none is injected, so the
+      // override transparently falls back to the legacy text path — preserves
+      // behaviour for callers wired before #309.
+      const sendRichMessage: SendRichMessage =
+        deps.sendRichMessage ??
+        (() => Promise.reject(new Error('sendRichMessage not wired')));
+      await spec.publishOverride(db, w, { sendMessage, sendRichMessage, getPrimaryChatId });
       // Healthchecks.io ping (fire-and-forget). Mirrors step 8 for the
       // regular flow — the override is the publish path when two-phase is
       // wired (#227), and its successful return is the same liveness signal
@@ -256,7 +283,12 @@ export async function runScheduledDigest(
  */
 export function startScheduledDigest(
   spec: DigestSpec,
-  deps: { db: AnyDb; sendMessage: SendMessage; getPrimaryChatId: () => number },
+  deps: {
+    db: AnyDb;
+    sendMessage: SendMessage;
+    sendRichMessage?: SendRichMessage;
+    getPrimaryChatId: () => number;
+  },
 ): () => void {
   const cronJob = new Cron(
     spec.cron,

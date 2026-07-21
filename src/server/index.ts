@@ -36,6 +36,7 @@ import { startReconcileMembershipLoop } from './cron/reconcile-membership.ts';
 import { rebuildAllRecords } from './publisher/records-rebuild.ts';
 import { safeSendMessage } from './lib/safe-telegram.ts';
 import { sendPhotoExempt, InputFile } from './lib/telegram-send.ts';
+import { sendRichMessageHtml } from './lib/rich-message.ts';
 import { isPublishingEnabled } from './lib/silent-period.ts';
 
 const PORT = Number(process.env['PORT'] ?? 3000);
@@ -200,6 +201,11 @@ if (process.env['SCANNER_DISABLED'] !== 'true') {
       startDigestLoop({
         db,
         sendMessage: (chatId, text, opts) => safeSendMessage(bot!.api, chatId, text, opts as never),
+        // Rich Message send (#309): the weekly digest posts as a rich message,
+        // falling back to `sendMessage` (legacy text) on any error. Destination
+        // is TELEGRAM_PRIMARY_CHAT_ID (the already-authorised group) — same
+        // exempt risk-model as the digest text send.
+        sendRichMessage: (chatId, html) => sendRichMessageHtml(bot!.api, chatId, html),
         getPrimaryChatId: () => primaryChatId,
         sendPhotoReply,
       });

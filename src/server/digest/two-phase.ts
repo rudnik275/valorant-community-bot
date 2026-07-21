@@ -33,7 +33,7 @@ import { buildDigest } from './build.ts';
 import { getDigestNowKyiv, type DigestNowKyiv } from './loop.ts';
 import { runStoryGeneration } from '../story/run.ts';
 import { isPublishingEnabled } from '../lib/silent-period.ts';
-import type { SendMessage } from '../lib/scheduled-digest.ts';
+import type { SendMessage, SendRichMessage } from '../lib/scheduled-digest.ts';
 import logger from '../lib/log.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -60,6 +60,8 @@ interface DigestRunRow {
   prepared_top_agent: string | null;
   prepared_top_map: string | null;
   story_image_path: string | null;
+  /** Rich Message HTML rendering (#309). NULL for rows prepared pre-#309. */
+  rich_html: string | null;
 }
 
 async function findRow(db: AnyDb, weekIso: string): Promise<DigestRunRow | undefined> {
@@ -134,7 +136,7 @@ export async function runPrepareTick(deps: PrepareLoopDeps): Promise<void> {
     }
 
     // 2. Build the digest once.
-    const { text, topAgent, topMap } = await buildDigest({
+    const { text, richHtml, topAgent, topMap } = await buildDigest({
       db: deps.db,
       weekStart,
       weekEnd,
@@ -164,10 +166,13 @@ export async function runPrepareTick(deps: PrepareLoopDeps): Promise<void> {
         prepared_top_agent: topAgent,
         prepared_top_map: topMap,
         story_image_path: null,
+        // Rich rendering (#309) stashed alongside the legacy text so the
+        // publish tick can sendRichMessage the exact same content.
+        rich_html: richHtml,
       })
       .onConflictDoNothing();
     logger.info(
-      { module: 'digest_prepare', week_iso: weekIso, top_agent: topAgent, top_map: topMap },
+      { module: 'digest_prepare', week_iso: weekIso, top_agent: topAgent, top_map: topMap, rich: richHtml !== null },
       'Prepare tick — prepared row written (text committed)',
     );
 
@@ -260,6 +265,46 @@ export function startPrepareLoop(deps: PrepareLoopDeps): () => void {
 // ─── PUBLISH override (Fri 19:00, runs inside runScheduledDigest) ─────────────
 
 /**
+ * Post the digest, preferring the Rich Message path (#309) and falling back to
+ * the legacy plain-text send on ANY rich-send error or when `richHtml` is null
+ * (rows prepared before #309). Returns the posted message id + which path was
+ * taken. The Friday 19:00 post must never be skipped because of the rich path —
+ * hence the try/catch fallback here.
+ */
+async function postDigest(
+  weekIso: string,
+  chatId: number,
+  richHtml: string | null | undefined,
+  legacyText: string,
+  deps: { sendMessage: SendMessage; sendRichMessage: SendRichMessage },
+): Promise<{ messageId: number; path: 'rich' | 'legacy' }> {
+  if (richHtml != null) {
+    try {
+      const { message_id } = await deps.sendRichMessage(chatId, richHtml);
+      logger.info(
+        { module: 'digest_publish', week_iso: weekIso, message_id, path: 'rich' },
+        'Publish tick — posted via sendRichMessage',
+      );
+      return { messageId: message_id, path: 'rich' };
+    } catch (err) {
+      logger.warn(
+        { module: 'digest_publish', week_iso: weekIso, err },
+        'Publish tick — sendRichMessage failed, falling back to legacy text',
+      );
+    }
+  }
+  const { message_id } = await deps.sendMessage(chatId, legacyText, {
+    parse_mode: 'HTML',
+    disable_web_page_preview: true,
+  });
+  logger.info(
+    { module: 'digest_publish', week_iso: weekIso, message_id, path: 'legacy', rich_null: richHtml == null },
+    'Publish tick — posted via legacy sendMessage',
+  );
+  return { messageId: message_id, path: 'legacy' };
+}
+
+/**
  * Build the `publishOverride` for the weekly `DigestSpec`. The shared
  * `runScheduledDigest` calls this after the unexpected-error boundary + the
  * Silent-period gate (weekly has `silentPeriodGate: true`).
@@ -267,17 +312,21 @@ export function startPrepareLoop(deps: PrepareLoopDeps): () => void {
  * Branching keyed on the `digest_runs` row for this `weekIso`:
  *   - published (posted_at set)         → no-op (dedup).
  *   - [no_content] / [silent-period]    → post nothing (current behaviour).
- *   - prepared row exists               → post prepared_text → record
- *       published-state IMMEDIATELY (#255 ordering) → best-effort photo
- *       reply (failure logged, does NOT touch published state).
+ *   - prepared row exists               → post prepared content (rich → legacy
+ *       fallback, #309) → record published-state IMMEDIATELY (#255 ordering) →
+ *       best-effort photo reply (failure logged, does NOT touch published state).
  *   - no row at all (prepare missed)    → fresh buildDigest() + text-only,
- *       no image (digest always goes out on time).
+ *       no image (digest always goes out on time), rich → legacy fallback.
+ *
+ * In prod the prepare tick is currently disabled (see index.ts), so the live
+ * path is the "no row → fresh build" branch — which is why it, too, renders
+ * rich with a legacy fallback.
  */
 export function makeWeeklyPublishOverride(sendPhotoReply: SendPhotoReply) {
   return async (
     db: AnyDb,
     w: { dedupKey: string; nowMs: number; windowStart: number; windowEnd: number },
-    deps: { sendMessage: SendMessage; getPrimaryChatId: () => number },
+    deps: { sendMessage: SendMessage; sendRichMessage: SendRichMessage; getPrimaryChatId: () => number },
   ): Promise<void> => {
     const weekIso = w.dedupKey;
     const row = await findRow(db, weekIso);
@@ -303,9 +352,11 @@ export function makeWeeklyPublishOverride(sendPhotoReply: SendPhotoReply) {
     const chatId = deps.getPrimaryChatId();
 
     // No row at all → the prepare tick was missed (deploy/restart/crash in
-    // the 18:45–19:00 window). Fresh build, TEXT-ONLY, on time.
+    // the 18:45–19:00 window). Fresh build, on time. This is the LIVE path in
+    // prod (prepare tick disabled) — it renders rich with a legacy fallback,
+    // text-only (no promo image, since none was prepared).
     if (!row || row.prepared_text === null) {
-      const { text } = await buildDigest({
+      const { text, richHtml } = await buildDigest({
         db,
         weekStart: w.windowStart,
         weekEnd: w.windowEnd,
@@ -321,10 +372,7 @@ export function makeWeeklyPublishOverride(sendPhotoReply: SendPhotoReply) {
         );
         return;
       }
-      const { message_id: messageId } = await deps.sendMessage(chatId, text, {
-        parse_mode: 'HTML',
-        disable_web_page_preview: true,
-      });
+      const { messageId } = await postDigest(weekIso, chatId, richHtml, text, deps);
       await db
         .insert(digestRuns)
         .values({
@@ -333,23 +381,23 @@ export function makeWeeklyPublishOverride(sendPhotoReply: SendPhotoReply) {
           posted_at: Date.now(),
           posted_message_id: messageId,
           posted_text: text,
+          rich_html: richHtml,
         })
         .onConflictDoNothing();
       logger.info(
         { module: 'digest_publish', week_iso: weekIso, message_id: messageId },
-        'Publish tick — prepare missed, posted fresh text-only digest',
+        'Publish tick — prepare missed, posted fresh digest',
       );
       return;
     }
 
-    // Prepared row exists → post the SAVED text verbatim.
+    // Prepared row exists → post the SAVED content verbatim: rich first (if a
+    // rich_html was prepared — null for rows prepared before #309), falling
+    // back to the SAVED legacy text on any rich-send error (#309).
     const preparedText = row.prepared_text;
-    const { message_id: messageId } = await deps.sendMessage(chatId, preparedText, {
-      parse_mode: 'HTML',
-      disable_web_page_preview: true,
-    });
+    const { messageId } = await postDigest(weekIso, chatId, row.rich_html, preparedText, deps);
 
-    // #255 ordering: record published-state IMMEDIATELY after the text send,
+    // #255 ordering: record published-state IMMEDIATELY after the send,
     // BEFORE the best-effort image. The image is purely additive.
     const postedAt = Date.now();
     await db
@@ -362,7 +410,7 @@ export function makeWeeklyPublishOverride(sendPhotoReply: SendPhotoReply) {
       .where(eq(digestRuns.week_iso, weekIso));
     logger.info(
       { module: 'digest_publish', week_iso: weekIso, message_id: messageId },
-      'Publish tick — posted prepared text, published-state recorded',
+      'Publish tick — posted prepared digest, published-state recorded',
     );
 
     // Best-effort photo reply. Any failure is logged and swallowed — it
