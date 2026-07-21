@@ -29,6 +29,7 @@ import { isRealtimeEvent, type EventType } from '../publisher/types.ts';
 import logger from '../lib/log.ts';
 import { sendExempt, sendPhotoExempt, InputFile } from '../lib/telegram-send.ts';
 import { runStoryGeneration } from '../story/run.ts';
+import { mapToEmojiHtml } from '../publisher/valorant-emoji.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
@@ -111,6 +112,144 @@ export function makeTestDigestHandler(deps: TestCommandsDeps): MiddlewareFn<Cont
       logger.error({ module: 'test_commands', cmd: 'test_digest', err }, 'Preview digest failed');
       try {
         await sendExempt(deps.bot.api, fromId!, `<i>Ошибка: ${(err as Error).message ?? 'unknown'}</i>`, HTML_OPTS);
+      } catch {
+        // swallow — already in error path
+      }
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// /test_rich_digest — Rich Message spike (#306)
+// ---------------------------------------------------------------------------
+
+/**
+ * Shape of the `InputRichMessage` value passed as `rich_message` to the Bot API
+ * `sendRichMessage` method (added in Bot API 10.1, 2026-06-11). The API requires
+ * exactly one of `html` | `markdown` | `blocks`; we only ever use `html` here.
+ * Other optional fields (`media`, `is_rtl`, `skip_entity_detection`) are omitted.
+ */
+export interface InputRichMessageHtml {
+  html: string;
+}
+
+/**
+ * grammY has no typings for `sendRichMessage` yet. `bot.api.raw` is a Proxy that
+ * forwards unknown method names straight to the Bot API, so we call it through a
+ * narrow local cast that mirrors the documented parameter shape:
+ *   sendRichMessage(chat_id, rich_message, ...optional).
+ */
+interface RawSendRichMessage {
+  sendRichMessage(args: { chat_id: number; rich_message: InputRichMessageHtml }): Promise<unknown>;
+}
+
+/**
+ * Build the `InputRichMessage` HTML payload for the `/test_rich_digest` spike.
+ *
+ * Pure function: takes the already-rendered weekly-digest HTML and returns the
+ * `rich_message` payload with the digest HTML kept **byte-for-byte unchanged**
+ * as a prefix, followed by appended TEST BLOCKS in the Rich HTML dialect:
+ *   1. a section heading (`<h3>`),
+ *   2. a small 3-column table with a real custom emoji (`<tg-emoji>`) in a cell,
+ *   3. a collapsible `<details>` section.
+ *
+ * The point of the spike is to see whether the current digest markup renders
+ * as-is inside a rich message, so this only appends — it never mutates the
+ * digest HTML.
+ */
+export function buildRichDigestPayload(digestHtml: string): InputRichMessageHtml {
+  // Real custom-emoji ids from the group's pack — reused via the emoji module so
+  // the ids stay in sync with the rest of the bot. One goes inside a table cell
+  // (question #1: do custom emoji render inside rich tables?).
+  const ascentEmoji = mapToEmojiHtml('Ascent'); // <tg-emoji emoji-id="...">🗺️</tg-emoji>
+  const bindEmoji = mapToEmojiHtml('Bind');
+  const havenEmoji = mapToEmojiHtml('Haven');
+
+  const testBlocks =
+    '<h3>Тест rich-блоков</h3>' +
+    '<table>' +
+    '<tr><th>Карта</th><th>Матчи</th><th>Эмодзи</th></tr>' +
+    `<tr><td>Ascent</td><td>12</td><td>${ascentEmoji}</td></tr>` +
+    `<tr><td>Bind</td><td>7</td><td>${bindEmoji}</td></tr>` +
+    `<tr><td>Haven</td><td>4</td><td>${havenEmoji}</td></tr>` +
+    '</table>' +
+    '<details><summary>Подробности (свернуто)</summary>' +
+    'Это сворачиваемая Details-секция.<br>' +
+    'Вторая строка внутри Details — проверяем, что многострочный контент рендерится.' +
+    '</details>';
+
+  return { html: `${digestHtml}\n${testBlocks}` };
+}
+
+/**
+ * `/test_rich_digest [N]` — owner-only Rich Message spike (#306). Builds the
+ * weekly digest for the last N days (default 7, max 30), appends test rich
+ * blocks (heading + table with custom emoji + collapsible Details), and sends
+ * it to the owner's DM via `sendRichMessage` (HTML input).
+ *
+ * Verifies three things: (1) our custom emoji render inside rich messages,
+ * (2) calling `sendRichMessage` through grammY's raw-API Proxy works,
+ * (3) tables / Details / headings render.
+ *
+ * On empty window it replies like `/test_digest` does. On ANY API error it
+ * catches and replies to the owner with the error string — the spike must
+ * never fail silently.
+ *
+ * Why the raw-API call is owner-DM-only and safe: `chat_id` is `ctx.from.id`,
+ * verified by `isOwner()` above, so the message lands in the owner's own DM.
+ * `sendRichMessage` has no grammY-side allowlist guard (it isn't in the typed
+ * Api), but the risk-model is identical to `sendExempt` — no path to leak
+ * elsewhere. Acceptable for a spike; a typed wrapper can come with the real
+ * conversion.
+ */
+export function makeTestRichDigestHandler(deps: TestCommandsDeps): MiddlewareFn<Context> {
+  return async (ctx: Context): Promise<void> => {
+    const fromId = ctx.from?.id;
+    if (!isOwner(fromId)) return; // silent ignore
+
+    const days = parseDaysArg(ctx.message?.text, DEFAULT_DIGEST_DAYS);
+    const weekEnd = Date.now();
+    const weekStart = weekEnd - days * 86400000;
+
+    logger.info(
+      { module: 'test_commands', cmd: 'test_rich_digest', owner_id: fromId, days },
+      'Building rich-message preview digest',
+    );
+
+    try {
+      const result = await buildDigest({ db: deps.db, weekStart, weekEnd });
+
+      if (!result.text) {
+        // Same empty-window contract as /test_digest.
+        await sendExempt(
+          deps.bot.api,
+          fromId!,
+          '<i>(дайджест пустой — нет квалифицирующих событий за это окно)</i>',
+          HTML_OPTS,
+        );
+        return;
+      }
+
+      const payload = buildRichDigestPayload(result.text);
+
+      // grammY has no types for sendRichMessage — go through the raw-API Proxy
+      // with a narrow cast. chat_id = owner id (isOwner-verified) → owner DM only.
+      const raw = deps.bot.api.raw as unknown as RawSendRichMessage;
+      await raw.sendRichMessage({ chat_id: fromId!, rich_message: payload });
+    } catch (err) {
+      logger.error(
+        { module: 'test_commands', cmd: 'test_rich_digest', err },
+        'Rich-message preview digest failed',
+      );
+      // Never fail silently — surface the raw error string to the owner as plain
+      // text (a rich-message call may itself be what failed, so use sendExempt).
+      try {
+        await sendExempt(
+          deps.bot.api,
+          fromId!,
+          `<i>Ошибка sendRichMessage: ${(err as Error).message ?? 'unknown'}</i>`,
+          HTML_OPTS,
+        );
       } catch {
         // swallow — already in error path
       }

@@ -8,7 +8,7 @@ import healthz from './api/healthz.ts';
 import { scopeGuard } from './bot/scope-guard.ts';
 import { makeLastMessageHandler } from './bot/listener.ts';
 import { makeChatMemberListener } from './bot/chat-member-listener.ts';
-import { makeTestDigestHandler, makeTestDigestImageHandler, makeTestRuntimeEventsHandler } from './bot/test-commands.ts';
+import { makeTestDigestHandler, makeTestDigestImageHandler, makeTestRuntimeEventsHandler, makeTestRichDigestHandler } from './bot/test-commands.ts';
 import { makeCongratsHandler, makeCongratsCallbackHandler } from './bot/congrats-command.ts';
 import { setupAdminCommandsForOwner } from './bot/setup-admin-commands.ts';
 import { isAllowedChat } from './lib/scope.ts';
@@ -60,6 +60,7 @@ if (botToken) {
   bot.command('test_digest', makeTestDigestHandler({ db, bot }));
   bot.command('test_digest_image', makeTestDigestImageHandler({ db, bot, getOpenAIKey }));
   bot.command('test_runtime_events', makeTestRuntimeEventsHandler({ db, bot }));
+  bot.command('test_rich_digest', makeTestRichDigestHandler({ db, bot }));
   // Admin: /congrats <nickname> → preview-then-confirm post of yesterday's
   // matches for the matched player to the primary chat.
   const getPrimaryChatId = () => Number(process.env['TELEGRAM_PRIMARY_CHAT_ID'] ?? '0');
