@@ -147,15 +147,15 @@ interface RawSendRichMessage {
  * Build the `InputRichMessage` HTML payload for the `/test_rich_digest` spike.
  *
  * Pure function: takes the already-rendered weekly-digest HTML and returns the
- * `rich_message` payload with the digest HTML kept **byte-for-byte unchanged**
- * as a prefix, followed by appended TEST BLOCKS in the Rich HTML dialect:
+ * `rich_message` payload — the digest HTML with `\n` converted to `<br>`
+ * (the Rich HTML dialect collapses raw newlines browser-style, verified on the
+ * first spike run), followed by appended TEST BLOCKS in the Rich HTML dialect:
  *   1. a section heading (`<h3>`),
  *   2. a small 3-column table with a real custom emoji (`<tg-emoji>`) in a cell,
  *   3. a collapsible `<details>` section.
  *
- * The point of the spike is to see whether the current digest markup renders
- * as-is inside a rich message, so this only appends — it never mutates the
- * digest HTML.
+ * Beyond the newline conversion the digest markup is left untouched — the spike
+ * still shows how the existing inline tags render inside a rich message.
  */
 export function buildRichDigestPayload(digestHtml: string): InputRichMessageHtml {
   // Real custom-emoji ids from the group's pack — reused via the emoji module so
@@ -178,7 +178,7 @@ export function buildRichDigestPayload(digestHtml: string): InputRichMessageHtml
     'Вторая строка внутри Details — проверяем, что многострочный контент рендерится.' +
     '</details>';
 
-  return { html: `${digestHtml}\n${testBlocks}` };
+  return { html: `${digestHtml.replaceAll('\n', '<br>')}<br>${testBlocks}` };
 }
 
 /**

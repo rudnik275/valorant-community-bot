@@ -117,9 +117,12 @@ describe('buildRichDigestPayload', () => {
     expect(typeof payload['html']).toBe('string');
   });
 
-  it('preserves the digest HTML byte-for-byte as a prefix', () => {
+  it('keeps the digest as a prefix with newlines converted to <br>', () => {
     const { html } = buildRichDigestPayload(DIGEST);
-    expect(html.startsWith(DIGEST)).toBe(true);
+    // Rich HTML collapses raw \n browser-style (verified on the first spike run),
+    // so the builder must convert them; everything else stays untouched.
+    expect(html.startsWith(DIGEST.replaceAll('\n', '<br>'))).toBe(true);
+    expect(html).not.toContain('\n');
   });
 
   it('appends a section heading, a table, and a collapsible Details section', () => {
@@ -143,12 +146,13 @@ describe('buildRichDigestPayload', () => {
     expect(html).toContain('<td><tg-emoji emoji-id="5267510877233387981">🗺️</tg-emoji></td>');
   });
 
-  it('only appends — does not mutate the digest HTML', () => {
+  it('only appends after the converted digest — no other mutation', () => {
     const { html } = buildRichDigestPayload(DIGEST);
-    const appended = html.slice(DIGEST.length);
-    // everything after the preserved prefix is the test block, nothing before it
+    const converted = DIGEST.replaceAll('\n', '<br>');
+    const appended = html.slice(converted.length);
+    // everything after the converted prefix is the test block, nothing before it
     expect(appended).toContain('<h3>Тест rich-блоков</h3>');
-    expect(html.indexOf(DIGEST)).toBe(0);
+    expect(html.indexOf(converted)).toBe(0);
   });
 });
 
