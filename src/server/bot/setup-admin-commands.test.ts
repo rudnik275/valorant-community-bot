@@ -19,10 +19,11 @@ describe('setupAdminCommandsForOwner', () => {
     expect(opts).toEqual({ scope: { type: 'chat', chat_id: OWNER_TELEGRAM_ID } });
   });
 
-  it('includes the three admin commands by name', () => {
+  it('includes the admin commands by name', () => {
     const names = ADMIN_COMMANDS.map((c) => c.command);
     expect(names).toContain('congrats');
     expect(names).toContain('test_digest');
+    expect(names).toContain('test_rich_digest');
     expect(names).toContain('test_runtime_events');
   });
 
