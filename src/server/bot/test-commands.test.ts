@@ -1,4 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
+import Database from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
+import { join } from 'node:path';
 import {
   isOwner,
   OWNER_TELEGRAM_ID,
@@ -7,6 +11,8 @@ import {
   makeTestRuntimeEventsHandler,
   collapseGroupableEvents,
 } from './test-commands.ts';
+import { renderTemplate } from '../publisher/templates.ts';
+import { resolveTemplateMatch } from '../publisher/match-info.ts';
 
 describe('isOwner', () => {
   it('returns true for the hardcoded OWNER_TELEGRAM_ID', () => {
@@ -104,6 +110,76 @@ describe('admin gate (non-owner is silently ignored)', () => {
     await handler(ctx as any, async () => {});
     expect(bot.api.sendMessage).not.toHaveBeenCalled();
   });
+});
+
+describe('/test_runtime_events replay parity (#315)', () => {
+  const MIGRATIONS_FOLDER = join(process.cwd(), 'drizzle');
+  const MATCH = 'match-parity-1';
+  const KILLER = 'puuid-killer';
+  const VICTIM = 'puuid-victim';
+
+  it('teamkill preview text is byte-identical to the production render (shared resolver)', async () => {
+    const sqlite = new Database(':memory:');
+    sqlite.exec('PRAGMA foreign_keys=OFF;');
+    const db = drizzle(sqlite);
+    migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
+
+    try {
+      sqlite.prepare(
+        `INSERT INTO users (telegram_id, riot_puuid, riot_name, riot_tag, joined_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).run(1, KILLER, 'Killer', 'KKK', Date.now());
+      sqlite.prepare(
+        `INSERT INTO users (telegram_id, riot_puuid, riot_name, riot_tag, joined_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).run(2, VICTIM, 'Danya', 'UA1', Date.now());
+      sqlite.prepare(
+        `INSERT INTO match_records
+           (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result,
+            rounds_played, rank_after, fall_damage_kills, kill_events_compact)
+         VALUES (?, ?, ?, 'Ascent', 'Jett', 20, 10, 5, 'win', 24, 'Diamond 3', 0, '[]')`,
+      ).run(KILLER, MATCH, 1_000);
+      sqlite.prepare(
+        `INSERT INTO match_rosters (match_id, riot_puuid, team, name, tag, agent, tier, kills, deaths)
+         VALUES (?, ?, 'Blue', 'Danya', 'UA1', 'Sage', 'Silver 2', 10, 10)`,
+      ).run(MATCH, VICTIM);
+
+      const payload = {
+        round_numbers: [3],
+        victims: [{ puuid: VICTIM, name: 'Danya', tag: 'UA1', agent: 'Sage' }],
+      };
+      sqlite.prepare(
+        `INSERT INTO detected_events (event_type, riot_puuid, match_id, payload_json, detected_at, status)
+         VALUES ('teamkill', ?, ?, ?, ?, 'posted')`,
+      ).run(KILLER, MATCH, JSON.stringify(payload), Date.now() - 1000);
+
+      const bot = { api: { sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }) } };
+      const handler = makeTestRuntimeEventsHandler({ db, bot: bot as never });
+      const ctx = { from: { id: OWNER_TELEGRAM_ID }, message: { text: '/test_runtime_events 2' } };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await handler(ctx as any, async () => {});
+
+      // What PRODUCTION would post: the same renderTemplate fed by the same
+      // shared resolver the publisher loop uses.
+      const expected = renderTemplate(
+        'teamkill',
+        payload,
+        { riot_name: 'Killer', riot_tag: 'KKK', telegram_id: 1, riot_puuid: KILLER },
+        await resolveTemplateMatch(db, 'teamkill', MATCH, KILLER, payload),
+      );
+
+      const texts = bot.api.sendMessage.mock.calls.map((c) => c[1] as string);
+      expect(texts).toContain(expected);
+
+      // Guard against a vacuous pass: the expected render must actually carry
+      // the roster-enriched data and the three-line #315 layout.
+      expect(expected).toContain('<b>Danya#UA1</b>');
+      expect(expected).toContain('<tg-emoji'); // rank/agent icons resolved
+      expect(expected.split('\n')).toHaveLength(3);
+    } finally {
+      sqlite.close();
+    }
+  }, 15_000);
 });
 
 describe('collapseGroupableEvents', () => {

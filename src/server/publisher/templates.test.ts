@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderTemplate, renderDigestGroup, esc } from './templates.ts';
-import { mapToEmojiHtml, weaponToEmojiHtml } from './valorant-emoji.ts';
+import { mapToEmojiHtml, weaponToEmojiHtml, agentToEmojiHtml } from './valorant-emoji.ts';
+import { rankToEmojiHtml } from './rank-emoji.ts';
 import type { EventType } from './types.ts';
 
 const ALL_EVENT_TYPES: EventType[] = [
@@ -277,10 +278,10 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).not.toContain('\n\n');
   });
 
-  it('return_after_pause: includes match link with map-emoji when match_id present', () => {
+  it('return_after_pause: match link with map-emoji on its OWN line (#315)', () => {
     const output = renderTemplate('return_after_pause', { days_paused: 20 }, safeUser, { match_id: 'ret1', map: 'Ascent' });
-    expect(output).toContain(`<a href="https://tracker.gg/valorant/match/ret1">${mapToEmojiHtml('Ascent')} Ascent</a>`);
-    expect(output).toContain('· <a href=');
+    expect(output).toContain(`\n<a href="https://tracker.gg/valorant/match/ret1">${mapToEmojiHtml('Ascent')} Ascent</a>`);
+    expect(output).not.toContain('· <a href=');
   });
 
   it('return_after_pause: no match link when match_id absent', () => {
@@ -314,9 +315,10 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).not.toContain('\n\n');
   });
 
-  it('teamkill: match link uses map-emoji label joined with " · "', () => {
+  it('teamkill: match link with map-emoji label on its OWN line (#315)', () => {
     const output = renderTemplate('teamkill', { round_numbers: [2] }, safeUser, { map: 'Bind', match_id: 'mID1' });
-    expect(output).toContain(`· <a href="https://tracker.gg/valorant/match/mID1">${mapToEmojiHtml('Bind')} Bind</a>`);
+    expect(output).toContain(`\n<a href="https://tracker.gg/valorant/match/mID1">${mapToEmojiHtml('Bind')} Bind</a>`);
+    expect(output).not.toContain('· <a href=');
   });
 
   it('fall_damage_death: includes map and 1:0 в пользу гравитации text', () => {
@@ -342,9 +344,10 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).not.toContain('\n\n');
   });
 
-  it('fall_damage_death: match link uses map-emoji label joined with " · "', () => {
+  it('fall_damage_death: match link with map-emoji label on its OWN line (#315)', () => {
     const output = renderTemplate('fall_damage_death', { count: 2 }, safeUser, { map: 'Icebox', match_id: 'fall1' });
-    expect(output).toContain(`· <a href="https://tracker.gg/valorant/match/fall1">${mapToEmojiHtml('Icebox')} Icebox</a>`);
+    expect(output).toContain(`\n<a href="https://tracker.gg/valorant/match/fall1">${mapToEmojiHtml('Icebox')} Icebox</a>`);
+    expect(output).not.toContain('· <a href=');
   });
 
   it('record_damage_dealt_match: shows Мясник heading and value', () => {
@@ -609,7 +612,7 @@ describe('renderTemplate — agent emoji next to nicks (#301)', () => {
       { agent: 'Jett' },
     );
     expect(output).toContain('<b>Player#TAG</b> ' + JETT); // killer
-    expect(output).toContain('<b>Friendly</b> ' + SAGE); // victim
+    expect(output).toContain('<b>Friendly#GG</b> ' + SAGE); // victim — full Ник#Тег (#315)
   });
 
   it('fall_damage_death: shows agent emoji next to nick from match.agent', () => {
@@ -659,5 +662,101 @@ describe('renderTemplate — agent emoji next to nicks (#301)', () => {
       safeUser,
     );
     expect(output).toContain('🏅<b>Alice#A</b> ' + JETT);
+  });
+});
+
+describe('renderTemplate — #315 minimal trio: renderPlayerName + match link on its own line', () => {
+  const JETT = agentToEmojiHtml('Jett');
+  const SAGE = agentToEmojiHtml('Sage');
+  const D3 = rankToEmojiHtml('Diamond 3');
+  const G1 = rankToEmojiHtml('Gold 1');
+
+  it('teamkill: full three-line structure — header / body / match link', () => {
+    const output = renderTemplate(
+      'teamkill',
+      { round_numbers: [3, 7] },
+      safeUser,
+      {
+        match_id: 'm1',
+        map: 'Ascent',
+        rank: 'Diamond 3',
+        agent: 'Jett',
+        victims: [{ name: 'Danya', tag: 'UA1', agent: 'Sage', rank: 'Gold 1' }],
+      },
+    );
+    expect(output).toBe(
+      '🐀 <b>Ля ты и крыса</b>\n' +
+      `${D3} <b>Player#TAG</b> ${JETT} убил(а) своего (${G1} <b>Danya#UA1</b> ${SAGE}) (2× за матч)\n` +
+      `<a href="https://tracker.gg/valorant/match/m1">${mapToEmojiHtml('Ascent')} Ascent</a>`,
+    );
+  });
+
+  it('teamkill: killer rank emoji present with match.rank, absent without', () => {
+    const withRank = renderTemplate('teamkill', {}, safeUser, { rank: 'Diamond 3' });
+    expect(withRank).toContain(`${D3} <b>Player#TAG</b>`);
+    const withoutRank = renderTemplate('teamkill', {}, safeUser, {});
+    expect(withoutRank).not.toContain('<tg-emoji');
+  });
+
+  it('teamkill: loop-resolved match.victims take precedence over raw payload victims', () => {
+    const output = renderTemplate(
+      'teamkill',
+      { victims: [{ name: 'PayloadOnly', tag: 'X', agent: 'Sage' }] },
+      safeUser,
+      { match_id: 'm1', victims: [{ name: 'Resolved', tag: 'Y', rank: 'Gold 1' }] },
+    );
+    expect(output).toContain(`(${G1} <b>Resolved#Y</b>)`);
+    expect(output).not.toContain('PayloadOnly');
+  });
+
+  it('teamkill: victim without resolvable rank → bold Ник#Тег, no rank emoji', () => {
+    const output = renderTemplate(
+      'teamkill',
+      { victims: [{ name: 'Danya', tag: 'UA1' }] },
+      safeUser,
+    );
+    expect(output).toContain('(<b>Danya#UA1</b>)');
+    expect(output).not.toContain('<tg-emoji');
+  });
+
+  it('teamkill: legacy names-only payload → bold name without a dangling #', () => {
+    const output = renderTemplate('teamkill', { victim_names_for_template: ['OldGuy'] }, safeUser);
+    expect(output).toContain('(<b>OldGuy</b>)');
+    expect(output).not.toContain('OldGuy#');
+  });
+
+  it('fall_damage_death: three-line structure with rank + agent', () => {
+    const output = renderTemplate(
+      'fall_damage_death',
+      { count: 2 },
+      safeUser,
+      { match_id: 'f1', map: 'Icebox', rank: 'Diamond 3', agent: 'Jett' },
+    );
+    expect(output).toBe(
+      '🪂 <b>1:0 в пользу гравитации</b>\n' +
+      `${D3} <b>Player#TAG</b> ${JETT} — умер(ла) от падения (2×)\n` +
+      `<a href="https://tracker.gg/valorant/match/f1">${mapToEmojiHtml('Icebox')} Icebox</a>`,
+    );
+  });
+
+  it('return_after_pause: three-line structure with rank + agent', () => {
+    const output = renderTemplate(
+      'return_after_pause',
+      { days_paused: 14 },
+      safeUser,
+      { match_id: 'r1', map: 'Bind', rank: 'Gold 1', agent: 'Sage' },
+    );
+    expect(output).toBe(
+      '👋 <b>С возвращением</b>\n' +
+      `${G1} <b>Player#TAG</b> ${SAGE} — после 14 дней паузы снова в строю\n` +
+      `<a href="https://tracker.gg/valorant/match/r1">${mapToEmojiHtml('Bind')} Bind</a>`,
+    );
+  });
+
+  it('fall_damage_death / return_after_pause: no rank emoji when rank not resolvable', () => {
+    const fall = renderTemplate('fall_damage_death', {}, safeUser, { match_id: 'f2' });
+    expect(fall).not.toContain('<tg-emoji');
+    const ret = renderTemplate('return_after_pause', { days_paused: 3 }, safeUser, { match_id: 'r2' });
+    expect(ret).not.toContain('<tg-emoji');
   });
 });

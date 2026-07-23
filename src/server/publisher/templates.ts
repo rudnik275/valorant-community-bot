@@ -39,6 +39,27 @@ export interface TemplateMatch {
   match_id?: string;
   /** Agent the triggering player ran this match — rendered as a custom emoji next to their nick. */
   agent?: string;
+  /**
+   * Triggering player's rank in this match (`match_records.rank_after`) —
+   * rendered as a custom emoji LEFT of their nick per renderPlayerName (#315).
+   * Absent ⇒ rank icon omitted (never a blocker).
+   */
+  rank?: string;
+  /**
+   * teamkill only: victims resolved by the publisher loop / replay from the
+   * event payload + match roster (see match-info.ts). Absent ⇒ the template
+   * falls back to raw payload victims (no rank).
+   */
+  victims?: TemplateVictim[];
+}
+
+/** One teamkill victim, as resolved by match-info.ts (payload ∪ roster). */
+export interface TemplateVictim {
+  name: string;
+  tag?: string;
+  agent?: string;
+  /** Victim's rank in this match (`match_rosters.tier`); absent pre-migration-0021. */
+  rank?: string;
 }
 
 type TemplateFn = (
@@ -93,29 +114,50 @@ function mapSuffix(map: string | undefined): string {
 }
 
 /**
- * " · <a>матч [map-emoji]</a>" suffix for the minimal realtime templates
- * (teamkill, fall_damage_death, return_after_pause — #315). Empty when
- * there's no match_id to link to.
+ * Match-link on its OWN line for the minimal realtime templates (teamkill,
+ * fall_damage_death, return_after_pause — #315). The owner explicitly ordered
+ * the separate line for teamkill; extended to the family for consistency.
+ * Empty when there's no match_id to link to.
  */
-function minimalMatchSuffix(match?: TemplateMatch): string {
+function minimalMatchLine(match?: TemplateMatch): string {
   if (!match?.match_id) return '';
   const link = renderMatchLink({
     url: `https://tracker.gg/valorant/match/${match.match_id}`,
     ...(match.map ? { mapName: match.map } : {}),
   });
-  return ` · ${link}`;
+  return `\n${link}`;
 }
 
 /** Build renderPlayerName options for the triggering user in the minimal
- * realtime templates — bold (community), agent from match.agent when known,
- * rank omitted (not reachable in the data the publisher loop fetches — #315). */
+ * realtime templates — bold (community), rank (match_records.rank_after) and
+ * agent from the loop-resolved match info when known (#315). */
 function minimalPlayerName(user: TemplateUser, match?: TemplateMatch): string {
   return renderPlayerName({
     name: user.riot_name,
     tag: user.riot_tag,
     isCommunity: true,
+    ...(match?.rank ? { rank: match.rank } : {}),
     ...(match?.agent ? { agent: match.agent } : {}),
   });
+}
+
+/**
+ * Teamkill victim render: full renderPlayerName when the tag is known
+ * (victims are community members ⇒ bold; rank/agent icons when resolvable).
+ * Legacy payloads without a tag degrade to the old bold-name + agent-emoji
+ * form — a `Ник#` with a dangling hash would be worse than no tag.
+ */
+function renderVictim(v: TemplateVictim): string {
+  if (v.tag) {
+    return renderPlayerName({
+      name: v.name,
+      tag: v.tag,
+      isCommunity: true,
+      ...(v.rank ? { rank: v.rank } : {}),
+      ...(v.agent ? { agent: v.agent } : {}),
+    });
+  }
+  return `<b>${esc(v.name)}</b>${agentLead(v.agent)}`;
 }
 
 /**
@@ -212,38 +254,47 @@ const templates: Record<EventType, TemplateFn> = {
   return_after_pause: (payload, user, match) => {
     const days = payload['days_paused'] ?? '?';
     const name = minimalPlayerName(user, match);
-    const desc = `${name} — после ${esc(String(days))} дней паузы снова в строю${minimalMatchSuffix(match)}`;
-    return `👋 <b>С возвращением</b>\n${desc}`;
+    const desc = `${name} — после ${esc(String(days))} дней паузы снова в строю`;
+    return `👋 <b>С возвращением</b>\n${desc}${minimalMatchLine(match)}`;
   },
 
   teamkill: (payload, user, match) => {
     const roundNumbers = Array.isArray(payload['round_numbers']) ? payload['round_numbers'] : [];
     const count = roundNumbers.length > 1 ? ` (${roundNumbers.length}× за матч)` : '';
-    // Victim nick + their agent emoji. Dedup by nick, first-seen wins (keeps the
-    // first agent if a victim somehow appears twice). Falls back to the legacy
-    // names-only array for older payloads without per-victim agent.
-    const victims: Array<{ name?: string; agent?: string }> = Array.isArray(payload['victims'])
-      ? payload['victims'] as Array<{ name?: string; agent?: string }>
-      : (Array.isArray(payload['victim_names_for_template'])
-        ? (payload['victim_names_for_template'] as string[]).map((name) => ({ name }))
-        : []);
-    const byName = new Map<string, { name?: string; agent?: string }>();
+    // Victims: prefer the loop-resolved list (match.victims — tag/agent/rank
+    // enriched from the match roster, see match-info.ts). Fall back to raw
+    // payload victims (name/tag/agent, no rank), then to the legacy names-only
+    // array — old events and minimal test payloads must still render.
+    const victims: TemplateVictim[] = match?.victims ?? (
+      Array.isArray(payload['victims'])
+        ? (payload['victims'] as Array<{ name?: string; tag?: string; agent?: string }>)
+            .filter((v): v is { name: string; tag?: string; agent?: string } =>
+              typeof v.name === 'string' && v.name.length > 0)
+        : Array.isArray(payload['victim_names_for_template'])
+          ? (payload['victim_names_for_template'] as unknown[])
+              .filter((n): n is string => typeof n === 'string' && n.length > 0)
+              .map((name) => ({ name }))
+          : []
+    );
+    // Dedup by nick, first-seen wins (keeps the first agent/rank if a victim
+    // somehow appears twice).
+    const byName = new Map<string, TemplateVictim>();
     for (const v of victims) {
-      if (v.name && v.name.length > 0 && !byName.has(v.name)) byName.set(v.name, v);
+      if (v.name && !byName.has(v.name)) byName.set(v.name, v);
     }
-    const victimParts = Array.from(byName.values()).map((v) => `<b>${esc(v.name!)}</b>${agentLead(v.agent)}`);
+    const victimParts = Array.from(byName.values()).map(renderVictim);
     const victimStr = victimParts.length > 0 ? ` (${victimParts.join(', ')})` : '';
     const name = minimalPlayerName(user, match);
-    const desc = `${name} убил(а) своего${victimStr}${count}${minimalMatchSuffix(match)}`;
-    return `🐀 <b>Ля ты и крыса</b>\n${desc}`;
+    const desc = `${name} убил(а) своего${victimStr}${count}`;
+    return `🐀 <b>Ля ты и крыса</b>\n${desc}${minimalMatchLine(match)}`;
   },
 
   fall_damage_death: (payload, user, match) => {
     const n = Number(payload['count'] ?? 1);
     const countStr = n > 1 ? ` (${n}×)` : '';
     const name = minimalPlayerName(user, match);
-    const desc = `${name} — умер(ла) от падения${countStr}${minimalMatchSuffix(match)}`;
-    return `🪂 <b>1:0 в пользу гравитации</b>\n${desc}`;
+    const desc = `${name} — умер(ла) от падения${countStr}`;
+    return `🪂 <b>1:0 в пользу гравитации</b>\n${desc}${minimalMatchLine(match)}`;
   },
 
   record_damage_dealt_match: (payload, user, match) => {

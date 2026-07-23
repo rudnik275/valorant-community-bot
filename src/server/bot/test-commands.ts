@@ -21,10 +21,10 @@ import { type Context, type MiddlewareFn, type Bot } from 'grammy';
 import { and, gte, lt, asc, eq } from 'drizzle-orm';
 import { detectedEvents } from '../db/schema/detected_events.ts';
 import { users } from '../db/schema/users.ts';
-import { matchRecords } from '../db/schema/match_records.ts';
 import { matchRosters } from '../db/schema/match_rosters.ts';
 import { buildDigest } from '../digest/build.ts';
 import { renderTemplate, type TemplateMatch, type TemplateUser } from '../publisher/templates.ts';
+import { resolveTemplateMatch } from '../publisher/match-info.ts';
 import { renderRichEvent, isTrioRichEvent } from '../publisher/rich-templates.ts';
 import { isRealtimeEvent, type EventType } from '../publisher/types.ts';
 import logger from '../lib/log.ts';
@@ -295,15 +295,18 @@ export function makeTestRuntimeEventsHandler(deps: TestCommandsDeps): Middleware
         }
 
         const matchId = ev.match_id ? String(ev.match_id) : '';
-        let map: string | undefined;
-        if (matchId) {
-          const [m] = await deps.db
-            .select({ map: matchRecords.map })
-            .from(matchRecords)
-            .where(and(eq(matchRecords.match_id, matchId), eq(matchRecords.riot_puuid, puuid)))
-            .limit(1);
-          map = m?.map ? String(m.map) : undefined;
-        }
+
+        // SAME resolver as the production publisher loop (replay parity,
+        // #315): map / match_id / triggering player's agent + per-match rank /
+        // teamkill victims from the roster all flow identically, so this
+        // preview renders exactly what the group chat would see.
+        const tplMatch: TemplateMatch | undefined = await resolveTemplateMatch(
+          deps.db,
+          ev.event_type as EventType,
+          matchId,
+          puuid,
+          payload,
+        );
 
         // Augment legacy match_comeback rows (saved before the grouping fix)
         // with community_players, so the rendered preview lists every winning
@@ -324,15 +327,11 @@ export function makeTestRuntimeEventsHandler(deps: TestCommandsDeps): Middleware
           riot_puuid: puuid,
         };
 
-        const tplMatch: TemplateMatch = {};
-        if (map) tplMatch.map = map;
-        if (matchId) tplMatch.match_id = matchId;
-
         const text = renderTemplate(
           ev.event_type as EventType,
           payload,
           tplUser,
-          (map || matchId) ? tplMatch : undefined,
+          tplMatch,
         );
 
         // #315 "trio" events preview as full-roster rich tables where the data
@@ -342,8 +341,8 @@ export function makeTestRuntimeEventsHandler(deps: TestCommandsDeps): Middleware
         if (isTrioRichEvent(ev.event_type as EventType)) {
           try {
             richHtml = await renderRichEvent(deps.db, ev.event_type as EventType, payload, {
-              ...(matchId ? { match_id: matchId } : {}),
-              ...(map ? { map } : {}),
+              ...(tplMatch?.match_id ? { match_id: tplMatch.match_id } : {}),
+              ...(tplMatch?.map ? { map: tplMatch.map } : {}),
             });
           } catch (err) {
             logger.warn(
