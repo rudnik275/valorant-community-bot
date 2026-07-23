@@ -10,6 +10,14 @@ export const matchRosters = sqliteTable(
     name: text('name'),
     tag: text('tag'),
     agent: text('agent'),               // agent played this match (null for pre-#301 rows)
+    // Per-participant match stats — needed for the full-roster rich tables of
+    // the #315 "trio" events (giant_slayer / match_comeback / community_clash).
+    // All nullable: rows written before #315 (and any match Henrik omits the
+    // field for) have null, which the rich renderer treats as "incomplete data"
+    // and falls back to the legacy plain template.
+    tier: text('tier'),                 // rank in THIS match, e.g. "Diamond 2" (null pre-#315)
+    kills: integer('kills'),            // kills in this match (null pre-#315)
+    deaths: integer('deaths'),          // deaths in this match (null pre-#315)
     inserted_at: integer('inserted_at').notNull().default(sql`(unixepoch() * 1000)`),
   },
   (table) => [

@@ -602,6 +602,26 @@ describe('deriveMatchRoster', () => {
     expect(target!.agent).toBe('Jett');
   });
 
+  it('includes per-participant tier / kills / deaths for the rich full-roster tables (#315)', () => {
+    const rosters = deriveMatchRoster(v4Fixture as HenrikMatchV4);
+    const target = rosters.find((r) => r.riot_puuid === 'target-puuid')!;
+    expect(target.tier).toBe('Diamond 1');
+    expect(target.kills).toBe(22);
+    expect(target.deaths).toBe(14);
+  });
+
+  it('leaves tier / kills / deaths null when Henrik omits tier or stats', () => {
+    const bare = {
+      metadata: { match_id: 'm-bare' },
+      players: [{ puuid: 'x', team_id: 'Blue', name: 'X', tag: 'T' }],
+    };
+    const rosters = deriveMatchRoster(bare as unknown as HenrikMatchV4);
+    expect(rosters).toHaveLength(1);
+    expect(rosters[0]!.tier).toBeNull();
+    expect(rosters[0]!.kills).toBeNull();
+    expect(rosters[0]!.deaths).toBeNull();
+  });
+
   it('uses match_id from metadata', () => {
     const rosters = deriveMatchRoster(v4Fixture as HenrikMatchV4);
     rosters.forEach((r) => expect(r.match_id).toBe(v4Fixture.metadata.match_id));

@@ -53,6 +53,27 @@ export const communityClashDetector: Detector = {
 
     const teamsArr = Array.from(byTeam.entries()).map(([team_id, players]) => ({ team_id, players }));
 
+    // Team round scores, keyed by team_id — needed for the rich full-roster
+    // table's "победа X:Y" winner line (#315). The current player's row carries
+    // their own team's (won, lost); the OTHER team's score is the mirror image
+    // (its won == our lost, its lost == our won). Only derivable when this
+    // player's team is known and both round counts are present; otherwise
+    // omitted (rich renderer then falls back to legacy text).
+    let teamScores: Record<string, { won: number; lost: number }> | undefined;
+    if (
+      currentPlayerTeam &&
+      typeof record.team_rounds_won === 'number' &&
+      typeof record.team_rounds_lost === 'number'
+    ) {
+      const otherTeam = Array.from(byTeam.keys()).find((t) => t !== currentPlayerTeam);
+      teamScores = {
+        [currentPlayerTeam]: { won: record.team_rounds_won, lost: record.team_rounds_lost },
+      };
+      if (otherTeam) {
+        teamScores[otherTeam] = { won: record.team_rounds_lost, lost: record.team_rounds_won };
+      }
+    }
+
     return [{
       type: 'community_clash',
       riot_puuid: record.riot_puuid ?? '',
@@ -60,6 +81,7 @@ export const communityClashDetector: Detector = {
       payload: {
         teams: teamsArr,
         winner_team_id: winnerTeam,
+        ...(teamScores ? { team_scores: teamScores } : {}),
       },
     }];
   },

@@ -52,6 +52,29 @@ export interface CommunityRosterRow {
 }
 
 /**
+ * One participant row from the FULL match roster (all 10 players, community or
+ * not), joined LEFT against `users` so non-community opponents are included.
+ * Backs the #315 full-roster rich tables.
+ *
+ * `is_community` is derived from whether a matching `users` row exists.
+ * `name`/`tag` prefer the community `users` value (fresher) and fall back to
+ * the roster snapshot for opponents. `tier`/`kills`/`deaths` are null on rows
+ * written before #315 — the rich renderer treats any null in these as
+ * "incomplete data" and falls back to the legacy plain template.
+ */
+export interface FullRosterRow {
+  riot_puuid: string;
+  team: string;
+  name: string | null;
+  tag: string | null;
+  agent: string | null;
+  tier: string | null;
+  kills: number | null;
+  deaths: number | null;
+  is_community: boolean;
+}
+
+/**
  * Previous match records for a puuid, strictly BEFORE `beforeStartedAt`,
  * ordered DESC by `started_at`, capped at `limit` (default
  * {@link PREV_RECORDS_LIMIT}).
@@ -154,6 +177,68 @@ export async function getCommunityRoster(
     .from(matchRosters)
     .innerJoin(users, eq(users.riot_puuid, matchRosters.riot_puuid))
     .where(and(...conditions))) as CommunityRosterRow[];
+}
+
+/**
+ * FULL roster for a match — ALL participants (up to 10), community and
+ * opponents alike. LEFT join on `users` so opponents (no user row) are kept;
+ * `is_community` reflects whether a `users` row exists for that puuid.
+ *
+ * Community `name`/`tag` prefer the `users` value (source-of-truth, fresher);
+ * opponents fall back to the roster snapshot captured at scan time. Returns []
+ * when no roster rows exist for the match (pre-#301 matches never wrote any).
+ *
+ * Backs the #315 full-roster rich tables. Callers must treat any null
+ * `tier`/`kills`/`deaths` as "incomplete data" and fall back to legacy text.
+ */
+export async function getFullRoster(
+  db: SqliteDb,
+  matchId: string,
+): Promise<FullRosterRow[]> {
+  const rows = (await db
+    .select({
+      riot_puuid: matchRosters.riot_puuid,
+      team: matchRosters.team,
+      roster_name: matchRosters.name,
+      roster_tag: matchRosters.tag,
+      user_name: users.riot_name,
+      user_tag: users.riot_tag,
+      user_puuid: users.riot_puuid,
+      agent: matchRosters.agent,
+      tier: matchRosters.tier,
+      kills: matchRosters.kills,
+      deaths: matchRosters.deaths,
+    })
+    .from(matchRosters)
+    .leftJoin(users, eq(users.riot_puuid, matchRosters.riot_puuid))
+    .where(eq(matchRosters.match_id, matchId))) as Array<{
+      riot_puuid: string;
+      team: string;
+      roster_name: string | null;
+      roster_tag: string | null;
+      user_name: string | null;
+      user_tag: string | null;
+      user_puuid: string | null;
+      agent: string | null;
+      tier: string | null;
+      kills: number | null;
+      deaths: number | null;
+    }>;
+
+  return rows.map((r) => {
+    const isCommunity = r.user_puuid != null;
+    return {
+      riot_puuid: r.riot_puuid,
+      team: r.team,
+      name: isCommunity ? (r.user_name ?? r.roster_name) : r.roster_name,
+      tag: isCommunity ? (r.user_tag ?? r.roster_tag) : r.roster_tag,
+      agent: r.agent,
+      tier: r.tier,
+      kills: r.kills,
+      deaths: r.deaths,
+      is_community: isCommunity,
+    };
+  });
 }
 
 /**

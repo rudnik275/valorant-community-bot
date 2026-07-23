@@ -102,6 +102,12 @@ export interface MatchRosterInsert {
   name: string | null;
   tag: string | null;
   agent: string | null;
+  /** Rank in this match (e.g. "Diamond 2"), or null when Henrik omits tier. */
+  tier: string | null;
+  /** Kills this match, or null when Henrik omits stats. */
+  kills: number | null;
+  /** Deaths this match, or null when Henrik omits stats. */
+  deaths: number | null;
 }
 
 /**
@@ -124,6 +130,9 @@ export function deriveMatchRoster(match: HenrikMatchV4): MatchRosterInsert[] {
       name: p.name ?? null,
       tag: p.tag ?? null,
       agent: p.agent?.name ?? null,
+      tier: p.tier?.name ?? null,
+      kills: p.stats?.kills ?? null,
+      deaths: p.stats?.deaths ?? null,
     }));
 }
 

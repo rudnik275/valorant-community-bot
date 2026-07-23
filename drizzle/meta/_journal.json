@@ -148,6 +148,13 @@
       "when": 1784643580822,
       "tag": "0020_lively_natasha_romanoff",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1784788079295,
+      "tag": "0021_military_invisible_woman",
+      "breakpoints": true
     }
   ]
 }

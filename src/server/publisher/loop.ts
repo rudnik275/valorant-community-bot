@@ -16,6 +16,7 @@ import { optOuts } from '../db/schema/opt_outs.ts';
 import { matchRecords } from '../db/schema/match_records.ts';
 import { decide } from './decide.ts';
 import { renderTemplate } from './templates.ts';
+import { renderRichEvent, isTrioRichEvent } from './rich-templates.ts';
 import { isRealtimeEvent, type EventType } from './types.ts';
 import logger from '../lib/log.ts';
 import { isPublishingEnabled } from '../lib/silent-period.ts';
@@ -41,6 +42,14 @@ export interface PublisherLoopDeps {
     text: string,
     opts?: { parse_mode?: string; disable_web_page_preview?: boolean },
   ) => Promise<{ message_id: number }>;
+  /**
+   * Send a Rich Message (HTML) to a chat — used for the #315 "trio" events
+   * (giant_slayer / match_comeback / community_clash), which render as
+   * full-roster tables. Optional: when absent (or on ANY error), the loop falls
+   * back to the legacy plain-text `sendMessage` path. Destination/dedup/retry
+   * semantics are identical to the plain path.
+   */
+  sendRichMessage?: (chatId: number, html: string) => Promise<{ message_id: number }>;
   /** Get the primary chat ID to post to. Defaults to TELEGRAM_PRIMARY_CHAT_ID env var. */
   getPrimaryChatId?: () => number;
   /** Injectable Kyiv time for testing (kept for API compatibility). */
@@ -236,17 +245,51 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
       let messageId: number | undefined;
       let lastErr: unknown;
 
-      try {
-        const result = await sendWithRetryFn(
-          deps.sendMessage,
-          chatId,
-          text,
-          { parse_mode: 'HTML', disable_web_page_preview: true },
-          { module: 'publisher', event_id: eventId },
-        );
-        messageId = result.message_id;
-      } catch (err: unknown) {
-        lastErr = err;
+      // #315 "trio" events (giant_slayer / match_comeback / community_clash)
+      // render as full-roster rich tables. Try the rich path FIRST; fall back
+      // to the legacy plain template on ANY error (missing dep, incomplete
+      // roster → null, render throw, or a rich send failure). The fallback
+      // keeps dedup/retry semantics identical to the plain path — a rich send
+      // failure just re-attempts as plain text this tick.
+      if (isTrioRichEvent(eventType) && deps.sendRichMessage) {
+        const richSend = deps.sendRichMessage;
+        try {
+          const richHtml = await renderRichEvent(db, eventType, payload, {
+            ...(matchInfo?.match_id ? { match_id: matchInfo.match_id } : {}),
+            ...(matchInfo?.map ? { map: matchInfo.map } : {}),
+          });
+          if (richHtml) {
+            const result = await sendWithRetryFn(
+              (chat, html) => richSend(chat, html),
+              chatId,
+              richHtml,
+              undefined,
+              { module: 'publisher', event_id: eventId, path: 'rich' },
+            );
+            messageId = result.message_id;
+          }
+        } catch (err: unknown) {
+          logger.warn(
+            { module: 'publisher', event_id: eventId, event_type: eventType, err },
+            'Rich send failed — falling back to legacy plain template',
+          );
+          // messageId stays undefined ⇒ the plain path below runs.
+        }
+      }
+
+      if (messageId === undefined) {
+        try {
+          const result = await sendWithRetryFn(
+            deps.sendMessage,
+            chatId,
+            text,
+            { parse_mode: 'HTML', disable_web_page_preview: true },
+            { module: 'publisher', event_id: eventId },
+          );
+          messageId = result.message_id;
+        } catch (err: unknown) {
+          lastErr = err;
+        }
       }
 
       if (lastErr !== undefined) {

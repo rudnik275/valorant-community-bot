@@ -25,6 +25,7 @@ import { matchRecords } from '../db/schema/match_records.ts';
 import { matchRosters } from '../db/schema/match_rosters.ts';
 import { buildDigest } from '../digest/build.ts';
 import { renderTemplate, type TemplateMatch, type TemplateUser } from '../publisher/templates.ts';
+import { renderRichEvent, isTrioRichEvent } from '../publisher/rich-templates.ts';
 import { isRealtimeEvent, type EventType } from '../publisher/types.ts';
 import logger from '../lib/log.ts';
 import { sendExempt, sendPhotoExempt, InputFile } from '../lib/telegram-send.ts';
@@ -394,9 +395,40 @@ export function makeTestRuntimeEventsHandler(deps: TestCommandsDeps): Middleware
           (map || matchId) ? tplMatch : undefined,
         );
 
+        // #315 "trio" events preview as full-roster rich tables where the data
+        // is complete; fall back to the legacy plain text on null/any error so
+        // the preview never breaks (mirrors the publisher loop's rich path).
+        let richHtml: string | null = null;
+        if (isTrioRichEvent(ev.event_type as EventType)) {
+          try {
+            richHtml = await renderRichEvent(deps.db, ev.event_type as EventType, payload, {
+              ...(matchId ? { match_id: matchId } : {}),
+              ...(map ? { map } : {}),
+            });
+          } catch (err) {
+            logger.warn(
+              { module: 'test_commands', event_type: ev.event_type, err },
+              'Rich preview render failed — falling back to plain text',
+            );
+          }
+        }
+
         try {
-          // sendExempt: destination is the owner's own DM, verified by isOwner() above.
-          await sendExempt(deps.bot.api, fromId!, text, HTML_OPTS);
+          // sendExempt / sendRichMessageHtml: destination is the owner's own DM,
+          // verified by isOwner() above.
+          if (richHtml) {
+            try {
+              await sendRichMessageHtml(deps.bot.api, fromId!, richHtml);
+            } catch (richErr) {
+              logger.warn(
+                { module: 'test_commands', event_type: ev.event_type, err: richErr },
+                'Rich preview send failed — falling back to plain text',
+              );
+              await sendExempt(deps.bot.api, fromId!, text, HTML_OPTS);
+            }
+          } else {
+            await sendExempt(deps.bot.api, fromId!, text, HTML_OPTS);
+          }
         } catch (err) {
           logger.warn(
             { module: 'test_commands', event_type: ev.event_type, err },
