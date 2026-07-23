@@ -56,6 +56,9 @@ export const MAP_EMOJI: Record<string, string> = {
   abyss: '5264944329331349814', // Abyss
   lotus: '5267207944600062779', // Lotus
   sunset: '5265048963324614943', // Sunset
+  // TODO(#311): paste real id after running `op run --env-file=.env.1password -- bun scripts/launch/add-map-emoji.ts Summit`.
+  // Empty string is intentional: mapToEmojiHtml treats '' as "unknown" and renders no icon (safe — never a broken <tg-emoji>).
+  summit: '', // Summit
   pearl: '5265214555788713935', // Pearl
   icebox: '5267284420787736654', // Icebox
   corrode: '5265090173535821229', // Corrode
