@@ -5,6 +5,8 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { join } from 'node:path';
 import { startPublisherLoop } from './loop.ts';
 import type { KyivTime } from './loop.ts';
+import { rankToEmojiHtml } from './rank-emoji.ts';
+import { agentToEmojiHtml, mapToEmojiHtml } from './valorant-emoji.ts';
 
 vi.mock('../lib/log.ts', () => ({
   default: {
@@ -477,6 +479,94 @@ describe('startPublisherLoop', () => {
         expect.any(String),
         expect.any(Object),
       );
+    });
+  });
+
+  // ── #315 minimal trio data plumbing (rank / roster victims / own-line link) ──
+  describe('minimal trio data plumbing (#315)', () => {
+    const MATCH = 'match-tk-315';
+
+    function seedTkMatchRecord(puuid: string, rankAfter: string | null) {
+      sqlite.prepare(
+        `INSERT INTO match_records
+           (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result,
+            rounds_played, rank_after, fall_damage_kills, kill_events_compact)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(puuid, MATCH, 1_000, 'Ascent', 'Jett', 20, 10, 5, 'win', 24, rankAfter, 0, '[]');
+    }
+
+    function seedRosterVictim(puuid: string, name: string, tag: string, agent: string, tier: string | null) {
+      sqlite.prepare(
+        `INSERT INTO match_rosters (match_id, riot_puuid, team, name, tag, agent, tier, kills, deaths)
+         VALUES (?, ?, 'Blue', ?, ?, ?, ?, 10, 10)`,
+      ).run(MATCH, puuid, name, tag, agent, tier);
+    }
+
+    it('teamkill: killer rank+agent, victim Ник#Тег with roster rank/agent, link on its own line', async () => {
+      seedUser(sqlite, 1, 'killer-1', { riotName: 'Killer', riotTag: 'KKK' });
+      seedUser(sqlite, 2, 'victim-1', { riotName: 'Danya', riotTag: 'UA1' });
+      seedTkMatchRecord('killer-1', 'Diamond 3');
+      seedRosterVictim('victim-1', 'Danya', 'UA1', 'Sage', 'Silver 2');
+      seedPendingEvent(sqlite, {
+        puuid: 'killer-1',
+        eventType: 'teamkill',
+        matchId: MATCH,
+        payload: {
+          round_numbers: [3],
+          victims: [{ puuid: 'victim-1', name: 'Danya', tag: 'UA1', agent: 'Sage' }],
+        },
+      });
+
+      const { stop } = makeLoop(db, sendMessage, {
+        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
+      });
+      await runOneTick(stop);
+
+      const [, body] = sendMessage.mock.calls[0]!;
+      const lines = (body as string).split('\n');
+      expect(lines).toHaveLength(3);
+      expect(lines[0]).toBe('🐀 <b>Ля ты и крыса</b>');
+      // Killer: rank (match_records.rank_after) left, bold Ник#Тег, agent right.
+      expect(lines[1]).toContain(`${rankToEmojiHtml('Diamond 3')} <b>Killer#KKK</b> ${agentToEmojiHtml('Jett')}`);
+      // Victim: full Ник#Тег via renderPlayerName, rank from roster tier.
+      expect(lines[1]).toContain(`(${rankToEmojiHtml('Silver 2')} <b>Danya#UA1</b> ${agentToEmojiHtml('Sage')})`);
+      // Match link alone on the third line.
+      expect(lines[2]).toBe(`<a href="https://tracker.gg/valorant/match/${MATCH}">${mapToEmojiHtml('Ascent')} Ascent</a>`);
+    });
+
+    it('fall_damage_death: rank_after renders left of the nick', async () => {
+      seedUser(sqlite, 1, 'faller-1', { riotName: 'Faller', riotTag: 'FFF' });
+      seedTkMatchRecord('faller-1', 'Gold 1');
+      seedPendingEvent(sqlite, { puuid: 'faller-1', eventType: 'fall_damage_death', matchId: MATCH, payload: { count: 1 } });
+
+      const { stop } = makeLoop(db, sendMessage, {
+        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
+      });
+      await runOneTick(stop);
+
+      const [, body] = sendMessage.mock.calls[0]!;
+      expect(body).toContain(`${rankToEmojiHtml('Gold 1')} <b>Faller#FFF</b> ${agentToEmojiHtml('Jett')}`);
+      expect((body as string).split('\n')[2]).toContain('tracker.gg/valorant/match/');
+    });
+
+    it('teamkill: old event with no roster/match rows still posts (icons omitted, no crash)', async () => {
+      seedUser(sqlite, 1, 'killer-1', { riotName: 'Killer', riotTag: 'KKK' });
+      const id = seedPendingEvent(sqlite, {
+        puuid: 'killer-1',
+        eventType: 'teamkill',
+        matchId: 'missing-match',
+        payload: { victim_names_for_template: ['Ghost'] },
+      });
+
+      const { stop } = makeLoop(db, sendMessage, {
+        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
+      });
+      await runOneTick(stop);
+
+      expect(getEventStatus(sqlite, id)).toBe('posted');
+      const [, body] = sendMessage.mock.calls[0]!;
+      expect(body).toContain('<b>Ghost</b>');
+      expect(body).not.toContain('<tg-emoji');
     });
   });
 

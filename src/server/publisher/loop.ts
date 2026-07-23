@@ -9,13 +9,13 @@
  */
 
 import { Cron } from 'croner';
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { detectedEvents } from '../db/schema/detected_events.ts';
 import { users } from '../db/schema/users.ts';
 import { optOuts } from '../db/schema/opt_outs.ts';
-import { matchRecords } from '../db/schema/match_records.ts';
 import { decide } from './decide.ts';
 import { renderTemplate } from './templates.ts';
+import { resolveTemplateMatch } from './match-info.ts';
 import { renderRichEvent, isTrioRichEvent } from './rich-templates.ts';
 import { isRealtimeEvent, type EventType } from './types.ts';
 import logger from '../lib/log.ts';
@@ -178,53 +178,26 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
         return;
       }
 
-      // Fetch match for map info. record_kills_per_weapon stores a synthetic
-      // event match_id (`<real_match_id>#kpw-<weapon>`) but keeps the real id
-      // in payload.real_match_id — use that for the tracker-link.
-      const rawMatchId = pendingEvent.match_id as string;
-      // Payload is parsed below; pre-parse it here just to extract real_match_id.
-      let realMatchIdEarly: string | undefined;
-      try {
-        const tmp = JSON.parse(pendingEvent.payload_json as string) as Record<string, unknown>;
-        if (eventType === 'record_kills_per_weapon' && typeof tmp['real_match_id'] === 'string') {
-          realMatchIdEarly = tmp['real_match_id'] as string;
-        }
-      } catch {
-        // ignore — handled in the main parse below
-      }
-      const matchId = realMatchIdEarly ?? rawMatchId;
-
-      const [matchRow] = await db
-        .select({ map: matchRecords.map, agent: matchRecords.agent })
-        .from(matchRecords)
-        .where(
-          and(
-            eq(matchRecords.match_id, matchId),
-            eq(matchRecords.riot_puuid, puuid),
-          ),
-        )
-        .limit(1);
-
-      // Pass BOTH match_id and (when known) map to the template so links
-      // render in the chat output. Previously only map was passed, which
-      // is why /test_runtime_events showed a link but realtime publishing
-      // to the group did not. `agent` drives the agent emoji next to the
-      // triggering player's nick (#301).
-      const matchInfo: { map?: string; match_id?: string; agent?: string } | undefined = (matchId || matchRow?.map || matchRow?.agent)
-        ? {
-            ...(matchRow?.map ? { map: matchRow.map as string } : {}),
-            ...(matchId ? { match_id: matchId } : {}),
-            ...(matchRow?.agent ? { agent: matchRow.agent as string } : {}),
-          }
-        : undefined;
-
-      // Parse payload
+      // Parse payload first — the match-info resolver needs it
+      // (real_match_id for kills-per-weapon, victims for teamkill).
       let payload: Record<string, unknown> = {};
       try {
         payload = JSON.parse(pendingEvent.payload_json as string) as Record<string, unknown>;
       } catch {
         logger.warn({ module: 'publisher', event_id: eventId }, 'Failed to parse payload_json');
       }
+
+      // Resolve the per-match template context (map / match_id / triggering
+      // player's agent + per-match rank / teamkill victims from the roster)
+      // via the SHARED resolver — the same function backs the
+      // /test_runtime_events replay, so preview === production (#315).
+      const matchInfo = await resolveTemplateMatch(
+        db,
+        eventType,
+        pendingEvent.match_id as string,
+        puuid,
+        payload,
+      );
 
       const text = renderTemplate(
         eventType,

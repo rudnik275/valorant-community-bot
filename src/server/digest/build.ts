@@ -26,6 +26,7 @@ import { allTimeRecords } from '../db/schema/all_time_records.ts';
 import { computeAndEmitWeeklyMvpRecord } from './weekly-mvp-record.ts';
 import { NEAR_MISS_THRESHOLDS } from './near-miss-config.ts';
 import { renderTemplate, renderDigestGroup, type TemplateUser, type TemplateMatch } from '../publisher/templates.ts';
+import { renderPlayerName } from '../publisher/player-render.ts';
 import { agentToEmojiHtml, mapToEmojiHtml, weaponToEmojiHtml } from '../publisher/valorant-emoji.ts';
 import type { EventType } from '../publisher/types.ts';
 import {
@@ -743,7 +744,13 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
           weaponEmojiHtml: weaponToEmojiHtml(weapon) || '🎯',
           weapon,
           value: Number(e.payload['value'] ?? 0),
-          playerHtml: `<b>${esc(e.user.riot_name)}#${esc(e.user.riot_tag)}</b>`,
+          // Canonical nick render (#315 rule 1). Weapon-table rows carry no
+          // rank/agent per the approved layout ⇒ plain bold Ник#Тег.
+          playerHtml: renderPlayerName({
+            name: e.user.riot_name,
+            tag: e.user.riot_tag,
+            isCommunity: true,
+          }),
         });
       }
     }
@@ -810,7 +817,13 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       if (!user) continue;
       if (optedOut.has(user.telegram_id)) continue;
 
-      const name = `<b>${esc(user.riot_name)}#${esc(user.riot_tag)}</b>`;
+      // Canonical nick render (#315 rule 1). Weekly aggregate — no match
+      // attached ⇒ just bold Ник#Тег (no rank/agent icons).
+      const name = renderPlayerName({
+        name: user.riot_name,
+        tag: user.riot_tag,
+        isCommunity: true,
+      });
       alwaysSections.push(`🏆 Больше всех матчей\n${name} - ${cnt} за неделю`);
       richMostActive = { nameHtml: name, count: cnt };
       sectionsIncluded.push('mostActive');
