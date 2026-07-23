@@ -270,6 +270,25 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('? дней паузы');
   });
 
+  it('return_after_pause: minimal format — <b> header, no blank line, no <u>', () => {
+    const output = renderTemplate('return_after_pause', { days_paused: 14 }, safeUser);
+    expect(output).toBe('👋 <b>С возвращением</b>\n<b>Player#TAG</b> — после 14 дней паузы снова в строю');
+    expect(output).not.toContain('<u>');
+    expect(output).not.toContain('\n\n');
+  });
+
+  it('return_after_pause: includes match link with map-emoji when match_id present', () => {
+    const output = renderTemplate('return_after_pause', { days_paused: 20 }, safeUser, { match_id: 'ret1', map: 'Ascent' });
+    expect(output).toContain(`<a href="https://tracker.gg/valorant/match/ret1">матч ${mapToEmojiHtml('Ascent')}</a>`);
+    expect(output).toContain('· <a href=');
+  });
+
+  it('return_after_pause: no match link when match_id absent', () => {
+    const output = renderTemplate('return_after_pause', { days_paused: 20 }, safeUser);
+    expect(output).not.toContain('tracker.gg');
+    expect(output).not.toContain('·');
+  });
+
   it('teamkill: shows round count from round_numbers and Ля ты и крыса text', () => {
     const output = renderTemplate('teamkill', { round_numbers: [3, 7, 12] }, safeUser);
     expect(output).toContain('3×');
@@ -288,6 +307,18 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('tracker.gg/valorant/match/mID1');
   });
 
+  it('teamkill: minimal format — <b> header, no blank line, no <u>', () => {
+    const output = renderTemplate('teamkill', {}, safeUser);
+    expect(output).toContain('🐀 <b>Ля ты и крыса</b>\n');
+    expect(output).not.toContain('<u>');
+    expect(output).not.toContain('\n\n');
+  });
+
+  it('teamkill: match link uses map-emoji label joined with " · "', () => {
+    const output = renderTemplate('teamkill', { round_numbers: [2] }, safeUser, { map: 'Bind', match_id: 'mID1' });
+    expect(output).toContain(`· <a href="https://tracker.gg/valorant/match/mID1">матч ${mapToEmojiHtml('Bind')}</a>`);
+  });
+
   it('fall_damage_death: includes map and 1:0 в пользу гравитации text', () => {
     const output = renderTemplate('fall_damage_death', { count: 2 }, safeUser, { map: 'Icebox' });
     expect(output).toContain('Icebox');
@@ -302,6 +333,18 @@ describe('renderTemplate — payload-specific behavior', () => {
   it('fall_damage_death: includes match link when match_id present', () => {
     const output = renderTemplate('fall_damage_death', {}, safeUser, { match_id: 'fall42' });
     expect(output).toContain('tracker.gg/valorant/match/fall42');
+  });
+
+  it('fall_damage_death: minimal format — <b> header, no blank line, no <u>', () => {
+    const output = renderTemplate('fall_damage_death', {}, safeUser);
+    expect(output).toBe('🪂 <b>1:0 в пользу гравитации</b>\n<b>Player#TAG</b> — умер(ла) от падения');
+    expect(output).not.toContain('<u>');
+    expect(output).not.toContain('\n\n');
+  });
+
+  it('fall_damage_death: match link uses map-emoji label joined with " · "', () => {
+    const output = renderTemplate('fall_damage_death', { count: 2 }, safeUser, { map: 'Icebox', match_id: 'fall1' });
+    expect(output).toContain(`· <a href="https://tracker.gg/valorant/match/fall1">матч ${mapToEmojiHtml('Icebox')}</a>`);
   });
 
   it('record_damage_dealt_match: shows Мясник heading and value', () => {
@@ -567,6 +610,16 @@ describe('renderTemplate — agent emoji next to nicks (#301)', () => {
     );
     expect(output).toContain('<b>Player#TAG</b> ' + JETT); // killer
     expect(output).toContain('<b>Friendly</b> ' + SAGE); // victim
+  });
+
+  it('fall_damage_death: shows agent emoji next to nick from match.agent', () => {
+    const output = renderTemplate('fall_damage_death', {}, safeUser, { agent: 'Jett' });
+    expect(output).toContain('<b>Player#TAG</b> ' + JETT);
+  });
+
+  it('return_after_pause: shows agent emoji next to nick from match.agent', () => {
+    const output = renderTemplate('return_after_pause', { days_paused: 14 }, safeUser, { agent: 'Jett' });
+    expect(output).toContain('<b>Player#TAG</b> ' + JETT);
   });
 
   it('record_mvp_count_week: no agent emoji (weekly aggregate, not one match)', () => {
