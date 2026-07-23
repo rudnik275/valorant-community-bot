@@ -113,6 +113,39 @@ describe('renderRichTemplate — table structure & content', () => {
     expect(renderRichTemplate('community_clash', ctx())!).toContain('⚔️ <b>Френдлифаер</b>');
   });
 
+  it('giant_slayer names its subject on a line under the title (heroPuuid)', () => {
+    const html = renderRichTemplate('giant_slayer', ctx({ heroPuuid: 'b1' }))!;
+    // The hero (Alice, community → bold) is named right after the title,
+    // before the details accordion.
+    const titleEnd = html.indexOf('</b>') + '</b>'.length;
+    const heroIdx = html.indexOf('<b>Alice#AAA</b>');
+    const detailsIdx = html.indexOf('<details>');
+    expect(heroIdx).toBeGreaterThan(titleEnd);
+    expect(heroIdx).toBeLessThan(detailsIdx);
+    // A <br> separates the title line from the hero line (rich dialect).
+    expect(html).toContain('</b><br>');
+  });
+
+  it('giant_slayer without heroPuuid renders no hero line (graceful)', () => {
+    const html = renderRichTemplate('giant_slayer', ctx())!;
+    // No <br> hero line before the accordion; title flows straight into details.
+    expect(html).toContain('Поводил(ла) по губам</b><details>');
+    expect(html).not.toContain('</b><br>');
+  });
+
+  it('giant_slayer with an unknown heroPuuid renders no hero line', () => {
+    const html = renderRichTemplate('giant_slayer', ctx({ heroPuuid: 'not-in-roster' }))!;
+    expect(html).toContain('Поводил(ла) по губам</b><details>');
+    expect(html).not.toContain('</b><br>');
+  });
+
+  it('match_comeback / community_clash ignore heroPuuid (no single subject)', () => {
+    const comeback = renderRichTemplate('match_comeback', ctx({ heroPuuid: 'b1' }))!;
+    expect(comeback).toContain('Мы вами гордимся</b><details>');
+    const clash = renderRichTemplate('community_clash', ctx({ heroPuuid: 'b1', winnerTeamId: 'Blue' }))!;
+    expect(clash).toContain('Френдлифаер</b><details>');
+  });
+
   it('wraps the description in a details/blockquote/i accordion', () => {
     const html = renderRichTemplate('giant_slayer', ctx())!;
     expect(html).toMatch(/<details><summary>ℹ️[^<]*<\/summary><blockquote><i>[^<]+<\/i><\/blockquote><\/details>/);

@@ -343,6 +343,9 @@ export function makeTestRuntimeEventsHandler(deps: TestCommandsDeps): Middleware
             richHtml = await renderRichEvent(deps.db, ev.event_type as EventType, payload, {
               ...(tplMatch?.match_id ? { match_id: tplMatch.match_id } : {}),
               ...(tplMatch?.map ? { map: tplMatch.map } : {}),
+              // Replay parity (#315): giant_slayer names its subject under the
+              // title in production too. `puuid` is the triggering player.
+              ...(puuid ? { heroPuuid: puuid } : {}),
             });
           } catch (err) {
             logger.warn(

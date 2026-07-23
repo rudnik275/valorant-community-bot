@@ -231,6 +231,9 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
           const richHtml = await renderRichEvent(db, eventType, payload, {
             ...(matchInfo?.match_id ? { match_id: matchInfo.match_id } : {}),
             ...(matchInfo?.map ? { map: matchInfo.map } : {}),
+            // Subject of the event (used by giant_slayer to name the player
+            // under the title). `puuid` is the triggering player's puuid.
+            ...(puuid ? { heroPuuid: puuid } : {}),
           });
           if (richHtml) {
             const result = await sendWithRetryFn(
