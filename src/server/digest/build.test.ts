@@ -58,14 +58,16 @@ interface MatchOpts {
   isMatchMvp?: number;
   survivedLastRounds?: number;
   diedFirstRounds?: number;
+  /** Henrik tier name for this match (e.g. "Diamond 3") — drives rank emoji in rich accordions. */
+  rankAfter?: string;
 }
 
 function seedMatch(sqlite: Database.Database, opts: MatchOpts) {
   sqlite.prepare(
     `INSERT OR REPLACE INTO match_records
      (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result, rounds_played, kill_events_compact,
-      headshots, legshots, damage_dealt, damage_received, game_length_ms, is_match_mvp, survived_last_rounds, died_first_rounds)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, '[]', ?, ?, ?, ?, ?, ?, ?, ?)`,
+      headshots, legshots, damage_dealt, damage_received, game_length_ms, is_match_mvp, survived_last_rounds, died_first_rounds, rank_after)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, '[]', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     opts.puuid,
     opts.matchId ?? `match-${Date.now()}-${Math.random()}`,
@@ -84,6 +86,7 @@ function seedMatch(sqlite: Database.Database, opts: MatchOpts) {
     opts.isMatchMvp ?? null,
     opts.survivedLastRounds ?? null,
     opts.diedFirstRounds ?? null,
+    opts.rankAfter ?? null,
   );
 }
 
@@ -1008,8 +1011,8 @@ describe('buildDigest', () => {
     });
   });
 
-  // ─── Rich HTML rendering (#309) — produced from the SAME data pass ────────────
-  describe('richHtml rendering (#309)', () => {
+  // ─── Rich HTML rendering (#315) — produced from the SAME data pass ────────────
+  describe('richHtml rendering (#315)', () => {
     it('richHtml is null exactly when text is null (empty week)', async () => {
       seedUser(sqlite, 1, 'p1');
       seedMatch(sqlite, { puuid: 'p1', startedAt: OUT_OF_WINDOW });
@@ -1018,7 +1021,7 @@ describe('buildDigest', () => {
       expect(result.richHtml).toBeNull();
     });
 
-    it('richHtml has the <h2> title, pulse, #digest footer, and no raw newline', async () => {
+    it('richHtml has the <h2> title, cover img, pulse, <footer>#digest</footer>, and no raw newline', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'Alpha', riotTag: 'AAA' });
       for (let i = 0; i < 3; i++) {
         seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW + i * 1000, map: 'Ascent', agent: 'Jett' });
@@ -1026,13 +1029,25 @@ describe('buildDigest', () => {
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       const html = result.richHtml!;
       expect(html).toContain('<h2>📅 Дайджест за неделю');
+      // Cover = splash of the week's top map (Ascent).
+      expect(html).toContain(
+        '<img src="https://media.valorant-api.com/maps/7eaecc1b-4337-bbf6-6ab9-04b8f06b3319/splash.png">',
+      );
       expect(html).toContain('📊 За неделю мы сыграли <b>3</b> матчей');
-      expect(html.endsWith('#digest')).toBe(true);
+      expect(html.endsWith('<footer>#digest</footer>')).toBe(true);
       // Rich HTML must carry no raw newline — every break is <br> or block markup.
       expect(html).not.toContain('\n');
     });
 
-    it('renders top-maps and top-agents as tables', async () => {
+    it('omits the cover img when the top map is unknown to the splash table', async () => {
+      seedUser(sqlite, 1, 'p1');
+      // "District" has a local-asset gap / is not in the splash table → no cover.
+      for (let i = 0; i < 3; i++) seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW + i * 1000, map: 'District', agent: 'Jett' });
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.richHtml!).not.toContain('<img');
+    });
+
+    it('renders top-maps and top-agents as tables with align=right counts', async () => {
       seedUser(sqlite, 1, 'p1');
       for (let i = 0; i < 4; i++) seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW + i * 1000, map: 'Ascent', agent: 'Jett' });
       for (let i = 0; i < 2; i++) seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW + (i + 10) * 1000, map: 'Bind', agent: 'Sage' });
@@ -1041,13 +1056,13 @@ describe('buildDigest', () => {
       const html = result.richHtml!;
       expect(html).toContain('<h3>🗺 Чаще всего играли на</h3>');
       expect(html).toContain('<table><tr><th>Карта</th><th>Матчей</th></tr>');
-      expect(html).toContain('Ascent</td><td>4</td>');
+      expect(html).toContain('Ascent</td><td align="right">4</td>');
       expect(html).toContain('<h3>🎭 Чаще всего пикали</h3>');
       expect(html).toContain('<table><tr><th>Агент</th><th>Пиков</th></tr>');
-      expect(html).toContain('Jett</td><td>4</td>');
+      expect(html).toContain('Jett</td><td align="right">4</td>');
     });
 
-    it('renders «Мастера своего дела» as a table with weapon/frags/player and keeps custom emoji in cells', async () => {
+    it('renders «Мастера своего дела» as a striped table with weapon/frags/player, custom emoji in cells', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'Sniper', riotTag: 'SNP' });
       seedMatch(sqlite, { puuid: 'p1', matchId: 'kpw-m1', startedAt: IN_WINDOW });
       // Sheriff is in DIGEST_ALLOWED_WEAPONS (Vandal/Phantom are deliberately excluded).
@@ -1062,37 +1077,119 @@ describe('buildDigest', () => {
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       const html = result.richHtml!;
       expect(html).toContain('<h3>🔫 Мастера своего дела</h3>');
-      expect(html).toContain('<table><tr><th>Оружие</th><th>Фраги</th><th>Игрок</th></tr>');
-      // Sheriff weapon emoji id from valorant-emoji.ts, kept inside the cell.
-      expect(html).toContain('<td><tg-emoji emoji-id="5265082472659459467">🔫</tg-emoji> Sheriff</td><td>22</td><td><b>Sniper#SNP</b></td>');
+      expect(html).toContain('<table striped><tr><th>Оружие</th><th>Фраги</th><th>Игрок</th></tr>');
+      // Sheriff weapon emoji id from valorant-emoji.ts, kept inside the cell; value align=right.
+      expect(html).toContain('<td><tg-emoji emoji-id="5265082472659459467">🔫</tg-emoji> Sheriff</td><td align="right">22</td><td><b>Sniper#SNP</b></td>');
       // Legacy text still carries the weapons block byte-for-byte (regression).
       expect(result.text).toContain('🔫 <u>Мастера своего дела</u>');
     });
 
-    it('wraps near-miss content in a collapsible <details>💨 Почти рекорды', async () => {
+    it('renders each record as a <details> accordion: rank+agent nick, value, match link, blockquote context', async () => {
       seedUser(sqlite, 99, 'p-holder', { riotName: 'Holder', riotTag: 'HLD' });
-      seedAllTimeRecord(sqlite, { recordType: 'kills_match', value: 30, puuid: 'p-holder', matchId: 'old-kills' });
-      seedUser(sqlite, 1, 'p1', { riotName: 'NearMisser', riotTag: 'NM' });
-      seedMatch(sqlite, { puuid: 'p1', matchId: 'nm-match', startedAt: IN_WINDOW, kills: 29 });
+      seedAllTimeRecord(sqlite, { recordType: 'kills_match', value: 20, puuid: 'p-holder', matchId: 'old-kills' });
+      seedUser(sqlite, 1, 'p1', { riotName: 'Killer', riotTag: 'KLL' });
+      // The record's own match carries the player's rank (Diamond 3 → 💎) + agent (Jett → 🦸).
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'm-kills', startedAt: IN_WINDOW, kills: 38, agent: 'Jett', map: 'Ascent', rankAfter: 'Diamond 3' });
+      seedEvent(sqlite, {
+        puuid: 'p1', matchId: 'm-kills', eventType: 'record_kills_match',
+        payload: { value: 38 }, detectedAt: IN_WINDOW,
+      });
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       const html = result.richHtml!;
-      expect(html).toContain('<details><summary>💨 Почти рекорды</summary>');
-      expect(html).toContain('</details>');
-      expect(html).toContain('NearMisser');
+      expect(html).toContain(
+        '<details><summary>💀 <b>Серийный маньяк</b><br>' +
+          '<tg-emoji emoji-id="5265219666799795636">💎</tg-emoji> <b>Killer#KLL</b> <tg-emoji emoji-id="5265124043647916479">🦸</tg-emoji>' +
+          ' · 38 фрагов · ' +
+          '<a href="https://tracker.gg/valorant/match/m-kills">матч <tg-emoji emoji-id="5267510877233387981">🗺️</tg-emoji></a>' +
+          '</summary><blockquote><i>рекорд по количеству фрагов за игру</i></blockquote></details>',
+      );
       expect(html).not.toContain('\n');
     });
 
-    it('renders bright events (non-weapons) with newlines converted to <br>', async () => {
+    it('omits the rank emoji from a record when rank_after is absent for that match', async () => {
+      seedUser(sqlite, 99, 'p-holder', { riotName: 'Holder', riotTag: 'HLD' });
+      seedAllTimeRecord(sqlite, { recordType: 'kills_match', value: 20, puuid: 'p-holder', matchId: 'old-kills' });
+      seedUser(sqlite, 1, 'p1', { riotName: 'Killer', riotTag: 'KLL' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'm-kills', startedAt: IN_WINDOW, kills: 38, agent: 'Jett', map: 'Ascent' });
+      seedEvent(sqlite, {
+        puuid: 'p1', matchId: 'm-kills', eventType: 'record_kills_match',
+        payload: { value: 38 }, detectedAt: IN_WINDOW,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      const html = result.richHtml!;
+      // Nick with agent but NO leading rank emoji.
+      expect(html).toContain('<br><b>Killer#KLL</b> <tg-emoji emoji-id="5265124043647916479">🦸</tg-emoji> · 38 фрагов');
+      expect(html).not.toContain('💎');
+    });
+
+    it('renders the winstreak card without <details> and without a match link', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'Streaker', riotTag: 'STR' });
       seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW });
       seedEvent(sqlite, { puuid: 'p1', eventType: 'winstreak_10plus', payload: { streak: 11 }, detectedAt: IN_WINDOW });
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       const html = result.richHtml!;
-      expect(html).toContain('Винстрик недели');
-      expect(html).toContain('Streaker');
-      expect(html).toContain('<br>');
+      expect(html).toContain('🏆 <b>Винстрик недели:</b><br><b>Streaker#STR</b> · 11 побед подряд');
+      expect(html).not.toContain('<summary>🏆 <b>Винстрик');
+      expect(html).not.toContain('\n');
+    });
+
+    it('renders promotions as an <h3> + Игрок|Ранг table with the rank emoji', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Climber', riotTag: 'UP' });
+      seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW });
+      seedEvent(sqlite, {
+        puuid: 'p1', eventType: 'peak_rank_up',
+        payload: { to_tier_name: 'Platinum 1' }, detectedAt: IN_WINDOW,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      const html = result.richHtml!;
+      expect(html).toContain('<h3>🎖 Повышение по службе</h3>');
+      expect(html).toContain('<table><tr><th>Игрок</th><th>Ранг</th></tr>');
+      // Platinum 1 → 🐳 (tier 15).
+      expect(html).toContain('<tr><td><b>Climber#UP</b></td><td><tg-emoji emoji-id="5264763678711913942">🐳</tg-emoji></td></tr>');
+      expect(html).not.toContain('\n');
+    });
+
+    it('renders near-miss as OPEN blocks (not a <details>) with renderPlayerName and value', async () => {
+      seedUser(sqlite, 99, 'p-holder', { riotName: 'Holder', riotTag: 'HLD' });
+      seedAllTimeRecord(sqlite, { recordType: 'kills_match', value: 30, puuid: 'p-holder', matchId: 'old-kills' });
+      seedUser(sqlite, 1, 'p1', { riotName: 'NearMisser', riotTag: 'NM' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'nm-match', startedAt: IN_WINDOW, kills: 29, agent: 'Jett' });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      const html = result.richHtml!;
+      expect(html).not.toContain('<details><summary>💨');
+      // OPEN block: emoji <u>header</u><br>renderPlayerName · value; agent rides along.
+      expect(html).toContain(
+        '💀 <u>Был(ла) близко к рекорду по киллам</u><br><b>NearMisser#NM</b> <tg-emoji emoji-id="5265124043647916479">🦸</tg-emoji> · 29 фрагов',
+      );
+      expect(html).not.toContain('\n');
+    });
+
+    it('renders the Король MVP aggregate record with no match link, no agent, no rank', async () => {
+      seedUser(sqlite, 99, 'p-holder', { riotName: 'Holder', riotTag: 'HLD' });
+      seedAllTimeRecord(sqlite, { recordType: 'mvp_count_week', value: 3, puuid: 'p-holder', matchId: 'old-mvp' });
+      seedUser(sqlite, 1, 'p1', { riotName: 'Chief', riotTag: 'MVP' });
+      // 5 MVP matches this week beats the all-time 3.
+      for (let i = 0; i < 5; i++) {
+        seedMatch(sqlite, { puuid: 'p1', matchId: `mvp-${i}`, startedAt: IN_WINDOW + i * 1000, isMatchMvp: 1, agent: 'Jett' });
+      }
+      // Seed the bright record event (as computeAndEmitWeeklyMvpRecord would in
+      // production — its own detected_at=weekEnd is excluded by the < window).
+      seedEvent(sqlite, {
+        puuid: 'p1', matchId: 'mvp-0', eventType: 'record_mvp_count_week',
+        payload: { value: 5, prev_value: 3 }, detectedAt: IN_WINDOW,
+      });
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      const html = result.richHtml!;
+      expect(html).toContain('👑 <b>Король MVP за неделю</b><br><b>Chief#MVP</b> · 5 MVP-матчей');
+      // Aggregate → its accordion summary has no match <a> link.
+      const mvpIdx = html.indexOf('👑 <b>Король MVP');
+      const mvpBlock = html.slice(mvpIdx, html.indexOf('</details>', mvpIdx));
+      expect(mvpBlock).not.toContain('<a href');
       expect(html).not.toContain('\n');
     });
   });

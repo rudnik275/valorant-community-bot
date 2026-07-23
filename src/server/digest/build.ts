@@ -28,9 +28,84 @@ import { NEAR_MISS_THRESHOLDS } from './near-miss-config.ts';
 import { renderTemplate, renderDigestGroup, type TemplateUser, type TemplateMatch } from '../publisher/templates.ts';
 import { agentToEmojiHtml, mapToEmojiHtml, weaponToEmojiHtml } from '../publisher/valorant-emoji.ts';
 import type { EventType } from '../publisher/types.ts';
-import { renderRichDigest, type RichDigestModel, type RichWeaponMaster } from './rich-render.ts';
+import {
+  renderRichDigest,
+  type RichDigestModel,
+  type RichWeaponMaster,
+  type RichRecord,
+  type RichWinstreak,
+  type RichPromotion,
+  type RichNearMiss,
+} from './rich-render.ts';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
+
+/**
+ * Per-record-type metadata for the rich `<details>` accordions (#315).
+ * `emoji` + `title` mirror the header of each record template in
+ * publisher/templates.ts; `context` is the verbatim context-description line;
+ * `value(payload)` formats the value line WITHOUT the nick/link (those come
+ * from the shared helpers). Kept in sync with templates.ts by construction —
+ * the legacy text still renders through templates.ts, so these two only both
+ * change when the record's user-visible copy changes.
+ */
+const RICH_RECORD_META: Record<
+  string,
+  { emoji: string; title: string; context: string; value: (payload: Record<string, unknown>) => string }
+> = {
+  record_kills_match: {
+    emoji: '💀',
+    title: 'Серийный маньяк',
+    context: 'рекорд по количеству фрагов за игру',
+    value: (p) => `${p['value']} фрагов`,
+  },
+  record_deaths_match: {
+    emoji: '⚰️',
+    title: 'Магнит для пуль',
+    context: 'рекорд по количеству смертей за игру',
+    value: (p) => `${p['value']} смертей`,
+  },
+  record_headshots_match: {
+    emoji: '🤠',
+    title: 'Директор дикого запада',
+    context: 'рекорд по количеству попаданий в голову за игру (не убийств)',
+    value: (p) => `${p['value']} попаданий в голову`,
+  },
+  record_legshots_match: {
+    emoji: '♿️',
+    title: 'Угадай куда шмальну',
+    context: 'рекорд по количеству попаданий в ноги за игру (не убийств)',
+    value: (p) => `${p['value']} попаданий в ноги`,
+  },
+  record_damage_dealt_match: {
+    emoji: '🥩',
+    title: 'Мясник',
+    context: 'рекорд по нанесённому урону за игру',
+    value: (p) => `${p['value']} dmg`,
+  },
+  record_damage_received_match: {
+    emoji: '🤕',
+    title: 'Груша для битья',
+    context: 'рекорд по полученному урону за игру',
+    value: (p) => `получил(а) ${p['value']} dmg`,
+  },
+  record_mvp_count_week: {
+    emoji: '👑',
+    title: 'Король MVP за неделю',
+    context: 'рекорд по количеству MVP-матчей за неделю',
+    value: (p) => `${p['value']} MVP-матчей`,
+  },
+  record_longest_match_minutes: {
+    emoji: '⏳',
+    title: 'Дело принципа',
+    context: 'рекорд по длительности матча',
+    value: (p) => {
+      const rounds = p['rounds'];
+      const roundsPart = rounds ? ` (${rounds} раундов)` : '';
+      return `${p['value']} минут${roundsPart}`;
+    },
+  },
+};
 
 /**
  * HTML-escape a string to prevent injection in Telegram HTML messages.
@@ -99,8 +174,9 @@ async function renderNearMisses(
   weekStart: number,
   weekEnd: number,
   alreadyBeaten: Set<string>,
-): Promise<string[]> {
+): Promise<{ blocks: string[]; rich: RichNearMiss[] }> {
   const blocks: string[] = [];
+  const rich: RichNearMiss[] = [];
 
   for (const cfg of NEAR_MISS_THRESHOLDS) {
     if (alreadyBeaten.has(cfg.recordType)) continue;  // actual record event will be rendered instead
@@ -143,6 +219,16 @@ async function renderNearMisses(
         .limit(1);
       const userTag = user ? `<b>${esc(user.riot_name)}#${esc(user.riot_tag)}</b>` : `<b>${esc(String(mvpRow.riot_puuid))}</b>`;
       blocks.push(`${cfg.emoji} <u>${cfg.header}</u>\n${userTag} — ${weekMax} ${cfg.unit}`);
+      // mvp_count_week is an aggregate ⇒ no match, no agent, no rank.
+      rich.push({
+        emoji: cfg.emoji,
+        header: cfg.header,
+        player: {
+          name: user ? user.riot_name : String(mvpRow.riot_puuid),
+          tag: user ? user.riot_tag : '',
+        },
+        value: `${weekMax} ${cfg.unit}`,
+      });
       continue;
     }
 
@@ -202,9 +288,22 @@ async function renderNearMisses(
     // Drops the "(рекорд: X)" prev-record info — same call user made for the
     // record templates.
     blocks.push(`${cfg.emoji} <u>${cfg.header}</u>\n${userTag}${agentSuffix} — ${weekMax} ${cfg.unit}`);
+    // Structured near-miss for the rich renderer — tied to the near-miss match,
+    // so the agent emoji rides along (no rank-in-match captured for near-miss;
+    // the aggregated MAX() row doesn't reliably carry the matching rank_after).
+    rich.push({
+      emoji: cfg.emoji,
+      header: cfg.header,
+      player: {
+        name: user ? user.riot_name : String(row.riot_puuid),
+        tag: user ? user.riot_tag : '',
+        agent: row.agent ?? null,
+      },
+      value: `${weekMax} ${cfg.unit}`,
+    });
   }
 
-  return blocks;
+  return { blocks, rich };
 }
 
 export interface BuildDigestDeps {
@@ -315,6 +414,12 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
   // (#309). Populated from the same merged weapons group that produces the
   // legacy text block — sorted desc by value, mirroring renderDigestGroup.
   const richWeaponMasters: RichWeaponMaster[] = [];
+  // Structured rich-model captures (#315), populated in the SAME pass as the
+  // legacy text so they never drift. Records → <details> accordions; winstreak
+  // → card; peak_rank_up → «Повышение по службе» table.
+  const richRecords: RichRecord[] = [];
+  const richWinstreaks: RichWinstreak[] = [];
+  const richPromotions: RichPromotion[] = [];
 
   {
     const optedOut = await getOptOutSet();
@@ -355,6 +460,10 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       payload: Record<string, unknown>;
       user: TemplateUser;
       match?: TemplateMatch;
+      /** Player's rank in the attached match (Henrik tier name) — rich accordions (#315). */
+      rank?: string;
+      /** The real tracker match id for the accordion link (record_kills_per_weapon uses real_match_id). */
+      richMatchId?: string;
     };
     const entries: Entry[] = [];
 
@@ -386,10 +495,13 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
           ? String(payload['real_match_id'] ?? '')
           : String(ev.match_id ?? '');
 
-      // Fetch map from match_records
+      // Fetch map/agent/rank from match_records. `rank_after` is the player's
+      // rank in that match (Henrik tier name, e.g. "Diamond 3") — drives the
+      // rank emoji left of the nick in the rich accordion (#312/#315). Null for
+      // older matches or unrated modes ⇒ rank icon omitted (not a blocker).
       const [matchRow] = realMatchId
         ? await db
-            .select({ map: matchRecords.map, agent: matchRecords.agent })
+            .select({ map: matchRecords.map, agent: matchRecords.agent, rank_after: matchRecords.rank_after })
             .from(matchRecords)
             .where(
               and(
@@ -402,6 +514,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
 
       const map: string | undefined = matchRow?.map ?? undefined;
       const agent: string | undefined = matchRow?.agent ?? undefined;
+      const rankAfter: string | undefined = matchRow?.rank_after ?? undefined;
 
       const tplUser: TemplateUser = {
         riot_name: user.riot_name,
@@ -421,6 +534,10 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
         user: tplUser,
       };
       if (map || ev.match_id || agent) entry.match = tplMatch;
+      if (rankAfter) entry.rank = rankAfter;
+      // realMatchId is the tracker match for the accordion link. Empty for
+      // aggregate records (record_mvp_count_week has no single match).
+      if (realMatchId) entry.richMatchId = realMatchId;
       entries.push(entry);
     }
 
@@ -550,10 +667,63 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
         .map((e) => renderTemplate(e.eventType, e.payload, e.user, e.match))
         .join('\n\n');
     };
+    // Capture structured rich data for one group in the SAME order as the
+    // legacy text. Records → accordions; winstreak → card; peak_rank_up → table.
+    const captureRich = (g: Group): void => {
+      if (g.eventType === 'winstreak_10plus') {
+        for (const e of g.entries) {
+          richWinstreaks.push({
+            name: e.user.riot_name,
+            tag: e.user.riot_tag,
+            streak: Number(e.payload['streak'] ?? 10),
+          });
+        }
+        return;
+      }
+      if (g.eventType === 'peak_rank_up') {
+        for (const e of g.entries) {
+          const to = e.payload['to_tier_name'];
+          if (to == null || to === '') continue;
+          richPromotions.push({
+            name: e.user.riot_name,
+            tag: e.user.riot_tag,
+            rank: String(to),
+          });
+        }
+        return;
+      }
+      const meta = RICH_RECORD_META[g.eventType];
+      if (!meta) return;
+      for (const e of g.entries) {
+        // Aggregate records (record_mvp_count_week) have no single match ⇒ no
+        // link, no agent, no rank. Others link to their tracker match.
+        const isAggregate = g.eventType === 'record_mvp_count_week';
+        const matchUrl =
+          !isAggregate && e.richMatchId
+            ? `https://tracker.gg/valorant/match/${e.richMatchId}`
+            : null;
+        richRecords.push({
+          emoji: meta.emoji,
+          title: meta.title,
+          player: {
+            name: e.user.riot_name,
+            tag: e.user.riot_tag,
+            rank: isAggregate ? null : e.rank ?? null,
+            agent: isAggregate ? null : e.match?.agent ?? null,
+          },
+          value: meta.value(e.payload),
+          matchUrl,
+          mapName: isAggregate ? null : e.match?.map ?? null,
+          context: meta.context,
+        });
+      }
+    };
+
     for (const g of groups) {
       // Skip weapons here — rendered last (just above weekly recap) per user.
       if (g.eventType === 'record_kills_per_weapon') continue;
       brightBlocks.push(renderGroup(g));
+      captureRich(g);
       sectionsIncluded.push(g.eventType);
     }
     // Render weapons last so it sits right above the always-bottom recap,
@@ -592,7 +762,12 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
     }
   }
 
-  const nearMissBlocks = await renderNearMisses(db, weekStart, weekEnd, alreadyBeaten);
+  const { blocks: nearMissBlocks, rich: richNearMisses } = await renderNearMisses(
+    db,
+    weekStart,
+    weekEnd,
+    alreadyBeaten,
+  );
   if (nearMissBlocks.length > 0) {
     sectionsIncluded.push('nearMiss');
   }
@@ -732,16 +907,19 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
 
   const text = parts.join('\n');
 
-  // ─── Rich rendering (#309) — SAME data, parallel renderer ────────────────────
+  // ─── Rich rendering (#315) — SAME data, parallel renderer ────────────────────
   // Built from the structured section data captured above, so every section in
-  // the legacy `text` is present in the rich HTML. `brightBlocks` carry the
-  // non-weapons bright events (weapons → table via richWeaponMasters).
+  // the legacy `text` is present in the rich HTML. `topMap` (the strongest map
+  // of the week, already computed for the promo image) drives the cover splash.
   const richHtml = renderRichDigest({
     headerDate,
-    brightBlocks,
-    weaponMasters: richWeaponMasters,
-    nearMissBlocks,
+    coverMap: topMap,
     totalMatches,
+    records: richRecords,
+    winstreaks: richWinstreaks,
+    promotions: richPromotions,
+    weaponMasters: richWeaponMasters,
+    nearMisses: richNearMisses,
     mostActive: richMostActive,
     topMaps: richTopMaps,
     topAgents: richTopAgents,
