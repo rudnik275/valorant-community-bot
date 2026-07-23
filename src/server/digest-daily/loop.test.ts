@@ -9,13 +9,23 @@ vi.mock('../lib/log.ts', () => ({
   default: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-// Mock buildDailyAceDigest so loop tests don't depend on DB match/event data
+// Mock buildDailyAceDigest so loop tests don't depend on DB match/event data.
+// NOTE: this factory is hoisted above module-scope consts, so the strings are
+// inlined here; the shared MOCK_TEXT/MOCK_RICH consts below re-declare the same
+// values for the test bodies + beforeEach re-mock.
 vi.mock('./build.ts', () => ({
   buildDailyAceDigest: vi.fn().mockResolvedValue({
     text: '🎯 Ace\n<i>💀 без победы в раунде</i>\n<i>🏆 с победой в раунде</i>\n\n<b>Player#TAG</b> (Jett) 🏆round 2 · 🗺<a href="https://tracker.gg/valorant/match/m1">Ascent</a>\n\n<i>Эйсы и ножи за предыдущие 24 часа</i>',
+    richHtml:
+      '<h2>🍿 Эйсы и ножи за предыдущие 24 часа</h2><h3>🎯 Эйсы</h3><table striped><tr><th>Игрок</th><th>Раунд</th><th>Матч</th></tr><tr><td><b>Player#TAG</b></td><td>🏆 2</td><td><a href="https://tracker.gg/valorant/match/m1">🗺️</a></td></tr></table>',
     includedEventIds: [42],
   }),
 }));
+
+const MOCK_TEXT =
+  '🎯 Ace\n<i>💀 без победы в раунде</i>\n<i>🏆 с победой в раунде</i>\n\n<b>Player#TAG</b> (Jett) 🏆round 2 · 🗺<a href="https://tracker.gg/valorant/match/m1">Ascent</a>\n\n<i>Эйсы и ножи за предыдущие 24 часа</i>';
+const MOCK_RICH =
+  '<h2>🍿 Эйсы и ножи за предыдущие 24 часа</h2><h3>🎯 Эйсы</h3><table striped><tr><th>Игрок</th><th>Раунд</th><th>Матч</th></tr><tr><td><b>Player#TAG</b></td><td>🏆 2</td><td><a href="https://tracker.gg/valorant/match/m1">🗺️</a></td></tr></table>';
 
 const MIGRATIONS_FOLDER = join(process.cwd(), 'drizzle');
 
@@ -52,7 +62,8 @@ describe('runDailyDigestNow', () => {
 
     const { buildDailyAceDigest } = await import('./build.ts');
     (buildDailyAceDigest as ReturnType<typeof vi.fn>).mockResolvedValue({
-      text: '🎯 Ace\n<i>💀 без победы в раунде</i>\n<i>🏆 с победой в раунде</i>\n\n<b>Player#TAG</b> (Jett) 🏆round 2 · 🗺<a href="https://tracker.gg/valorant/match/m1">Ascent</a>\n\n<i>Эйсы и ножи за предыдущие 24 часа</i>',
+      text: MOCK_TEXT,
+      richHtml: MOCK_RICH,
       includedEventIds: [42],
     });
   });
@@ -84,6 +95,70 @@ describe('runDailyDigestNow', () => {
       expect(row?.posted_message_id).toBe(7);
       expect(row?.posted_text).toContain('🎯 Ace');
       expect(JSON.parse(row?.included_event_ids ?? '[]')).toContain(42);
+    });
+  });
+
+  describe('rich-first-fallback (#315)', () => {
+    it('posts via sendRichMessage (rich) and does NOT call legacy sendMessage when rich succeeds', async () => {
+      const sendRichMessage = vi.fn().mockResolvedValue({ message_id: 11 });
+
+      await runDailyDigestNow({
+        db,
+        sendMessage,
+        sendRichMessage,
+        getPrimaryChatId: () => -100123456789,
+      });
+
+      expect(sendRichMessage).toHaveBeenCalledOnce();
+      expect(sendRichMessage).toHaveBeenCalledWith(-100123456789, MOCK_RICH);
+      expect(sendMessage).not.toHaveBeenCalled();
+
+      // Row records the LEGACY text (byte-compatible posted_text) + rich message id.
+      const row = getDailyRunRow(sqlite, getKyivDate());
+      expect(row?.posted_message_id).toBe(11);
+      expect(row?.posted_text).toBe(MOCK_TEXT);
+      expect(JSON.parse(row?.included_event_ids ?? '[]')).toContain(42);
+    });
+
+    it('falls back to legacy sendMessage (with the legacy text) when sendRichMessage rejects', async () => {
+      const sendRichMessage = vi.fn().mockRejectedValue(new Error('rich boom'));
+
+      await runDailyDigestNow({
+        db,
+        sendMessage,
+        sendRichMessage,
+        getPrimaryChatId: () => -100123456789,
+      });
+
+      expect(sendRichMessage).toHaveBeenCalledOnce();
+      // Legacy send happened with the exact legacy text + HTML opts.
+      expect(sendMessage).toHaveBeenCalledOnce();
+      expect(sendMessage).toHaveBeenCalledWith(
+        -100123456789,
+        MOCK_TEXT,
+        expect.objectContaining({ parse_mode: 'HTML', disable_web_page_preview: true }),
+      );
+
+      // Row still recorded (legacy message id 7 from the mock, legacy text).
+      const row = getDailyRunRow(sqlite, getKyivDate());
+      expect(row?.posted_at).not.toBeNull();
+      expect(row?.posted_message_id).toBe(7);
+      expect(row?.posted_text).toBe(MOCK_TEXT);
+    });
+
+    it('uses legacy sendMessage when no sendRichMessage is wired at all', async () => {
+      await runDailyDigestNow({
+        db,
+        sendMessage,
+        getPrimaryChatId: () => -100123456789,
+      });
+
+      expect(sendMessage).toHaveBeenCalledOnce();
+      expect(sendMessage).toHaveBeenCalledWith(
+        -100123456789,
+        MOCK_TEXT,
+        expect.objectContaining({ parse_mode: 'HTML', disable_web_page_preview: true }),
+      );
     });
   });
 

@@ -26,8 +26,15 @@
  *
  *   🔪🪿 22:42 <b>Name#TAG</b> · Agent · 🏆round 18 · 🗺<a href="…">Map</a>
  *
- * Returns null when no qualifying events exist.
- * Format and rationale: see ADR 0003.
+ * The `text` field above is the LEGACY plain-text rendering (kept byte-for-byte
+ * as the fallback). Since #315 the builder ALSO returns `richHtml` — the same
+ * per-round data rendered as a Rich Message (h2 + Легенда details + separate
+ * 🎯 Эйсы / 🔪 Ножи striped tables, grouped by player) via `./rich-render.ts`.
+ * The post path (scheduled-digest.ts step 6) tries `richHtml` via
+ * `sendRichMessage` first and falls back to `text` on any error.
+ *
+ * Both `text` and `richHtml` are null exactly when no qualifying events exist.
+ * Format and rationale: see ADR 0003 (legacy) and issue #315 (rich).
  */
 
 import { and, gte, lt, inArray, notInArray, eq } from 'drizzle-orm';
@@ -37,6 +44,7 @@ import { matchRecords } from '../db/schema/match_records.ts';
 import { esc } from '../publisher/templates.ts';
 import { agentToEmojiHtml, mapToEmojiHtml } from '../publisher/valorant-emoji.ts';
 import { decodeKillEvents, decodeRounds } from '../lib/match-codec.ts';
+import { renderRichDailyDigest, type RichDailyRow } from './rich-render.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
@@ -62,7 +70,13 @@ export interface BuildDailyDigestDeps {
 }
 
 export interface BuildDailyDigestResult {
-  text: string | null; // null when zero qualifying events
+  text: string | null; // null when zero qualifying events (legacy plain-text fallback)
+  /**
+   * Rich Message HTML (#315) rendered from the same per-round data. `null`
+   * exactly when `text` is null (zero qualifying events). The daily post path
+   * tries this via `sendRichMessage` first, falling back to `text` on any error.
+   */
+  richHtml: string | null;
   includedEventIds: number[];
 }
 
@@ -77,6 +91,7 @@ interface Row {
   riotTag: string | null;
   map: string | null;
   agent: string | null;
+  rank: string | null;
   roundsCompactJson: string | null;
   killEventsCompactJson: string | null;
 }
@@ -85,6 +100,8 @@ interface Line {
   riotName: string;
   riotTag: string;
   agent: string;
+  /** Player's rank in this match (Henrik tier name). null ⇒ rank unknown. */
+  rank: string | null;
   map: string | null;
   matchId: string;
   rounds: number[]; // 0-indexed, deduped, ascending
@@ -105,6 +122,8 @@ interface Entry {
   riotName: string;
   riotTag: string;
   agent: string;
+  /** Player's rank in this match (Henrik tier name). null ⇒ rank unknown. */
+  rank: string | null;
   map: string | null;
   matchId: string;
 }
@@ -174,6 +193,7 @@ function rowToLine(row: Row): Line {
     riotName: row.riotName ?? row.puuid,
     riotTag: row.riotTag ?? '',
     agent: row.agent ?? '',
+    rank: row.rank,
     map: row.map,
     matchId: row.matchId,
     rounds: sortedRounds,
@@ -194,6 +214,7 @@ function lineToEntries(line: Line): Entry[] {
     riotName: line.riotName,
     riotTag: line.riotTag,
     agent: line.agent,
+    rank: line.rank,
     map: line.map,
     matchId: line.matchId,
   }));
@@ -227,6 +248,7 @@ export async function buildDailyAceDigest(
       riotTag: users.riot_tag,
       map: matchRecords.map,
       agent: matchRecords.agent,
+      rank: matchRecords.rank_after,
       roundsCompactJson: matchRecords.rounds_compact,
       killEventsCompactJson: matchRecords.kill_events_compact,
     })
@@ -243,7 +265,7 @@ export async function buildDailyAceDigest(
     .orderBy(detectedEvents.detected_at);
 
   if (rows.length === 0) {
-    return { text: null, includedEventIds: [] };
+    return { text: null, richHtml: null, includedEventIds: [] };
   }
 
   const typedRows = rows as Row[];
@@ -253,7 +275,7 @@ export async function buildDailyAceDigest(
   }
 
   if (entries.length === 0) {
-    return { text: null, includedEventIds: [] };
+    return { text: null, richHtml: null, includedEventIds: [] };
   }
 
   entries.sort((a, b) => {
@@ -265,7 +287,28 @@ export async function buildDailyAceDigest(
 
   return {
     text: renderDailyDigestText(entries),
+    richHtml: renderRichDailyDigest(entries.map(entryToRichRow)),
     includedEventIds: typedRows.map((r) => r.id),
+  };
+}
+
+/**
+ * Map a per-round `Entry` (legacy internal shape) to a `RichDailyRow` for the
+ * rich renderer. Preserves the globally-sorted order the entries already carry;
+ * the rich renderer regroups by player while keeping this chronological order.
+ */
+function entryToRichRow(e: Entry): RichDailyRow {
+  return {
+    eventType: e.type,
+    riotName: e.riotName,
+    riotTag: e.riotTag,
+    agent: e.agent,
+    rank: e.rank,
+    map: e.map,
+    matchId: e.matchId,
+    round0: e.round0,
+    won: e.won,
+    detectedAt: e.detectedAt,
   };
 }
 

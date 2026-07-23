@@ -89,6 +89,15 @@ export interface DigestContent {
   /** `null` ⇒ nothing to post this cycle (the `[no_content]` marker is used). */
   text: string | null;
   /**
+   * Optional Rich Message HTML (#309/#315). When present AND a `sendRichMessage`
+   * is injected, the shared post step tries the rich path first and falls back
+   * to the legacy `text` on ANY error. `undefined`/`null` ⇒ legacy text only.
+   * The recorded `posted_text` is always the legacy `text` (byte-compatible).
+   * Daily (#315) sets this; the shared scaffold ignores it when unset so callers
+   * wired before #315 are unchanged.
+   */
+  richHtml?: string | null;
+  /**
    * Opaque per-digest metadata threaded back into `recordSuccess`
    * (e.g. weekly's `sectionsIncluded`, daily's `includedEventIds`).
    */
@@ -171,6 +180,50 @@ export interface DigestSpec {
 }
 
 /**
+ * Post the digest text to `chatId`, preferring the Rich Message path (#315)
+ * when a `richHtml` was produced AND a `sendRichMessage` is injected, falling
+ * back to the legacy `sendMessage(text, HTML)` on ANY rich-send error (or when
+ * no rich content / sender is available). Returns the posted message id.
+ *
+ * A rich-send throw is swallowed here (logged) so the digest still goes out via
+ * the legacy path — the daily post must never be skipped because of the rich
+ * path. A legacy-send throw propagates to the caller's no-dup-on-crash boundary.
+ */
+async function postDigestText(
+  module: string,
+  dedupKey: string,
+  chatId: number,
+  richHtml: string | null | undefined,
+  legacyText: string,
+  deps: { sendMessage: SendMessage; sendRichMessage?: SendRichMessage | undefined },
+): Promise<number> {
+  if (richHtml != null && deps.sendRichMessage) {
+    try {
+      const { message_id } = await deps.sendRichMessage(chatId, richHtml);
+      logger.info(
+        { module, dedup_key: dedupKey, message_id, path: 'rich' },
+        'Digest posted via sendRichMessage',
+      );
+      return message_id;
+    } catch (err) {
+      logger.warn(
+        { module, dedup_key: dedupKey, err },
+        'sendRichMessage failed, falling back to legacy text',
+      );
+    }
+  }
+  const { message_id } = await deps.sendMessage(chatId, legacyText, {
+    parse_mode: 'HTML',
+    disable_web_page_preview: true,
+  });
+  logger.info(
+    { module, dedup_key: dedupKey, message_id, path: 'legacy', rich_null: richHtml == null },
+    'Digest posted via legacy sendMessage',
+  );
+  return message_id;
+}
+
+/**
  * The single shared digest tick. Adapters call this with their `DigestSpec`
  * and the runtime deps. Ordering is the documented no-dup-on-crash contract.
  */
@@ -180,7 +233,7 @@ export async function runScheduledDigest(
     db: AnyDb;
     sendMessage: SendMessage;
     /** Optional rich send (#309). Only the weekly two-phase override uses it. */
-    sendRichMessage?: SendRichMessage;
+    sendRichMessage?: SendRichMessage | undefined;
     getPrimaryChatId: () => number;
   },
 ): Promise<void> {
@@ -235,7 +288,7 @@ export async function runScheduledDigest(
 
     // 4. Build content BEFORE recording any success row — a build/send
     //    failure must not poison the cycle (no-dup-on-crash).
-    const { text, meta } = await spec.build(db, w);
+    const { text, richHtml, meta } = await spec.build(db, w);
 
     // 5. Empty content → record the [no_content] marker so we don't recompute
     //    every tick, but post nothing.
@@ -250,11 +303,22 @@ export async function runScheduledDigest(
 
     // 6. Post to the primary chat. If this throws, the outer catch logs and
     //    the next cron tick re-attempts — no run row exists yet.
+    //
+    //    Rich-first-fallback (#315): when the build produced a `richHtml` AND a
+    //    `sendRichMessage` is injected, try the Rich Message path first and fall
+    //    back to the legacy `sendMessage(text)` on ANY rich-send error. The
+    //    recorded `posted_text` stays the legacy `text` either way, so the
+    //    run-row semantics are byte-compatible with the pre-#315 behaviour.
+    //    When no rich content / no rich sender, this is exactly the old path.
     const chatId = getPrimaryChatId();
-    const { message_id: messageId } = await sendMessage(chatId, text, {
-      parse_mode: 'HTML',
-      disable_web_page_preview: true,
-    });
+    const messageId = await postDigestText(
+      module,
+      w.dedupKey,
+      chatId,
+      richHtml,
+      text,
+      { sendMessage, sendRichMessage: deps.sendRichMessage },
+    );
 
     // 7. Send succeeded — NOW durably record the run (no-dup-on-crash).
     const postedAt = Date.now();
@@ -286,7 +350,7 @@ export function startScheduledDigest(
   deps: {
     db: AnyDb;
     sendMessage: SendMessage;
-    sendRichMessage?: SendRichMessage;
+    sendRichMessage?: SendRichMessage | undefined;
     getPrimaryChatId: () => number;
   },
 ): () => void {
