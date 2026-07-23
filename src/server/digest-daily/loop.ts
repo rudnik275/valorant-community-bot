@@ -38,6 +38,7 @@ import {
   type DigestSpec,
   type DigestWindow,
   type SendMessage,
+  type SendRichMessage,
 } from '../lib/scheduled-digest.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -46,6 +47,12 @@ type AnyDb = any;
 export interface DailyDigestLoopDeps {
   db: AnyDb;
   sendMessage: SendMessage;
+  /**
+   * Rich Message send (#315). When provided, the daily digest posts as a Rich
+   * Message (tables/details), falling back to `sendMessage` (legacy text) on any
+   * error. Omitted ⇒ legacy text only (unchanged pre-#315 behaviour).
+   */
+  sendRichMessage?: SendRichMessage | undefined;
   getPrimaryChatId?: () => number;
   intervalCron?: string; // default '0 23 * * *' Europe/Kyiv
 }
@@ -89,12 +96,12 @@ function makeDailySpec(deps: DailyDigestLoopDeps): DigestSpec {
       };
     },
     build: async (db, w) => {
-      const { text, includedEventIds } = await buildDailyAceDigest({
+      const { text, richHtml, includedEventIds } = await buildDailyAceDigest({
         db,
         windowStart: w.windowStart,
         windowEnd: w.windowEnd,
       });
-      return { text, meta: includedEventIds };
+      return { text, richHtml, meta: includedEventIds };
     },
     findExisting: async (db, runDate) => {
       const [existing] = await db
@@ -137,6 +144,7 @@ function depsForRun(deps: DailyDigestLoopDeps) {
   return {
     db: deps.db,
     sendMessage: deps.sendMessage,
+    sendRichMessage: deps.sendRichMessage,
     getPrimaryChatId: deps.getPrimaryChatId ?? (() => 0),
   };
 }
