@@ -234,7 +234,7 @@ const templates: Record<EventType, TemplateFn> = {
     const victimParts = Array.from(byName.values()).map((v) => `<b>${esc(v.name!)}</b>${agentLead(v.agent)}`);
     const victimStr = victimParts.length > 0 ? ` (${victimParts.join(', ')})` : '';
     const name = minimalPlayerName(user, match);
-    const desc = `${name} убил(а) своего${victimStr}${count}${mapSuffix(match?.map)}${minimalMatchSuffix(match)}`;
+    const desc = `${name} убил(а) своего${victimStr}${count}${minimalMatchSuffix(match)}`;
     return `🐀 <b>Ля ты и крыса</b>\n${desc}`;
   },
 
@@ -242,7 +242,7 @@ const templates: Record<EventType, TemplateFn> = {
     const n = Number(payload['count'] ?? 1);
     const countStr = n > 1 ? ` (${n}×)` : '';
     const name = minimalPlayerName(user, match);
-    const desc = `${name} — умер(ла) от падения${countStr}${mapSuffix(match?.map)}${minimalMatchSuffix(match)}`;
+    const desc = `${name} — умер(ла) от падения${countStr}${minimalMatchSuffix(match)}`;
     return `🪂 <b>1:0 в пользу гравитации</b>\n${desc}`;
   },
 

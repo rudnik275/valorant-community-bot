@@ -279,7 +279,7 @@ describe('renderTemplate — payload-specific behavior', () => {
 
   it('return_after_pause: includes match link with map-emoji when match_id present', () => {
     const output = renderTemplate('return_after_pause', { days_paused: 20 }, safeUser, { match_id: 'ret1', map: 'Ascent' });
-    expect(output).toContain(`<a href="https://tracker.gg/valorant/match/ret1">матч ${mapToEmojiHtml('Ascent')}</a>`);
+    expect(output).toContain(`<a href="https://tracker.gg/valorant/match/ret1">${mapToEmojiHtml('Ascent')} Ascent</a>`);
     expect(output).toContain('· <a href=');
   });
 
@@ -316,12 +316,12 @@ describe('renderTemplate — payload-specific behavior', () => {
 
   it('teamkill: match link uses map-emoji label joined with " · "', () => {
     const output = renderTemplate('teamkill', { round_numbers: [2] }, safeUser, { map: 'Bind', match_id: 'mID1' });
-    expect(output).toContain(`· <a href="https://tracker.gg/valorant/match/mID1">матч ${mapToEmojiHtml('Bind')}</a>`);
+    expect(output).toContain(`· <a href="https://tracker.gg/valorant/match/mID1">${mapToEmojiHtml('Bind')} Bind</a>`);
   });
 
   it('fall_damage_death: includes map and 1:0 в пользу гравитации text', () => {
-    const output = renderTemplate('fall_damage_death', { count: 2 }, safeUser, { map: 'Icebox' });
-    expect(output).toContain('Icebox');
+    const output = renderTemplate('fall_damage_death', { count: 2 }, safeUser, { map: 'Icebox', match_id: 'fall9' });
+    expect(output).toContain('Icebox'); // map now lives in the link label
     expect(output.toLowerCase()).toContain('1:0 в пользу гравитации');
   });
 
@@ -344,7 +344,7 @@ describe('renderTemplate — payload-specific behavior', () => {
 
   it('fall_damage_death: match link uses map-emoji label joined with " · "', () => {
     const output = renderTemplate('fall_damage_death', { count: 2 }, safeUser, { map: 'Icebox', match_id: 'fall1' });
-    expect(output).toContain(`· <a href="https://tracker.gg/valorant/match/fall1">матч ${mapToEmojiHtml('Icebox')}</a>`);
+    expect(output).toContain(`· <a href="https://tracker.gg/valorant/match/fall1">${mapToEmojiHtml('Icebox')} Icebox</a>`);
   });
 
   it('record_damage_dealt_match: shows Мясник heading and value', () => {

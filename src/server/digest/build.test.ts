@@ -1101,7 +1101,7 @@ describe('buildDigest', () => {
         '<details><summary>💀 <b>Серийный маньяк</b><br>' +
           '<tg-emoji emoji-id="5265219666799795636">💎</tg-emoji> <b>Killer#KLL</b> <tg-emoji emoji-id="5265124043647916479">🦸</tg-emoji>' +
           ' · 38 фрагов · ' +
-          '<a href="https://tracker.gg/valorant/match/m-kills">матч <tg-emoji emoji-id="5267510877233387981">🗺️</tg-emoji></a>' +
+          '<a href="https://tracker.gg/valorant/match/m-kills"><tg-emoji emoji-id="5267510877233387981">🗺️</tg-emoji> Ascent</a>' +
           '</summary><blockquote><i>рекорд по количеству фрагов за игру</i></blockquote></details>',
       );
       expect(html).not.toContain('\n');
