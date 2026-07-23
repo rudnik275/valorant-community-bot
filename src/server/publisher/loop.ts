@@ -102,12 +102,13 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
       const eventType = pendingEvent.event_type as EventType;
       const puuid = pendingEvent.riot_puuid as string;
 
-      // Step 2b: Defense-in-depth — digest events must never reach the realtime publisher.
-      // If one is found, it's a detector bug. Mark silent and skip.
+      // Step 2b: Defense-in-depth — non-realtime events (daily or weekly) must
+      // never reach the realtime publisher. If one is found, it's a detector
+      // bug. Mark silent and skip.
       if (!isRealtimeEvent(eventType)) {
         logger.warn(
           { module: 'publisher', event_id: eventId, event_type: eventType },
-          'Digest event landed in realtime queue — skipping',
+          'Non-realtime event landed in realtime queue — skipping',
         );
         await db
           .update(detectedEvents)

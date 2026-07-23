@@ -88,42 +88,50 @@ export interface Detector {
   ) => Promise<DetectedEvent[]>;
 }
 
-export type EventCategory = 'realtime' | 'digest';
+export type EventCategory = 'realtime' | 'daily' | 'weekly';
 
 /**
  * Source of truth: each EventType belongs to exactly ONE category.
- * Realtime events fire immediately via publisher loop and NEVER appear in digest.
- * Digest events appear ONLY in the Friday weekly digest and NEVER fire as realtime notifications.
+ * - Realtime events fire immediately via the publisher loop and NEVER appear in a digest.
+ * - Daily events are batched into the 23:00 daily digest (ace / knife_kill — too
+ *   frequent for immediate posts) and NEVER fire as realtime notifications.
+ * - Weekly events appear ONLY in the Friday weekly digest (records, winstreaks,
+ *   rank-ups) and NEVER fire as realtime notifications.
  */
 export const EVENT_CATEGORY: Record<EventType, EventCategory> = {
   giant_slayer: 'realtime',
   teamkill: 'realtime',
   fall_damage_death: 'realtime',
-  knife_kill: 'digest',
+  knife_kill: 'daily',
   match_comeback: 'realtime',
   community_clash: 'realtime',
   return_after_pause: 'realtime',
 
-  ace: 'digest',
-  winstreak_10plus: 'digest',
-  peak_rank_up: 'digest',
-  record_kills_match: 'digest',
-  record_deaths_match: 'digest',
-  record_headshots_match: 'digest',
-  record_legshots_match: 'digest',
-  record_damage_dealt_match: 'digest',
-  record_damage_received_match: 'digest',
-  record_kills_per_weapon: 'digest',
-  record_longest_match_minutes: 'digest',
-  record_survived_last_rounds: 'digest',
-  record_died_first_rounds: 'digest',
-  record_mvp_count_week: 'digest',
+  ace: 'daily',
+
+  winstreak_10plus: 'weekly',
+  peak_rank_up: 'weekly',
+  record_kills_match: 'weekly',
+  record_deaths_match: 'weekly',
+  record_headshots_match: 'weekly',
+  record_legshots_match: 'weekly',
+  record_damage_dealt_match: 'weekly',
+  record_damage_received_match: 'weekly',
+  record_kills_per_weapon: 'weekly',
+  record_longest_match_minutes: 'weekly',
+  record_survived_last_rounds: 'weekly',
+  record_died_first_rounds: 'weekly',
+  record_mvp_count_week: 'weekly',
 };
 
 export function isRealtimeEvent(t: EventType): boolean {
   return EVENT_CATEGORY[t] === 'realtime';
 }
 
-export function isDigestEvent(t: EventType): boolean {
-  return EVENT_CATEGORY[t] === 'digest';
+export function isDailyEvent(t: EventType): boolean {
+  return EVENT_CATEGORY[t] === 'daily';
+}
+
+export function isWeeklyEvent(t: EventType): boolean {
+  return EVENT_CATEGORY[t] === 'weekly';
 }
