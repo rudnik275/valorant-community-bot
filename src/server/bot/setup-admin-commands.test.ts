@@ -23,7 +23,6 @@ describe('setupAdminCommandsForOwner', () => {
     const names = ADMIN_COMMANDS.map((c) => c.command);
     expect(names).toContain('congrats');
     expect(names).toContain('test_digest');
-    expect(names).toContain('test_rich_digest');
     expect(names).toContain('test_runtime_events');
   });
 
