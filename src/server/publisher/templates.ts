@@ -12,6 +12,7 @@
 import type { EventType } from './types.ts';
 import { rankToEmojiHtml } from './rank-emoji.ts';
 import { agentToEmojiHtml, mapToEmojiHtml, weaponToEmojiHtml } from './valorant-emoji.ts';
+import { renderPlayerName, matchLink as renderMatchLink } from './player-render.ts';
 
 /**
  * HTML-escape a string to prevent injection in Telegram HTML messages.
@@ -89,6 +90,32 @@ function agentLead(agent: string | null | undefined): string {
 
 function mapSuffix(map: string | undefined): string {
   return map ? ` на карте ${mapIcon(map)}${esc(map)}` : '';
+}
+
+/**
+ * " · <a>матч [map-emoji]</a>" suffix for the minimal realtime templates
+ * (teamkill, fall_damage_death, return_after_pause — #315). Empty when
+ * there's no match_id to link to.
+ */
+function minimalMatchSuffix(match?: TemplateMatch): string {
+  if (!match?.match_id) return '';
+  const link = renderMatchLink({
+    url: `https://tracker.gg/valorant/match/${match.match_id}`,
+    ...(match.map ? { mapName: match.map } : {}),
+  });
+  return ` · ${link}`;
+}
+
+/** Build renderPlayerName options for the triggering user in the minimal
+ * realtime templates — bold (community), agent from match.agent when known,
+ * rank omitted (not reachable in the data the publisher loop fetches — #315). */
+function minimalPlayerName(user: TemplateUser, match?: TemplateMatch): string {
+  return renderPlayerName({
+    name: user.riot_name,
+    tag: user.riot_tag,
+    isCommunity: true,
+    ...(match?.agent ? { agent: match.agent } : {}),
+  });
 }
 
 /**
@@ -182,10 +209,11 @@ const templates: Record<EventType, TemplateFn> = {
     return `💪 <u>Поводил(ла) по губам</u>\n\n${desc}${link}`;
   },
 
-  return_after_pause: (payload, user, _match) => {
+  return_after_pause: (payload, user, match) => {
     const days = payload['days_paused'] ?? '?';
-    const desc = `${playerTag(user)} — после ${esc(String(days))} дней паузы снова в строю`;
-    return `👋 <u>С возвращением</u>\n\n${desc}`;
+    const name = minimalPlayerName(user, match);
+    const desc = `${name} — после ${esc(String(days))} дней паузы снова в строю${minimalMatchSuffix(match)}`;
+    return `👋 <b>С возвращением</b>\n${desc}`;
   },
 
   teamkill: (payload, user, match) => {
@@ -205,17 +233,17 @@ const templates: Record<EventType, TemplateFn> = {
     }
     const victimParts = Array.from(byName.values()).map((v) => `<b>${esc(v.name!)}</b>${agentLead(v.agent)}`);
     const victimStr = victimParts.length > 0 ? ` (${victimParts.join(', ')})` : '';
-    const desc = `${playerTag(user)}${agentLead(match?.agent)} убил(а) своего${victimStr}${count}${mapSuffix(match?.map)}`;
-    const link = match?.match_id ? matchLine(match.match_id) : '';
-    return `🐀 <u>Ля ты и крыса</u>\n\n${desc}${link}`;
+    const name = minimalPlayerName(user, match);
+    const desc = `${name} убил(а) своего${victimStr}${count}${mapSuffix(match?.map)}${minimalMatchSuffix(match)}`;
+    return `🐀 <b>Ля ты и крыса</b>\n${desc}`;
   },
 
   fall_damage_death: (payload, user, match) => {
     const n = Number(payload['count'] ?? 1);
     const countStr = n > 1 ? ` (${n}×)` : '';
-    const desc = `${playerTag(user)}${agentLead(match?.agent)} — умер(ла) от падения${countStr}${mapSuffix(match?.map)}`;
-    const link = match?.match_id ? matchLine(match.match_id) : '';
-    return `🪂 <u>1:0 в пользу гравитации</u>\n\n${desc}${link}`;
+    const name = minimalPlayerName(user, match);
+    const desc = `${name} — умер(ла) от падения${countStr}${mapSuffix(match?.map)}${minimalMatchSuffix(match)}`;
+    return `🪂 <b>1:0 в пользу гравитации</b>\n${desc}`;
   },
 
   record_damage_dealt_match: (payload, user, match) => {
