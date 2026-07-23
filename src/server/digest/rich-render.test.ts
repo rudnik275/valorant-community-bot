@@ -1,14 +1,34 @@
 import { describe, it, expect } from 'vitest';
-import { renderRichDigest, type RichDigestModel } from './rich-render.ts';
+import { renderRichDigest, mapSplashUrl, type RichDigestModel } from './rich-render.ts';
 
 /** A fully-populated model exercising every section. */
 function fullModel(overrides: Partial<RichDigestModel> = {}): RichDigestModel {
   return {
     headerDate: '27 апреля 2025 г.',
-    brightBlocks: [
-      '🏆 <u>Винстрик недели:</u>\n<b>Alpha#AAA</b> — 12 побед подряд',
-      '💀 <u>Серийный маньяк</u>\n<i>рекорд по количеству фрагов за игру</i>\n<b>Killer#KLL</b> — 38 фрагов',
+    coverMap: 'Ascent',
+    totalMatches: 42,
+    records: [
+      {
+        emoji: '💀',
+        title: 'Серийный маньяк',
+        player: { name: 'Killer', tag: 'KLL', rank: 'Diamond 3', agent: 'Jett' },
+        value: '38 фрагов',
+        matchUrl: 'https://tracker.gg/valorant/match/m-kills',
+        mapName: 'Ascent',
+        context: 'рекорд по количеству фрагов за игру',
+      },
+      {
+        emoji: '👑',
+        title: 'Король MVP за неделю',
+        player: { name: 'Chief', tag: 'MVP', rank: null, agent: null },
+        value: '5 MVP-матчей',
+        matchUrl: null,
+        mapName: null,
+        context: 'рекорд по количеству MVP-матчей за неделю',
+      },
     ],
+    winstreaks: [{ name: 'Alpha', tag: 'AAA', streak: 12 }],
+    promotions: [{ name: 'Climber', tag: 'UP', rank: 'Platinum 1' }],
     weaponMasters: [
       {
         weaponEmojiHtml: '<tg-emoji emoji-id="5267384313137108259">🔫</tg-emoji>',
@@ -23,10 +43,14 @@ function fullModel(overrides: Partial<RichDigestModel> = {}): RichDigestModel {
         playerHtml: '<b>Beta#BBB</b>',
       },
     ],
-    nearMissBlocks: [
-      '💀 <u>Был(ла) близко к рекорду по киллам</u>\n<b>NearMisser#NM</b> — 29 фрагов',
+    nearMisses: [
+      {
+        emoji: '💀',
+        header: 'Был(ла) близко к рекорду по киллам',
+        player: { name: 'NearMisser', tag: 'NM', agent: 'Sova' },
+        value: '29 фрагов',
+      },
     ],
-    totalMatches: 42,
     mostActive: { nameHtml: '<b>Alpha#AAA</b>', count: 7 },
     topMaps: [
       { emojiHtml: '<tg-emoji emoji-id="5267510877233387981">🗺️</tg-emoji>', map: 'Ascent', count: 12 },
@@ -39,81 +63,151 @@ function fullModel(overrides: Partial<RichDigestModel> = {}): RichDigestModel {
   };
 }
 
+describe('mapSplashUrl', () => {
+  it('resolves a known map to its media.valorant-api.com splash URL', () => {
+    expect(mapSplashUrl('Ascent')).toBe(
+      'https://media.valorant-api.com/maps/7eaecc1b-4337-bbf6-6ab9-04b8f06b3319/splash.png',
+    );
+  });
+  it('resolves Summit (#311)', () => {
+    expect(mapSplashUrl('Summit')).toBe(
+      'https://media.valorant-api.com/maps/756da597-416b-c0f2-f47b-afbdf28670bc/splash.png',
+    );
+  });
+  it('normalises case/punctuation', () => {
+    expect(mapSplashUrl('ascent')).toBe(mapSplashUrl('Ascent'));
+  });
+  it('returns null for unknown map or nullish', () => {
+    expect(mapSplashUrl('NotAMap')).toBeNull();
+    expect(mapSplashUrl(null)).toBeNull();
+    expect(mapSplashUrl(undefined)).toBeNull();
+  });
+});
+
 describe('renderRichDigest', () => {
   it('renders the title as an <h2> with the date', () => {
     const html = renderRichDigest(fullModel());
     expect(html).toContain('<h2>📅 Дайджест за неделю · 27 апреля 2025 г.</h2>');
   });
 
-  it('renders section headings as <h3>', () => {
+  it('renders the cover image for the top map right after the title', () => {
     const html = renderRichDigest(fullModel());
-    expect(html).toContain('<h3>🔫 Мастера своего дела</h3>');
-    expect(html).toContain('<h3>🗺 Чаще всего играли на</h3>');
-    expect(html).toContain('<h3>🎭 Чаще всего пикали</h3>');
-  });
-
-  it('renders top-maps as a table (Карта | Матчей) with the count cells', () => {
-    const html = renderRichDigest(fullModel());
-    expect(html).toContain('<table><tr><th>Карта</th><th>Матчей</th></tr>');
-    expect(html).toContain('<td><tg-emoji emoji-id="5267510877233387981">🗺️</tg-emoji> Ascent</td><td>12</td>');
-    // Unknown map → no emoji prefix.
-    expect(html).toContain('<td>UnknownMap</td><td>3</td>');
-  });
-
-  it('renders top-agents as a table (Агент | Пиков)', () => {
-    const html = renderRichDigest(fullModel());
-    expect(html).toContain('<table><tr><th>Агент</th><th>Пиков</th></tr>');
-    expect(html).toContain('<td><tg-emoji emoji-id="5265124043647916479">🦸</tg-emoji> Jett</td><td>15</td>');
-  });
-
-  it('renders «Мастера своего дела» as a table (Оружие | Фраги | Игрок) with emoji + player in cells', () => {
-    const html = renderRichDigest(fullModel());
-    expect(html).toContain('<table><tr><th>Оружие</th><th>Фраги</th><th>Игрок</th></tr>');
     expect(html).toContain(
-      '<td><tg-emoji emoji-id="5267384313137108259">🔫</tg-emoji> Vandal</td><td>24</td><td><b>Alpha#AAA</b></td>',
+      '<img src="https://media.valorant-api.com/maps/7eaecc1b-4337-bbf6-6ab9-04b8f06b3319/splash.png">',
     );
-    expect(html).toContain(
-      '<td><tg-emoji emoji-id="5267421855446243759">🔫</tg-emoji> Phantom</td><td>18</td><td><b>Beta#BBB</b></td>',
-    );
+    // Cover sits between the h2 and the pulse line.
+    expect(html.indexOf('<img')).toBeGreaterThan(html.indexOf('</h2>'));
+    expect(html.indexOf('<img')).toBeLessThan(html.indexOf('📊 За неделю'));
   });
 
-  it('wraps the near-miss block in a collapsible <details><summary>💨 Почти рекорды</summary>', () => {
-    const html = renderRichDigest(fullModel());
-    expect(html).toContain('<details><summary>💨 Почти рекорды</summary>');
-    expect(html).toContain('</details>');
-    // The near-miss content is inside, with its newline converted.
-    expect(html).toContain('Был(ла) близко к рекорду по киллам</u><br><b>NearMisser#NM</b> — 29 фрагов');
+  it('omits the cover image entirely when the top map is unknown or absent', () => {
+    expect(renderRichDigest(fullModel({ coverMap: 'NotAMap' }))).not.toContain('<img');
+    expect(renderRichDigest(fullModel({ coverMap: null }))).not.toContain('<img');
   });
 
-  it('keeps the #digest footer', () => {
-    const html = renderRichDigest(fullModel());
-    expect(html.endsWith('#digest')).toBe(true);
-  });
-
-  it('renders the pulse line and most-active line', () => {
+  it('renders the pulse line', () => {
     const html = renderRichDigest(fullModel());
     expect(html).toContain('📊 За неделю мы сыграли <b>42</b> матчей');
-    expect(html).toContain('🏆 Больше всех матчей<br><b>Alpha#AAA</b> - 7 за неделю');
   });
 
-  it('converts every raw newline in bright blocks to <br> (no raw \\n anywhere)', () => {
+  it('renders each record as a <details> accordion with summary + blockquote context', () => {
+    const html = renderRichDigest(fullModel());
+    // Summary: emoji <b>title</b><br>renderPlayerName · value · matchLink
+    expect(html).toContain(
+      '<details><summary>💀 <b>Серийный маньяк</b><br>' +
+        '<tg-emoji emoji-id="5265219666799795636">💎</tg-emoji> <b>Killer#KLL</b> <tg-emoji emoji-id="5265124043647916479">🦸</tg-emoji>' +
+        ' · 38 фрагов · ' +
+        '<a href="https://tracker.gg/valorant/match/m-kills">матч <tg-emoji emoji-id="5267510877233387981">🗺️</tg-emoji></a>' +
+        '</summary><blockquote><i>рекорд по количеству фрагов за игру</i></blockquote></details>',
+    );
+  });
+
+  it('renders an aggregate record (Король MVP) with no match link, no agent, no rank', () => {
+    const html = renderRichDigest(fullModel());
+    expect(html).toContain(
+      '<details><summary>👑 <b>Король MVP за неделю</b><br><b>Chief#MVP</b> · 5 MVP-матчей' +
+        '</summary><blockquote><i>рекорд по количеству MVP-матчей за неделю</i></blockquote></details>',
+    );
+    // The aggregate record has no <a> link in its summary.
+    const mvpBlock = html.slice(html.indexOf('👑'), html.indexOf('</details>', html.indexOf('👑')));
+    expect(mvpBlock).not.toContain('<a href');
+  });
+
+  it('renders the winstreak card without <details> and without a match link', () => {
+    const html = renderRichDigest(fullModel());
+    expect(html).toContain('🏆 <b>Винстрик недели:</b><br><b>Alpha#AAA</b> · 12 побед подряд');
+    // The winstreak card is not wrapped in details.
+    const idx = html.indexOf('Винстрик недели');
+    const before = html.slice(0, idx);
+    // no <details><summary> immediately wrapping the winstreak text
+    expect(html).not.toContain('<summary>🏆 <b>Винстрик');
+  });
+
+  it('renders promotions as an <h3> + table Игрок | Ранг with rank emoji', () => {
+    const html = renderRichDigest(fullModel());
+    expect(html).toContain('<h3>🎖 Повышение по службе</h3>');
+    expect(html).toContain('<table><tr><th>Игрок</th><th>Ранг</th></tr>');
+    // Platinum 1 → 🐳 rank emoji id from rank-emoji.ts.
+    expect(html).toContain(
+      '<tr><td><b>Climber#UP</b></td><td><tg-emoji emoji-id="5264763678711913942">🐳</tg-emoji></td></tr>',
+    );
+  });
+
+  it('renders «Мастера своего дела» as a striped table with align=right frags', () => {
+    const html = renderRichDigest(fullModel());
+    expect(html).toContain('<h3>🔫 Мастера своего дела</h3>');
+    expect(html).toContain('<i>лидеры по убийствам одним оружием за матч</i>');
+    expect(html).toContain('<table striped><tr><th>Оружие</th><th>Фраги</th><th>Игрок</th></tr>');
+    expect(html).toContain(
+      '<td><tg-emoji emoji-id="5267384313137108259">🔫</tg-emoji> Vandal</td><td align="right">24</td><td><b>Alpha#AAA</b></td>',
+    );
+  });
+
+  it('renders near-miss as OPEN blocks (not details) with renderPlayerName and value', () => {
+    const html = renderRichDigest(fullModel());
+    expect(html).not.toContain('<details><summary>💨');
+    // emoji <u>header</u><br>renderPlayerName · value; agent from the match rides along.
+    expect(html).toContain(
+      '💀 <u>Был(ла) близко к рекорду по киллам</u><br><b>NearMisser#NM</b> <tg-emoji emoji-id="5267031954020145619">🦸</tg-emoji> · 29 фрагов',
+    );
+  });
+
+  it('renders the most-active line as a plain bold nick (aggregate, no icons)', () => {
+    const html = renderRichDigest(fullModel());
+    expect(html).toContain('🏆 <b>Больше всех матчей</b><br><b>Alpha#AAA</b> · 7 за неделю');
+  });
+
+  it('renders top-maps and top-agents tables with align=right counts', () => {
+    const html = renderRichDigest(fullModel());
+    expect(html).toContain('<h3>🗺 Чаще всего играли на</h3>');
+    expect(html).toContain('<table><tr><th>Карта</th><th>Матчей</th></tr>');
+    expect(html).toContain('<td><tg-emoji emoji-id="5267510877233387981">🗺️</tg-emoji> Ascent</td><td align="right">12</td>');
+    // Unknown map → no emoji prefix.
+    expect(html).toContain('<td>UnknownMap</td><td align="right">3</td>');
+    expect(html).toContain('<h3>🎭 Чаще всего пикали</h3>');
+    expect(html).toContain('<table><tr><th>Агент</th><th>Пиков</th></tr>');
+    expect(html).toContain('<td><tg-emoji emoji-id="5265124043647916479">🦸</tg-emoji> Jett</td><td align="right">15</td>');
+  });
+
+  it('ends with the <footer>#digest</footer>', () => {
+    const html = renderRichDigest(fullModel());
+    expect(html.endsWith('<footer>#digest</footer>')).toBe(true);
+  });
+
+  it('never emits a raw newline', () => {
     const html = renderRichDigest(fullModel());
     expect(html).not.toContain('\n');
-    // bright block newline became <br>
-    expect(html).toContain('🏆 <u>Винстрик недели:</u><br><b>Alpha#AAA</b> — 12 побед подряд');
   });
 
-  it('joins multiple bright blocks with a blank line (<br><br>)', () => {
-    const html = renderRichDigest(fullModel());
-    expect(html).toContain('12 побед подряд<br><br>💀 <u>Серийный маньяк</u>');
-  });
-
-  it('omits sections that are empty (no maps/agents/weapons/near-miss/most-active)', () => {
+  it('omits every optional section when empty (only title, pulse, footer remain)', () => {
     const html = renderRichDigest(
       fullModel({
-        brightBlocks: [],
+        coverMap: null,
+        records: [],
+        winstreaks: [],
+        promotions: [],
         weaponMasters: [],
-        nearMissBlocks: [],
+        nearMisses: [],
         topMaps: [],
         topAgents: [],
         mostActive: null,
@@ -121,16 +215,19 @@ describe('renderRichDigest', () => {
     );
     expect(html).not.toContain('<h3>');
     expect(html).not.toContain('<table>');
+    expect(html).not.toContain('<table striped>');
     expect(html).not.toContain('<details>');
+    expect(html).not.toContain('<img');
     expect(html).not.toContain('Больше всех матчей');
+    expect(html).not.toContain('Винстрик недели');
     // Still has the title, pulse, and footer.
     expect(html).toContain('<h2>📅 Дайджест за неделю');
     expect(html).toContain('📊 За неделю мы сыграли <b>42</b> матчей');
-    expect(html.endsWith('#digest')).toBe(true);
+    expect(html.endsWith('<footer>#digest</footer>')).toBe(true);
     expect(html).not.toContain('\n');
   });
 
-  it('escapes plain text in table cells (map/agent/weapon names) but keeps trusted player HTML', () => {
+  it('escapes plain text (map/agent/weapon/record names) but keeps trusted player HTML', () => {
     const html = renderRichDigest(
       fullModel({
         topMaps: [{ emojiHtml: '', map: 'A<b>X</b>', count: 1 }],
@@ -139,9 +236,7 @@ describe('renderRichDigest', () => {
         ],
       }),
     );
-    // map name escaped
-    expect(html).toContain('<td>A&lt;b&gt;X&lt;/b&gt;</td><td>1</td>');
-    // weapon name escaped, player html trusted (kept as-is)
-    expect(html).toContain('<td>🎯 W&amp;W</td><td>5</td><td><b>Safe#TAG</b></td>');
+    expect(html).toContain('<td>A&lt;b&gt;X&lt;/b&gt;</td><td align="right">1</td>');
+    expect(html).toContain('<td>🎯 W&amp;W</td><td align="right">5</td><td><b>Safe#TAG</b></td>');
   });
 });
