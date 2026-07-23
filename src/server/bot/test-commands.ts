@@ -78,6 +78,19 @@ export function parseDaysArg(text: string | undefined, fallback: number): number
 
 const HTML_OPTS = { parse_mode: 'HTML' as const, disable_web_page_preview: true };
 
+/**
+ * `/test_digest [N]` — owner-only preview of the PRODUCTION weekly digest.
+ * Since #315 the digest IS a rich message (there is no separate rich/non-rich
+ * split — the plain text exists only as a prod-side send fallback), so this
+ * sends `result.richHtml` — the exact same Rich Message HTML the Friday 19:00
+ * publish tick posts — to the owner's DM. The former `/test_rich_digest` was
+ * merged into this command (owner, 2026-07-23).
+ *
+ * On ANY error it replies with the error string — a preview must never fail
+ * silently. (Prod never depends on this catch: the publish tick has its own
+ * rich→legacy fallback.) The raw rich send is owner-DM-only: `chat_id` is
+ * `ctx.from.id`, verified by `isOwner()` — same risk-model as `sendExempt`.
+ */
 export function makeTestDigestHandler(deps: TestCommandsDeps): MiddlewareFn<Context> {
   return async (ctx: Context): Promise<void> => {
     const fromId = ctx.from?.id;
@@ -99,8 +112,8 @@ export function makeTestDigestHandler(deps: TestCommandsDeps): MiddlewareFn<Cont
       // sendExempt: destination is the owner's own DM, verified by isOwner() above.
       await sendExempt(deps.bot.api, fromId!, header, HTML_OPTS);
 
-      if (result.text) {
-        await sendExempt(deps.bot.api, fromId!, result.text, HTML_OPTS);
+      if (result.richHtml) {
+        await sendRichMessageHtml(deps.bot.api, fromId!, result.richHtml);
       } else {
         await sendExempt(
           deps.bot.api,
@@ -113,79 +126,6 @@ export function makeTestDigestHandler(deps: TestCommandsDeps): MiddlewareFn<Cont
       logger.error({ module: 'test_commands', cmd: 'test_digest', err }, 'Preview digest failed');
       try {
         await sendExempt(deps.bot.api, fromId!, `<i>Ошибка: ${(err as Error).message ?? 'unknown'}</i>`, HTML_OPTS);
-      } catch {
-        // swallow — already in error path
-      }
-    }
-  };
-}
-
-// ---------------------------------------------------------------------------
-// /test_rich_digest — preview the PRODUCTION rich weekly digest (#309)
-// ---------------------------------------------------------------------------
-
-/**
- * `/test_rich_digest [N]` — owner-only preview of the PRODUCTION rich weekly
- * digest (#309). Builds the weekly digest for the last N days (default 7, max
- * 30) and sends `result.richHtml` — the exact same Rich Message HTML the Friday
- * 19:00 publish tick posts — to the owner's DM via `sendRichMessage`.
- *
- * On empty window it replies like `/test_digest` does. On ANY API error it
- * catches and replies to the owner with the error string — a preview must
- * never fail silently. (Prod never depends on this catch: the publish tick has
- * its own rich→legacy fallback in two-phase.ts.)
- *
- * Why the raw-API call is owner-DM-only and safe: `chat_id` is `ctx.from.id`,
- * verified by `isOwner()` above, so the message lands in the owner's own DM.
- * `sendRichMessage` has no grammY-side allowlist guard (it isn't in the typed
- * Api), but the risk-model is identical to `sendExempt` — no path to leak
- * elsewhere.
- */
-export function makeTestRichDigestHandler(deps: TestCommandsDeps): MiddlewareFn<Context> {
-  return async (ctx: Context): Promise<void> => {
-    const fromId = ctx.from?.id;
-    if (!isOwner(fromId)) return; // silent ignore
-
-    const days = parseDaysArg(ctx.message?.text, DEFAULT_DIGEST_DAYS);
-    const weekEnd = Date.now();
-    const weekStart = weekEnd - days * 86400000;
-
-    logger.info(
-      { module: 'test_commands', cmd: 'test_rich_digest', owner_id: fromId, days },
-      'Building rich-message preview digest',
-    );
-
-    try {
-      const result = await buildDigest({ db: deps.db, weekStart, weekEnd });
-
-      if (!result.richHtml) {
-        // Same empty-window contract as /test_digest.
-        await sendExempt(
-          deps.bot.api,
-          fromId!,
-          '<i>(дайджест пустой — нет квалифицирующих событий за это окно)</i>',
-          HTML_OPTS,
-        );
-        return;
-      }
-
-      // sendRichMessage via grammY's raw-API proxy (typed wrapper). chat_id =
-      // owner id (isOwner-verified) → owner DM only.
-      await sendRichMessageHtml(deps.bot.api, fromId!, result.richHtml);
-    } catch (err) {
-      logger.error(
-        { module: 'test_commands', cmd: 'test_rich_digest', err },
-        'Rich-message preview digest failed',
-      );
-      // Never fail silently — surface the raw error string to the owner as plain
-      // text (a rich-message call may itself be what failed, so use sendExempt).
-      try {
-        await sendExempt(
-          deps.bot.api,
-          fromId!,
-          `<i>Ошибка sendRichMessage: ${(err as Error).message ?? 'unknown'}</i>`,
-          HTML_OPTS,
-        );
       } catch {
         // swallow — already in error path
       }
