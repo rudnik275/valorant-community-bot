@@ -27,8 +27,8 @@ Agents (≈26): `astra, breach, brimstone, chamber, clove, cypher, deadlock,
 fade, gekko, harbor, iso, jett, kayo, killjoy, neon, omen, phoenix, raze,
 reyna, sage, skye, sova, tejo, viper, vyse, waylay`
 
-Maps (12): `abyss, ascent, bind, breeze, corrode, fracture, haven, icebox,
-lotus, pearl, split, sunset`
+Maps (13): `abyss, ascent, bind, breeze, corrode, fracture, haven, icebox,
+lotus, pearl, split, summit, sunset`
 
 A missing slug (new agent/map not yet added) is non-fatal — `resolveAgentImage`
 / `resolveMapImage` return `null`, the prepare tick warns with the name and
