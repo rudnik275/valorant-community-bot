@@ -72,6 +72,14 @@ export interface RichTemplateContext {
   winnerTeamId?: string | null;
   /** community_clash only: per-team round scores for the "победа X:Y" line. */
   teamScores?: TeamScores;
+  /**
+   * giant_slayer only: puuid of the triggering player (the subject of the
+   * event). Used to render a prominent "who this is about" line under the
+   * title, so the message names the giant-slayer instead of leaving them
+   * anonymous among the 10 roster rows. Ignored for the other trio events
+   * (match_comeback = a whole team; community_clash = no single subject).
+   */
+  heroPuuid?: string;
 }
 
 /** Titles — emoji + verbatim heading text, bold per the approved format. */
@@ -110,6 +118,30 @@ function agentKd(row: FullRosterRow): string {
   const emoji = agentToEmojiHtml(row.agent);
   const kd = `${row.kills}/${row.deaths}`;
   return emoji ? `${emoji} ${esc(kd)}` : esc(kd);
+}
+
+/**
+ * giant_slayer "who this is about" line, rendered under the title so the
+ * message names the subject (the giant-slayer) instead of leaving them
+ * anonymous among the 10 roster rows. Returns '' when there's no `heroPuuid`
+ * or the hero isn't in the roster (⇒ no line, message still renders).
+ *
+ * Unlike the table rows, the agent emoji IS kept here (there's no second
+ * column to carry it) — mirroring the old plain giant_slayer template which
+ * led with the player's tag + agent.
+ */
+function heroLine(ctx: RichTemplateContext): string {
+  if (!ctx.heroPuuid) return '';
+  const hero = ctx.roster.find((r) => r.riot_puuid === ctx.heroPuuid);
+  if (!hero) return '';
+  const name = renderPlayerName({
+    name: hero.name ?? '',
+    tag: hero.tag ?? '',
+    isCommunity: hero.is_community,
+    ...(hero.tier ? { rank: hero.tier } : {}),
+    ...(hero.agent ? { agent: hero.agent } : {}),
+  });
+  return `<br>${name}`;
 }
 
 /** One participant row: `<tr><td>renderPlayerName</td><td>[emoji] K/D</td></tr>`. */
@@ -198,6 +230,11 @@ export function renderRichTemplate(
   const teams = groupByTeam(ctx.roster);
   if (teams.length < 2) return null; // need both fives for the table
 
+  // giant_slayer names its subject on a line under the title (#315 lost the
+  // "who" the old plain template had — the hero was just one of 10 table rows).
+  // The other trio events have no single subject, so no hero line for them.
+  const hero = eventType === 'giant_slayer' ? heroLine(ctx) : '';
+
   const summary = DETAILS_SUMMARY[eventType]!;
   const desc = describe(eventType, ctx);
   const details =
@@ -225,7 +262,7 @@ export function renderRichTemplate(
   const link = matchLinkLine(ctx);
   const linkPart = link ? link : '';
 
-  return `${title}${details}${table}${linkPart}`;
+  return `${title}${hero}${details}${table}${linkPart}`;
 }
 
 /**
@@ -241,7 +278,7 @@ export async function renderRichEvent(
   db: SqliteDb,
   eventType: EventType,
   payload: Record<string, unknown>,
-  match: { match_id?: string; map?: string },
+  match: { match_id?: string; map?: string; heroPuuid?: string },
 ): Promise<string | null> {
   if (!isTrioRichEvent(eventType)) return null;
   if (!match.match_id) return null;
@@ -252,6 +289,7 @@ export async function renderRichEvent(
     roster,
     ...(match.match_id ? { matchId: match.match_id } : {}),
     ...(match.map ? { map: match.map } : {}),
+    ...(match.heroPuuid ? { heroPuuid: match.heroPuuid } : {}),
   };
 
   if (eventType === 'community_clash') {
