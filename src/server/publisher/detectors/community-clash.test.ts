@@ -238,4 +238,41 @@ describe('communityClashDetector', () => {
     expect(events).toHaveLength(1);
     expect(events[0]!.payload['winner_team_id']).toBeNull();
   });
+
+  it('team_scores: mirrors the current player perspective onto both teams (#315)', async () => {
+    await seedUser(db, 'puuid-1', 'Player1', 'TAG1');
+    await seedUser(db, 'puuid-2', 'Player2', 'TAG2');
+    await seedRoster(db, 'match-001', 'puuid-1', 'Blue');
+    await seedRoster(db, 'match-001', 'puuid-2', 'Red');
+
+    // Current player (Blue) won 13:11 — Red is the mirror (11:13).
+    const record = makeRecord({
+      riot_puuid: 'puuid-1',
+      match_id: 'match-001',
+      result: 'win',
+      team_rounds_won: 13,
+      team_rounds_lost: 11,
+    });
+    const events = await communityClashDetector.detect(record, [], { db });
+
+    expect(events).toHaveLength(1);
+    const scores = events[0]!.payload['team_scores'] as Record<string, { won: number; lost: number }>;
+    expect(scores).toEqual({
+      Blue: { won: 13, lost: 11 },
+      Red: { won: 11, lost: 13 },
+    });
+  });
+
+  it('team_scores omitted when round counts are absent (older records) → rich falls back', async () => {
+    await seedUser(db, 'puuid-1', 'Player1', 'TAG1');
+    await seedUser(db, 'puuid-2', 'Player2', 'TAG2');
+    await seedRoster(db, 'match-001', 'puuid-1', 'Blue');
+    await seedRoster(db, 'match-001', 'puuid-2', 'Red');
+
+    const record = makeRecord({ riot_puuid: 'puuid-1', match_id: 'match-001', result: 'win' });
+    const events = await communityClashDetector.detect(record, [], { db });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.payload['team_scores']).toBeUndefined();
+  });
 });

@@ -19,6 +19,7 @@ import {
   hasEventSince,
   hasMatchEvent,
   getCommunityRoster,
+  getFullRoster,
   getExistingMatchIdsForPuuid,
   getRegionForPuuid,
   getUserNameTag,
@@ -163,6 +164,60 @@ describe('db/queries', () => {
     it('filters by team when provided', async () => {
       const rows = await getCommunityRoster(db, 'm1', 'Blue');
       expect(rows.map((r) => r.riot_puuid)).toEqual(['p1']);
+    });
+  });
+
+  describe('getFullRoster', () => {
+    beforeEach(async () => {
+      await db.insert(users).values([
+        { telegram_id: 1, riot_puuid: 'p1', riot_name: 'Alice', riot_tag: 'AAA' },
+        { telegram_id: 2, riot_puuid: 'p2', riot_name: 'Bob', riot_tag: 'BBB' },
+      ]);
+      await db.insert(matchRosters).values([
+        { match_id: 'm1', riot_puuid: 'p1', team: 'Blue', name: 'AliceStale', tag: 'OLD', agent: 'Jett', tier: 'Diamond 2', kills: 21, deaths: 14 },
+        { match_id: 'm1', riot_puuid: 'p2', team: 'Red', name: 'BobStale', tag: 'OLD', agent: 'Sova', tier: 'Diamond 1', kills: 18, deaths: 12 },
+        { match_id: 'm1', riot_puuid: 'stranger', team: 'Blue', name: 'Foe', tag: 'ENE', agent: 'Omen', tier: 'Platinum 3', kills: 10, deaths: 16 },
+      ]);
+    });
+
+    it('returns ALL participants (community + opponents) via left join', async () => {
+      const rows = await getFullRoster(db, 'm1');
+      expect(rows.map((r) => r.riot_puuid).sort()).toEqual(['p1', 'p2', 'stranger']);
+    });
+
+    it('flags community vs non-community correctly', async () => {
+      const rows = await getFullRoster(db, 'm1');
+      expect(rows.find((r) => r.riot_puuid === 'p1')!.is_community).toBe(true);
+      expect(rows.find((r) => r.riot_puuid === 'stranger')!.is_community).toBe(false);
+    });
+
+    it('prefers the fresher users name/tag for community, roster snapshot for opponents', async () => {
+      const rows = await getFullRoster(db, 'm1');
+      const alice = rows.find((r) => r.riot_puuid === 'p1')!;
+      expect(alice.name).toBe('Alice'); // users value, not the stale roster snapshot
+      expect(alice.tag).toBe('AAA');
+      const foe = rows.find((r) => r.riot_puuid === 'stranger')!;
+      expect(foe.name).toBe('Foe'); // roster snapshot (no users row)
+      expect(foe.tag).toBe('ENE');
+    });
+
+    it('carries tier/kills/deaths/agent per participant', async () => {
+      const rows = await getFullRoster(db, 'm1');
+      const alice = rows.find((r) => r.riot_puuid === 'p1')!;
+      expect(alice).toMatchObject({ team: 'Blue', agent: 'Jett', tier: 'Diamond 2', kills: 21, deaths: 14 });
+    });
+
+    it('returns null stats for pre-#315 rows (back-compat)', async () => {
+      await db.insert(matchRosters).values({ match_id: 'm2', riot_puuid: 'p1', team: 'Blue' });
+      const rows = await getFullRoster(db, 'm2');
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.tier).toBeNull();
+      expect(rows[0]!.kills).toBeNull();
+      expect(rows[0]!.deaths).toBeNull();
+    });
+
+    it('returns [] for a match with no roster rows', async () => {
+      expect(await getFullRoster(db, 'no-such-match')).toEqual([]);
     });
   });
 

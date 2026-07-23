@@ -181,6 +181,12 @@ if (process.env['SCANNER_DISABLED'] !== 'true') {
           text,
           opts as Parameters<typeof bot.api.sendMessage>[2],
         ),
+        // Rich Message send (#315): the three "trio" realtime events
+        // (giant_slayer / match_comeback / community_clash) post as full-roster
+        // rich tables, falling back to the legacy plain template on any error.
+        // Destination is TELEGRAM_PRIMARY_CHAT_ID (the already-authorised group)
+        // — same exempt risk-model as the weekly digest's rich send.
+        sendRichMessage: (chatId, html) => sendRichMessageHtml(bot!.api, chatId, html),
         getPrimaryChatId: () => primaryChatId,
       });
       // Weekly promo image (#227): the photo reply on the digest message.

@@ -527,4 +527,151 @@ describe('startPublisherLoop', () => {
       expect(sendMessage).not.toHaveBeenCalled();
     });
   });
+
+  // ── #315 "trio" rich path (giant_slayer / match_comeback / community_clash) ──
+  describe('rich full-roster events', () => {
+    const MATCH = 'match-trio';
+
+    /** Seed a match_record for the community player (drives map/agent lookup). */
+    function seedMatchRecord(puuid: string, map: string) {
+      sqlite.prepare(
+        `INSERT INTO match_records
+           (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result,
+            rounds_played, fall_damage_kills, kill_events_compact)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(puuid, MATCH, 1_000, map, 'Jett', 20, 10, 5, 'win', 24, 0, '[]');
+    }
+
+    /** Seed a full 10-player roster with tier/kills/deaths (complete for rich). */
+    function seedFullRoster(complete: boolean) {
+      const rows = [
+        ['a1', 'Blue', 'Alice', 'AAA', 'Jett'],
+        ['a2', 'Blue', 'Bob', 'BBB', 'Sova'],
+        ['a3', 'Blue', 'C', 'CCC', 'Omen'],
+        ['a4', 'Blue', 'D', 'DDD', 'Sage'],
+        ['a5', 'Blue', 'E', 'EEE', 'Reyna'],
+        ['b1', 'Red', 'F', 'FFF', 'Jett'],
+        ['b2', 'Red', 'G', 'GGG', 'Sova'],
+        ['b3', 'Red', 'H', 'HHH', 'Omen'],
+        ['b4', 'Red', 'I', 'III', 'Sage'],
+        ['b5', 'Red', 'J', 'JJJ', 'Reyna'],
+      ];
+      for (const [puuid, team, name, tag, agent] of rows) {
+        sqlite.prepare(
+          `INSERT INTO match_rosters (match_id, riot_puuid, team, name, tag, agent, tier, kills, deaths)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).run(
+          MATCH, puuid, team, name, tag, agent,
+          complete ? 'Diamond 2' : null,
+          complete ? 20 : null,
+          complete ? 14 : null,
+        );
+      }
+    }
+
+    function makeRichLoop(sendRichMessage: ReturnType<typeof vi.fn>) {
+      return startPublisherLoop({
+        db,
+        sendMessage,
+        sendRichMessage,
+        getNowKyiv: () => ({ ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 }),
+        getPrimaryChatId: () => -1001234567890,
+        intervalCron: '* * * * * *',
+      });
+    }
+
+    it('posts a trio event via the rich path when the roster is complete', async () => {
+      seedUser(sqlite, 1, 'a1'); // Alice is the community trigger
+      seedMatchRecord('a1', 'Ascent');
+      seedFullRoster(true);
+      const id = seedPendingEvent(sqlite, {
+        puuid: 'a1', eventType: 'community_clash', matchId: MATCH,
+        payload: { winner_team_id: 'Blue', team_scores: { Blue: { won: 13, lost: 11 }, Red: { won: 11, lost: 13 } } },
+      });
+
+      const sendRich = vi.fn().mockResolvedValue({ message_id: 99 });
+      const stop = makeRichLoop(sendRich);
+      await runOneTick(stop);
+
+      // Rich send used; plain send NOT used.
+      expect(sendRich).toHaveBeenCalledTimes(1);
+      const richHtml = sendRich.mock.calls[0]![1] as string;
+      expect(richHtml).toContain('<table>');
+      expect(richHtml).toContain('⚔️ <b>Френдлифаер</b>');
+      expect(richHtml).toContain('победа 13:11');
+      expect(sendMessage).not.toHaveBeenCalled();
+      expect(getEventStatus(sqlite, id)).toBe('posted');
+    });
+
+    it('falls back to the legacy plain template when the rich send throws', async () => {
+      seedUser(sqlite, 1, 'a1');
+      seedMatchRecord('a1', 'Ascent');
+      seedFullRoster(true);
+      const id = seedPendingEvent(sqlite, {
+        puuid: 'a1', eventType: 'community_clash', matchId: MATCH,
+        payload: { winner_team_id: 'Blue', team_scores: { Blue: { won: 13, lost: 11 }, Red: { won: 11, lost: 13 } } },
+      });
+
+      const sendRich = vi.fn().mockRejectedValue(new Error('rich API down'));
+      const stop = makeRichLoop(sendRich);
+      await runOneTick(stop);
+
+      // Rich attempted, then plain fallback fired and the event still posted.
+      expect(sendRich).toHaveBeenCalled();
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      expect(sendMessage.mock.calls[0]![1]).toContain('Френдлифаер');
+      expect(getEventStatus(sqlite, id)).toBe('posted');
+    });
+
+    it('falls back to plain when the roster is incomplete (rich renders null)', async () => {
+      seedUser(sqlite, 1, 'a1');
+      seedMatchRecord('a1', 'Ascent');
+      seedFullRoster(false); // tier/kills/deaths null → rich returns null
+      const id = seedPendingEvent(sqlite, {
+        puuid: 'a1', eventType: 'community_clash', matchId: MATCH,
+        payload: { winner_team_id: 'Blue' },
+      });
+
+      const sendRich = vi.fn().mockResolvedValue({ message_id: 99 });
+      const stop = makeRichLoop(sendRich);
+      await runOneTick(stop);
+
+      // Rich never sent (null html); plain path used.
+      expect(sendRich).not.toHaveBeenCalled();
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      expect(getEventStatus(sqlite, id)).toBe('posted');
+    });
+
+    it('uses the plain path (no rich) for non-trio realtime events', async () => {
+      seedUser(sqlite, 1, 'a1');
+      const id = seedPendingEvent(sqlite, { puuid: 'a1', eventType: 'teamkill', matchId: MATCH, payload: {} });
+
+      const sendRich = vi.fn().mockResolvedValue({ message_id: 99 });
+      const stop = makeRichLoop(sendRich);
+      await runOneTick(stop);
+
+      expect(sendRich).not.toHaveBeenCalled();
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      expect(getEventStatus(sqlite, id)).toBe('posted');
+    });
+
+    it('falls back to plain when no sendRichMessage dep is wired', async () => {
+      seedUser(sqlite, 1, 'a1');
+      seedMatchRecord('a1', 'Ascent');
+      seedFullRoster(true);
+      const id = seedPendingEvent(sqlite, {
+        puuid: 'a1', eventType: 'community_clash', matchId: MATCH,
+        payload: { winner_team_id: 'Blue' },
+      });
+
+      // makeLoop wires NO sendRichMessage.
+      const { stop } = makeLoop(db, sendMessage, {
+        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
+      });
+      await runOneTick(stop);
+
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      expect(getEventStatus(sqlite, id)).toBe('posted');
+    });
+  });
 });
