@@ -78,24 +78,26 @@ export interface MatchLinkOptions {
 }
 
 /**
- * Render a match link for inline prose: `<a href="URL">матч [map-emoji]</a>`.
- * Unknown/absent map ⇒ just `<a href="URL">матч</a>`.
+ * Render a match link — THE one format for every place the bot links a match
+ * (owner rule, 2026-07-23): `<a href="URL">[map-emoji] MapName</a>` — the map
+ * emoji + space + map name ARE the link; the word «матч» appears nowhere.
+ * Map known but not in the emoji pack ⇒ name-only link. Map absent/unknown ⇒
+ * last-resort fallback `<a href="URL">матч</a>` (a link can't be empty).
  */
 export function matchLink(opts: MatchLinkOptions): string {
   const { url, mapName } = opts;
   const mapEmoji = mapToEmojiHtml(mapName ?? undefined);
-  const label = mapEmoji ? `матч ${mapEmoji}` : 'матч';
+  const label = mapName
+    ? `${mapEmoji ? `${mapEmoji} ` : ''}${esc(mapName)}`
+    : 'матч';
   return `<a href="${esc(url)}">${label}</a>`;
 }
 
 /**
- * Render a match link for table cells: icon-only, `<a href="URL">[map-emoji]</a>`.
- * Unknown/absent map ⇒ falls back to the word link, `<a href="URL">матч</a>`
- * (a table cell can't be a bare "" link).
+ * @deprecated Alias of `matchLink` — the owner unified the match-link format
+ * (map emoji + map name) for prose and table cells alike. Kept so existing
+ * call sites keep compiling; new code should call `matchLink` directly.
  */
 export function matchLinkIcon(opts: MatchLinkOptions): string {
-  const { url, mapName } = opts;
-  const mapEmoji = mapToEmojiHtml(mapName ?? undefined);
-  const label = mapEmoji || 'матч';
-  return `<a href="${esc(url)}">${label}</a>`;
+  return matchLink(opts);
 }

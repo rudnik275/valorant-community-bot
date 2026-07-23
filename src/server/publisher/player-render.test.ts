@@ -125,16 +125,16 @@ describe('renderPlayerName', () => {
 });
 
 describe('matchLink', () => {
-  it('renders "матч [map-emoji]" when map is known', () => {
+  it('renders "[map-emoji] MapName" as the link when map is known', () => {
     const output = matchLink({ url: 'https://tracker.gg/valorant/match/abc123', mapName: 'Breeze' });
     expect(output).toBe(
-      `<a href="https://tracker.gg/valorant/match/abc123">матч ${mapToEmojiHtml('Breeze')}</a>`,
+      `<a href="https://tracker.gg/valorant/match/abc123">${mapToEmojiHtml('Breeze')} Breeze</a>`,
     );
   });
 
-  it('falls back to just "матч" when map is unknown', () => {
+  it('renders name-only link when map is not in the emoji pack', () => {
     const output = matchLink({ url: 'https://tracker.gg/valorant/match/abc123', mapName: 'Bogus Map' });
-    expect(output).toBe('<a href="https://tracker.gg/valorant/match/abc123">матч</a>');
+    expect(output).toBe('<a href="https://tracker.gg/valorant/match/abc123">Bogus Map</a>');
   });
 
   it('falls back to just "матч" when map is absent', () => {
@@ -149,17 +149,17 @@ describe('matchLink', () => {
   });
 });
 
-describe('matchLinkIcon', () => {
-  it('renders icon-only link when map is known', () => {
+describe('matchLinkIcon (deprecated alias of matchLink)', () => {
+  it('renders identically to matchLink when map is known', () => {
     const output = matchLinkIcon({ url: 'https://tracker.gg/valorant/match/abc123', mapName: 'Ascent' });
     expect(output).toBe(
-      `<a href="https://tracker.gg/valorant/match/abc123">${mapToEmojiHtml('Ascent')}</a>`,
+      `<a href="https://tracker.gg/valorant/match/abc123">${mapToEmojiHtml('Ascent')} Ascent</a>`,
     );
   });
 
-  it('falls back to the word "матч" when map is unknown', () => {
+  it('renders name-only link when map is not in the emoji pack', () => {
     const output = matchLinkIcon({ url: 'https://tracker.gg/valorant/match/abc123', mapName: 'Bogus Map' });
-    expect(output).toBe('<a href="https://tracker.gg/valorant/match/abc123">матч</a>');
+    expect(output).toBe('<a href="https://tracker.gg/valorant/match/abc123">Bogus Map</a>');
   });
 
   it('falls back to the word "матч" when map is absent', () => {
