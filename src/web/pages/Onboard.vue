@@ -6,6 +6,12 @@
       Введи своё Riot имя и тег — бот найдёт твой аккаунт и начнёт отслеживать матчи.
     </p>
 
+    <!--
+      `maxlength` is deliberately looser than the real 16/5 limits: it counts
+      UTF-16 units, so decomposed input (mobile keyboards emit `ё` as two units)
+      would be silently truncated mid-typing. OnboardBodySchema normalizes to NFC
+      and then enforces the real limit with a message the user can act on.
+    -->
     <form v-if="!success" class="card onboard-form" @submit.prevent="onSubmit">
       <div class="riot-id-row">
         <input
@@ -13,7 +19,7 @@
           class="input-glass riot-name"
           type="text"
           placeholder="Riot Name"
-          maxlength="16"
+          maxlength="32"
           :disabled="loading"
           autocomplete="off"
           autocorrect="off"
@@ -27,7 +33,7 @@
           class="input-glass riot-tag"
           type="text"
           placeholder="1234"
-          maxlength="5"
+          maxlength="10"
           :disabled="loading"
           autocomplete="off"
           autocorrect="off"
@@ -95,16 +101,26 @@ const linkedName = ref('');
 const linkedTag = ref('');
 const linkedRegion = ref('');
 
-const FIELD_MESSAGES: Record<string, string> = {
-  name: 'Введи Riot Name',
-  tag: 'Введи тег',
-};
-
+/**
+ * Map a Zod issue to Russian copy.
+ *
+ * Deliberately keyed on the *length* codes only, with every other code falling
+ * through to the format message: Zod renames its format codes between versions
+ * (`invalid_string` → `invalid_format`), and the old `=== 'invalid_string'`
+ * check would have started silently showing the wrong message on a bump.
+ */
 function getValidationMessage(issues: { path: (string | number)[]; code: string }[]): string {
   for (const issue of issues) {
     const field = String(issue.path[0] ?? '');
-    if (field === 'tag' && issue.code === 'invalid_string') return 'Тег — только буквы и цифры';
-    if (FIELD_MESSAGES[field]) return FIELD_MESSAGES[field];
+    if (field === 'name') {
+      if (issue.code === 'too_big') return 'Riot Name — не больше 16 символов';
+      return 'Введи Riot Name';
+    }
+    if (field === 'tag') {
+      if (issue.code === 'too_small') return 'Введи тег';
+      if (issue.code === 'too_big') return 'Тег — не больше 5 символов';
+      return 'Тег — буквы и цифры, без пробелов и #';
+    }
   }
   return 'Заполни все поля.';
 }
@@ -129,7 +145,8 @@ async function onSubmit() {
   apiError.value = null;
   apiErrorCode.value = null;
 
-  const parsed = OnboardBodySchema.safeParse({ name: name.value.trim(), tag: tag.value.trim() });
+  // Raw values — the schema owns trimming/normalization so client and server sanitize identically.
+  const parsed = OnboardBodySchema.safeParse({ name: name.value, tag: tag.value });
   if (!parsed.success) {
     validationError.value = getValidationMessage(parsed.error.issues);
     return;

@@ -105,6 +105,58 @@ describe('Onboard.vue', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('submits a Cyrillic Riot ID instead of rejecting it', async () => {
+    fetchMock.mockResolvedValue(makeOkResponse({
+      status: 'ok',
+      riot_name: 'Любовница Омена',
+      riot_tag: 'тётя',
+      riot_region: 'eu',
+    }));
+
+    const wrapper = mountOnboard();
+    await wrapper.find('[data-testid="input-name"]').setValue('Любовница Омена');
+    await wrapper.find('[data-testid="input-tag"]').setValue('тётя');
+    await wrapper.find('form').trigger('submit');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-testid="validation-error"]').exists()).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({
+      name: 'Любовница Омена',
+      tag: 'тётя',
+    });
+  });
+
+  it('sends decomposed keyboard input to the API in NFC form', async () => {
+    fetchMock.mockResolvedValue(makeOkResponse({
+      status: 'ok',
+      riot_name: 'Player',
+      riot_tag: 'тётя',
+      riot_region: 'eu',
+    }));
+
+    const wrapper = mountOnboard();
+    await wrapper.find('[data-testid="input-name"]').setValue('Player');
+    await wrapper.find('[data-testid="input-tag"]').setValue('тётя'.normalize('NFD'));
+    await wrapper.find('form').trigger('submit');
+    await wrapper.vm.$nextTick();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body).tag).toBe('тётя');
+  });
+
+  it('reports the tag length limit separately from the format rule', async () => {
+    const wrapper = mountOnboard();
+
+    await wrapper.find('[data-testid="input-name"]').setValue('Player');
+    await wrapper.find('[data-testid="input-tag"]').setValue('EU1234');
+    await wrapper.find('form').trigger('submit');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-testid="validation-error"]').text()).toContain('не больше 5');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   // ── Happy path ───────────────────────────────────────────────────────────────
 
   it('shows success message after a successful API call', async () => {
