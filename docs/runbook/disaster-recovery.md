@@ -15,7 +15,7 @@ Everything in this checklist must be ready **before** a disaster occurs. Verify 
 |------|-----------------|----------------------|
 | SSH key pair | Stored as file on local NAS / machine | `op://valorant-bot/vps-ssh-key` in 1Password |
 | Cloudflare tunnel creds.json | Local file from when `cloudflared tunnel create` was run | `op://valorant-bot/cf-tunnel/creds-json` in 1Password |
-| Hetzner S3 credentials (access key + secret) | Plaintext in local `.env` copy | `op://valorant-bot/hetzner-s3/access-key` and `.../secret-key` in 1Password |
+| Hetzner S3 credentials (access key + secret) | Plaintext in local `.env` copy | `op://SlotRanker/hetzner-s3-backups/access_key` and `.../secret_key` in 1Password — see the warning below |
 | Telegram bot token | Plaintext placeholder in local `.env` copy | `op://valorant-bot/telegram-bot/token` in 1Password |
 | Henrik API key (if applicable) | Plaintext placeholder in local `.env` copy | `op://valorant-bot/henrik-api/key` in 1Password |
 | GitHub repository | `github.com/rudnik275/valorant-community-bot` is accessible | Same |
@@ -23,6 +23,19 @@ Everything in this checklist must be ready **before** a disaster occurs. Verify 
 | Cloudflare account | Active, domain configured | Same |
 
 > **Phase 4 note:** Rotate all secrets from plaintext files to 1Password as part of issue #21 (`secrets-rotation.md`). Until then, the operator must have a plaintext `.env` copy in a safe offline location (encrypted disk, NAS, etc.).
+
+> ⚠️ **There are TWO Hetzner S3 items in the `SlotRanker` vault, and picking the
+> wrong one fails silently.** Since 2026-08-03:
+>
+> | item | bucket | this bot |
+> |---|---|---|
+> | `hetzner-s3-backups` | `slotrankerbackups` (fsn1) | ✅ this is the one — Litestream writes under `valorant-bot/` |
+> | `hetzner-s3` | `slotranker-files` (hel1) | ❌ different bucket, unrelated app |
+>
+> `hetzner-s3-backups` is the OLDER credential: it was renamed, and its former
+> name `hetzner-s3` was then reused for an unrelated bucket. A stale reference
+> therefore still *resolves* — it just yields a key with no access here, which
+> surfaces as `AccessDenied` on replication rather than as a deploy failure.
 
 ---
 
