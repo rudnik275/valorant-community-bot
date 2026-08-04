@@ -99,6 +99,10 @@ export interface RichWeaponMaster {
   weapon: string;
   /** Frag count. */
   value: number;
+  /** Tracker URL of the match the record was set in. null ⇒ link omitted. */
+  matchUrl?: string | null;
+  /** Map of that match (drives the link label). */
+  mapName?: string | null;
   /**
    * Player display, as a TRUSTED HTML fragment (already `<b>…</b>`-wrapped and
    * `esc()`-escaped by build.ts). Rendered verbatim into the line.
@@ -116,22 +120,32 @@ export interface RichNearMiss {
   player: RichPlayerRef;
   /** Value + unit line (e.g. "29 фрагов"). Escaped at render. */
   value: string;
+  /** Tracker URL of the match it happened in. null ⇒ link omitted. */
+  matchUrl?: string | null;
+  /** Map of that match (drives the link label). */
+  mapName?: string | null;
 }
 
-/**
- * One map row. No per-entry pack icon — the board already has a 🗺 header line
- * and a podium marker per row; a third glyph made the line unreadable.
- */
+/** One map row: pack icon PLUS the name (owner, 2026-08-04). */
 export interface RichTopMap {
+  /** Custom-emoji HTML for the map, or '' when the pack has no icon. */
+  emojiHtml: string;
   /** Map name (escaped at render). */
   map: string;
   /** Match count. */
   count: number;
 }
 
-/** One agent row. Same no-per-entry-icon rule as {@link RichTopMap}. */
+/**
+ * One agent row. The pack icon REPLACES the name (owner, 2026-08-04) — agent
+ * portraits are recognisable enough on their own and it keeps a ~28-row board
+ * narrow. Agents missing from the pack (newer releases) fall back to the name,
+ * so a row is never blank.
+ */
 export interface RichTopAgent {
-  /** Agent name (escaped at render). */
+  /** Custom-emoji HTML for the agent, or '' when the pack has no icon. */
+  emojiHtml: string;
+  /** Agent name (escaped at render; also the fallback label). */
   agent: string;
   /** Pick count. */
   count: number;
@@ -379,11 +393,15 @@ function buildBlocks(model: RichDigestModel): Block[] {
 
   // 5. Мастера своего дела — one line per weapon (was a 3-column table).
   if (model.weaponMasters.length > 0) {
-    const lines = model.weaponMasters.map(
-      (w) =>
+    const lines = model.weaponMasters.map((w) => {
+      const link = w.matchUrl
+        ? ` · ${matchLink({ url: w.matchUrl, mapName: w.mapName ?? null })}`
+        : '';
+      return (
         `${w.weaponEmojiHtml ? `${w.weaponEmojiHtml} ` : ''}${esc(w.weapon)}` +
-        ` · ${w.value} — ${w.playerHtml}`,
-    );
+        ` · ${w.value} — ${w.playerHtml}${link}`
+      );
+    });
     push(
       '🔫 <b>Мастера своего дела</b>',
       '<i>лидеры по убийствам одним оружием за матч</i>',
@@ -410,7 +428,10 @@ function buildBlocks(model: RichDigestModel): Block[] {
       isCommunity: true,
       agent: nm.player.agent ?? null,
     });
-    push(`${nm.emoji} <u>${esc(nm.header)}</u>`, `${nick} · ${esc(nm.value)}`);
+    const nmLink = nm.matchUrl
+      ? ` · ${matchLink({ url: nm.matchUrl, mapName: nm.mapName ?? null })}`
+      : '';
+    push(`${nm.emoji} <u>${esc(nm.header)}</u>`, `${nick} · ${esc(nm.value)}${nmLink}`);
   }
 
   // 8. Больше всех матчей.
@@ -425,10 +446,14 @@ function buildBlocks(model: RichDigestModel): Block[] {
   // folded into a `<details>` (owner: «топ3 показывать, остальное в
   // аккордеон»). A real week is ~7 maps and ~28 agents, so the podium carries
   // the signal and the one-pick tail would otherwise be ~25 lines of noise.
+  // Maps show icon + name; agents show the icon alone.
   const mapsBlock = leaderboardBlock(
     '🗺',
     'Карты недели',
-    model.topMaps.map((m) => ({ labelHtml: esc(m.map), count: m.count })),
+    model.topMaps.map((m) => ({
+      labelHtml: `${m.emojiHtml ? `${m.emojiHtml} ` : ''}${esc(m.map)}`,
+      count: m.count,
+    })),
     { after: PODIUM, summary: (n) => `ещё ${n} ${pluralRu(n, 'карта', 'карты', 'карт')}` },
   );
   if (mapsBlock) blocks.push(mapsBlock);
@@ -436,7 +461,9 @@ function buildBlocks(model: RichDigestModel): Block[] {
   const agentsBlock = leaderboardBlock(
     '🎭',
     'Агенты недели',
-    model.topAgents.map((a) => ({ labelHtml: esc(a.agent), count: a.count })),
+    // Icon INSTEAD of the name; agents the pack doesn't cover keep their name
+    // so the row never renders blank.
+    model.topAgents.map((a) => ({ labelHtml: a.emojiHtml || esc(a.agent), count: a.count })),
     { after: PODIUM, summary: (n) => `ещё ${n} ${pluralRu(n, 'агент', 'агента', 'агентов')}` },
   );
   if (agentsBlock) blocks.push(agentsBlock);

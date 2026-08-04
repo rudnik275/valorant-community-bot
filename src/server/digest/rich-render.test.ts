@@ -61,10 +61,12 @@ function fullModel(overrides: Partial<RichDigestModel> = {}): RichDigestModel {
     ],
     mostActive: { nameHtml: '<b>Alpha#AAA</b>', count: 7 },
     topMaps: [
-      { map: 'Ascent', count: 12 },
-      { map: 'UnknownMap', count: 3 },
+      { emojiHtml: '<tg-emoji emoji-id="5267510877233387981">🗺️</tg-emoji>', map: 'Ascent', count: 12 },
+      { emojiHtml: '', map: 'UnknownMap', count: 3 },
     ],
-    topAgents: [{ agent: 'Jett', count: 15 }],
+    topAgents: [
+      { emojiHtml: '<tg-emoji emoji-id="5265124043647916479">🦸</tg-emoji>', agent: 'Jett', count: 15 },
+    ],
     ...overrides,
   };
 }
@@ -220,21 +222,37 @@ describe('renderDigest — former table sections as flat lines', () => {
     expect(html).toContain('🎖 <b>Повышения по службе</b>');
   });
 
-  it('renders maps and agents as full leaderboard boards, same shape as ace/knife', () => {
+  it('renders maps as icon + name, agents as the icon alone', () => {
     const { html } = renderDigest(fullModel());
-    expect(html).toContain('🗺 <b>Карты недели</b><br>🥇 Ascent — 12<br>🥈 UnknownMap — 3');
-    expect(html).toContain('🎭 <b>Агенты недели</b><br>🥇 Jett — 15');
+    expect(html).toContain(
+      '🗺 <b>Карты недели</b><br>🥇 <tg-emoji emoji-id="5267510877233387981">🗺️</tg-emoji> Ascent — 12<br>🥈 UnknownMap — 3',
+    );
+    // Agent icon REPLACES the name.
+    expect(html).toContain('🎭 <b>Агенты недели</b><br>🥇 <tg-emoji emoji-id="5265124043647916479">🦸</tg-emoji> — 15');
+    expect(html).not.toContain('🦸</tg-emoji> Jett');
+  });
+
+  it('falls back to the agent name when the pack has no icon for it', () => {
+    // Newer agents (Waylay, Tejo, Veto…) are not in the pack — the row must
+    // still say something rather than render blank.
+    const { html } = renderDigest(fullModel({ topAgents: [{ emojiHtml: '', agent: 'Waylay', count: 1 }] }));
+    expect(html).toContain('🥇 Waylay — 1');
+  });
+
+  it('keeps the map name when the pack has no icon for that map', () => {
+    const { html } = renderDigest(fullModel({ topMaps: [{ emojiHtml: '', map: 'District', count: 2 }] }));
+    expect(html).toContain('🥇 District — 2');
   });
 
   it('shows every entry, not a top-3 slice, with a bullet past the podium', () => {
     const { html } = renderDigest(
       fullModel({
         topMaps: [
-          { map: 'A', count: 5 },
-          { map: 'B', count: 4 },
-          { map: 'C', count: 3 },
-          { map: 'D', count: 2 },
-          { map: 'E', count: 1 },
+          { emojiHtml: '', map: 'A', count: 5 },
+          { emojiHtml: '', map: 'B', count: 4 },
+          { emojiHtml: '', map: 'C', count: 3 },
+          { emojiHtml: '', map: 'D', count: 2 },
+          { emojiHtml: '', map: 'E', count: 1 },
         ],
       }),
     );
@@ -243,15 +261,48 @@ describe('renderDigest — former table sections as flat lines', () => {
     expect(html).toContain('• E — 1');
   });
 
-  it('carries no per-entry pack icon on the map/agent rows', () => {
+  it('links the match on weapon-master rows — a per-match record', () => {
+    const { html } = renderDigest(
+      fullModel({
+        weaponMasters: [{
+          weaponEmojiHtml: '🔫',
+          weapon: 'Sheriff',
+          value: 22,
+          playerHtml: '<b>Sniper#SNP</b>',
+          matchUrl: 'https://tracker.gg/valorant/match/w-1',
+          mapName: 'Bind',
+        }],
+      }),
+    );
+    expect(html).toContain('🔫 Sheriff · 22 — <b>Sniper#SNP</b> · <a href="https://tracker.gg/valorant/match/w-1"');
+  });
+
+  it('links the match on a near-miss too', () => {
+    const { html } = renderDigest(
+      fullModel({
+        nearMisses: [{
+          emoji: '💀',
+          header: 'Был(ла) близко к рекорду по киллам',
+          player: { name: 'NearMisser', tag: 'NM', agent: 'Sova' },
+          value: '29 фрагов',
+          matchUrl: 'https://tracker.gg/valorant/match/nm-1',
+          mapName: 'Lotus',
+        }],
+      }),
+    );
+    expect(html).toContain('29 фрагов · <a href="https://tracker.gg/valorant/match/nm-1"');
+  });
+
+  it('omits the link when a row has no match attached', () => {
     const { html } = renderDigest(fullModel());
-    expect(html).not.toContain('🥇 <tg-emoji');
+    // Default fixtures carry no matchUrl on weapons / near-miss.
+    expect(html).toContain('Vandal · 24 — <b>Alpha#AAA</b><br>');
   });
 });
 
 describe('renderDigest — collapsed map/agent tail', () => {
   const maps = (n: number) =>
-    Array.from({ length: n }, (_, i) => ({ map: `M${i + 1}`, count: n - i }));
+    Array.from({ length: n }, (_, i) => ({ emojiHtml: '', map: `M${i + 1}`, count: n - i }));
 
   it('keeps the podium visible and folds the rest into a <details>', () => {
     const { html } = renderDigest(fullModel({ topMaps: maps(7) }));
@@ -302,7 +353,7 @@ describe('renderDigest — collapsed map/agent tail', () => {
   it('collapses agents with their own noun', () => {
     const { html } = renderDigest(
       fullModel({
-        topAgents: Array.from({ length: 28 }, (_, i) => ({ agent: `A${i + 1}`, count: 28 - i })),
+        topAgents: Array.from({ length: 28 }, (_, i) => ({ emojiHtml: '', agent: `A${i + 1}`, count: 28 - i })),
       }),
     );
     expect(html).toContain('<summary>ещё 25 агентов</summary>');

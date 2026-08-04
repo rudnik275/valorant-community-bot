@@ -33,7 +33,7 @@ import { computeAndEmitWeeklyMvpRecord } from './weekly-mvp-record.ts';
 import { NEAR_MISS_THRESHOLDS } from './near-miss-config.ts';
 import type { TemplateUser, TemplateMatch } from '../publisher/templates.ts';
 import { renderPlayerName } from '../publisher/player-render.ts';
-import { weaponToEmojiHtml } from '../publisher/valorant-emoji.ts';
+import { agentToEmojiHtml, mapToEmojiHtml, weaponToEmojiHtml } from '../publisher/valorant-emoji.ts';
 import type { EventType } from '../publisher/types.ts';
 import { buildAceKnifeStandings } from './ace-knife.ts';
 import {
@@ -280,9 +280,11 @@ async function renderNearMisses(
         max_value: sql<number>`MAX(${expr})`.as('max_value'),
         riot_puuid: matchRecords.riot_puuid,
         match_id: matchRecords.match_id,
-        // SQLite returns the bare columns from the MAX() row, so `agent` is the
-        // agent of the near-miss match — drives the agent emoji next to the nick (#301).
+        // SQLite returns the bare columns from the MAX() row, so `agent`/`map`
+        // belong to the near-miss match — they drive the agent emoji next to
+        // the nick (#301) and the match link (owner, 2026-08-04).
         agent: matchRecords.agent,
+        map: matchRecords.map,
       })
       .from(matchRecords)
       .where(and(gte(matchRecords.started_at, weekStart), lt(matchRecords.started_at, weekEnd)))
@@ -316,6 +318,9 @@ async function renderNearMisses(
         agent: row.agent ?? null,
       },
       value: `${weekMax} ${cfg.unit}`,
+      // A near-miss is a single match too — link it like a real record does.
+      matchUrl: row.match_id ? `https://tracker.gg/valorant/match/${String(row.match_id)}` : null,
+      mapName: row.map ?? null,
     });
   }
 
@@ -723,6 +728,11 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
           weaponEmojiHtml: weaponToEmojiHtml(weapon) || '🎯',
           weapon,
           value: Number(e.payload['value'] ?? 0),
+          // Per-match record ⇒ link the match it happened in (owner,
+          // 2026-08-04). `richMatchId` is already the REAL match id here —
+          // record_kills_per_weapon dedups on a synthetic `<match>#kpw-<w>`.
+          matchUrl: e.richMatchId ? `https://tracker.gg/valorant/match/${e.richMatchId}` : null,
+          mapName: e.match?.map ?? null,
           // Canonical nick render (#315 rule 1). Weapon-table rows carry no
           // rank/agent per the approved layout ⇒ plain bold Ник#Тег.
           playerHtml: renderPlayerName({
@@ -824,7 +834,11 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
 
     if (maps.length > 0) {
       for (const m of maps as Array<{ map: string; cnt: number }>) {
-        richTopMaps.push({ map: String(m.map), count: Number(m.cnt) });
+        richTopMaps.push({
+          emojiHtml: mapToEmojiHtml(String(m.map)),
+          map: String(m.map),
+          count: Number(m.cnt),
+        });
       }
       sectionsIncluded.push('topMaps');
     }
@@ -846,7 +860,11 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
 
     if (agents.length > 0) {
       for (const a of agents as Array<{ agent: string; cnt: number }>) {
-        richTopAgents.push({ agent: String(a.agent), count: Number(a.cnt) });
+        richTopAgents.push({
+          emojiHtml: agentToEmojiHtml(String(a.agent)),
+          agent: String(a.agent),
+          count: Number(a.cnt),
+        });
       }
       sectionsIncluded.push('topAgents');
     }
