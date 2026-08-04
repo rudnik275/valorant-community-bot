@@ -225,10 +225,10 @@ describe('renderDigest — former table sections as flat lines', () => {
   it('renders maps as icon + name, agents as the icon alone', () => {
     const { html } = renderDigest(fullModel());
     expect(html).toContain(
-      '🗺 <b>Карты недели</b><br>🥇 <tg-emoji emoji-id="5267510877233387981">🗺️</tg-emoji> Ascent — 12<br>🥈 UnknownMap — 3',
+      '🗺 <b>Карты недели</b><br><br>🥇 <tg-emoji emoji-id="5267510877233387981">🗺️</tg-emoji> Ascent — 12<br>🥈 UnknownMap — 3',
     );
     // Agent icon REPLACES the name.
-    expect(html).toContain('🎭 <b>Агенты недели</b><br>🥇 <tg-emoji emoji-id="5265124043647916479">🦸</tg-emoji> — 15');
+    expect(html).toContain('🎭 <b>Агенты недели</b><br><br>🥇 <tg-emoji emoji-id="5265124043647916479">🦸</tg-emoji> — 15');
     expect(html).not.toContain('🦸</tg-emoji> Jett');
   });
 
@@ -296,7 +296,7 @@ describe('renderDigest — former table sections as flat lines', () => {
   it('omits the link when a row has no match attached', () => {
     const { html } = renderDigest(fullModel());
     // Default fixtures carry no matchUrl on weapons / near-miss.
-    expect(html).toContain('Vandal · 24 — <b>Alpha#AAA</b><br>');
+    expect(html).toContain('Vandal · 24 — <b>Alpha#AAA</b>');
   });
 });
 
@@ -306,7 +306,7 @@ describe('renderDigest — collapsed map/agent tail', () => {
 
   it('keeps the podium visible and folds the rest into a <details>', () => {
     const { html } = renderDigest(fullModel({ topMaps: maps(7) }));
-    expect(html).toContain('🗺 <b>Карты недели</b><br>🥇 M1 — 7<br>🥈 M2 — 6<br>🥉 M3 — 5');
+    expect(html).toContain('🗺 <b>Карты недели</b><br><br>🥇 M1 — 7<br>🥈 M2 — 6<br>🥉 M3 — 5');
     expect(html).toContain('<details><summary>ещё 4 карты</summary>• M4 — 4<br>• M5 — 3<br>• M6 — 2<br>• M7 — 1</details>');
   });
 
@@ -375,7 +375,7 @@ describe('renderDigest — collapsed map/agent tail', () => {
         aces: Array.from({ length: 8 }, (_, i) => ({ name: `P${i + 1}`, tag: 'T', count: 8 - i })),
       }),
     );
-    expect(html).toContain('🎯 <b>Эйсы недели</b><br>🥇 <b>P1#T</b> — 8<br>🥈 <b>P2#T</b> — 7<br>🥉 <b>P3#T</b> — 6');
+    expect(html).toContain('🎯 <b>Эйсы недели</b><br><br>🥇 <b>P1#T</b> — 8<br>🥈 <b>P2#T</b> — 7<br>🥉 <b>P3#T</b> — 6');
     expect(html).toContain('<summary>ещё 5 игроков</summary>');
     expect(html).toContain('• <b>P8#T</b> — 1');
   });
@@ -404,6 +404,47 @@ describe('renderDigest — collapsed map/agent tail', () => {
     const aceIdx = html.indexOf('🎯 <b>Эйсы недели</b>');
     const knifeIdx = html.indexOf('🔪 <b>Ножи недели</b>');
     expect(html.slice(aceIdx, knifeIdx)).not.toContain('<details>');
+  });
+});
+
+describe('renderDigest — section spacing', () => {
+  it('puts a blank line between a header and its body', () => {
+    const { html } = renderDigest(fullModel());
+    expect(html).toContain('🎯 <b>Эйсы недели</b><br><br>🥇');
+    expect(html).toContain('🏆 <b>Больше всех матчей</b><br><br>');
+  });
+
+  it('puts the blank line AFTER the description, keeping it with the header', () => {
+    const { html } = renderDigest(fullModel());
+    expect(html).toContain(
+      '🔫 <b>Мастера своего дела</b><br><i>лидеры по убийствам одним оружием за матч</i><br><br>',
+    );
+    // …and NOT between the header and its description.
+    expect(html).not.toContain('🔫 <b>Мастера своего дела</b><br><br><i>');
+  });
+
+  it('does not stack a blank line on top of an accordion — <details> brings its own', () => {
+    const { html } = renderDigest(
+      fullModel({ topMaps: Array.from({ length: 7 }, (_, i) => ({ emojiHtml: '', map: `M${i}`, count: 7 - i })) }),
+    );
+    expect(html).toContain('</details>');
+    expect(html).not.toContain('</details><br><br>');
+  });
+
+  it('still separates two plain sections with a blank line', () => {
+    const { html } = renderDigest(fullModel({ aces: [], knives: [], topMaps: [], topAgents: [] }));
+    expect(html).toContain('матчей<br><br>');
+  });
+
+  it('the pulse line is standalone — no blank line glued under it', () => {
+    const { html } = renderDigest(fullModel());
+    expect(html).not.toContain('матчей<br><br><br>');
+  });
+
+  it('the text twin mirrors the spacing with real newlines', () => {
+    const { text } = renderDigest(fullModel());
+    expect(text).toContain('🎯 <b>Эйсы недели</b>\n\n🥇');
+    expect(text).toContain('<i>лидеры по убийствам одним оружием за матч</i>\n\n');
   });
 });
 
@@ -441,7 +482,7 @@ describe('renderDigest — the text twin', () => {
     const { text } = renderDigest(fullModel());
     expect(text).toContain('📅 <b>Дайджест за неделю · 27 апреля 2025 г.</b>');
     expect(text).toContain('📊 За неделю мы сыграли <b>42</b> матчей');
-    expect(text).toContain('🎯 <b>Эйсы недели</b>\n🥇 <b>Killer#KLL</b> — 4');
+    expect(text).toContain('🎯 <b>Эйсы недели</b>\n\n🥇 <b>Killer#KLL</b> — 4');
     expect(text).toContain('🔪 <b>Ножи недели</b>');
     expect(text).toContain('🔫 <b>Мастера своего дела</b>');
     expect(text).toMatch(/#digest$/);
