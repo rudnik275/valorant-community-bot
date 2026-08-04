@@ -358,6 +358,13 @@ function standingsRows(standings: AceKnifeStanding[]): Array<{ labelHtml: string
  * renderings — the html/text split happens only at join time.
  */
 function buildBlocks(model: RichDigestModel): Block[] {
+  // Section order is owner-specified (2026-08-04):
+  //   пульс → больше всех матчей → винстрик → рекорды → почти рекорды →
+  //   повышения → мастера своего дела → эйсы → ножи → карты → агенты
+  // «Больше всех матчей» leads because it reads straight off the pulse line
+  // («сыграли 478» → «больше всех — Госпожа, 68»); the two aggregate boards
+  // close the post. Reordering means moving whole blocks here — nothing else
+  // depends on the sequence, and `section-order` in the tests locks it.
   const blocks: Block[] = [];
 
   /** Push a header-then-body section (blank line inserted between). */
@@ -368,7 +375,28 @@ function buildBlocks(model: RichDigestModel): Block[] {
   // 1. Pulse line — a standalone line, no body, so no blank after it.
   blocks.push({ lines: [`📊 За неделю мы сыграли <b>${model.totalMatches}</b> матчей`] });
 
-  // 2. Records — two flat lines each: title, then `ник · значение · ссылка`.
+  // 2. Больше всех матчей.
+  if (model.mostActive) {
+    push(
+      '🏆 <b>Больше всех матчей</b>',
+      `${model.mostActive.nameHtml} · ${model.mostActive.count} за неделю`,
+    );
+  }
+
+  // 3. Винстрик недели.
+  if (model.winstreaks.length > 0) {
+    const lines = model.winstreaks
+      .slice()
+      .sort((a, b) => b.streak - a.streak)
+      .map(
+        (w) =>
+          `${renderPlayerName({ name: w.name, tag: w.tag, isCommunity: true })}` +
+          ` · ${w.streak} побед подряд`,
+      );
+    push('🏆 <b>Винстрик недели</b>', ...lines);
+  }
+
+  // 4. Records — two flat lines each: title, then `ник · значение · ссылка`.
   for (const r of model.records) {
     const nick = renderPlayerName({
       name: r.player.name,
@@ -384,28 +412,32 @@ function buildBlocks(model: RichDigestModel): Block[] {
     push(`${r.emoji} <b>${esc(r.title)}</b>`, parts.join(' · '));
   }
 
-  // 3. Ace / knife leaderboards — the former daily digest, now plain counts.
-  // Same podium-plus-accordion treatment as maps/agents: on a busy week these
-  // reach a dozen players and the tail is everyone with a single ace.
-  const aceBlock = leaderboardBlock('🎯', 'Эйсы недели', standingsRows(model.aces), PLAYER_TAIL);
-  if (aceBlock) blocks.push(aceBlock);
-  const knifeBlock = leaderboardBlock('🔪', 'Ножи недели', standingsRows(model.knives), PLAYER_TAIL);
-  if (knifeBlock) blocks.push(knifeBlock);
-
-  // 4. Винстрик недели.
-  if (model.winstreaks.length > 0) {
-    const lines = model.winstreaks
-      .slice()
-      .sort((a, b) => b.streak - a.streak)
-      .map(
-        (w) =>
-          `${renderPlayerName({ name: w.name, tag: w.tag, isCommunity: true })}` +
-          ` · ${w.streak} побед подряд`,
-      );
-    push('🏆 <b>Винстрик недели</b>', ...lines);
+  // 5. Почти рекорды.
+  for (const nm of model.nearMisses) {
+    const nick = renderPlayerName({
+      name: nm.player.name,
+      tag: nm.player.tag,
+      isCommunity: true,
+      agent: nm.player.agent ?? null,
+    });
+    const nmLink = nm.matchUrl
+      ? ` · ${matchLink({ url: nm.matchUrl, mapName: nm.mapName ?? null })}`
+      : '';
+    push(`${nm.emoji} <u>${esc(nm.header)}</u>`, `${nick} · ${esc(nm.value)}${nmLink}`);
   }
 
-  // 5. Мастера своего дела — one line per weapon (was a 3-column table).
+  // 6. Повышение по службе — one line per player (was a table).
+  if (model.promotions.length > 0) {
+    const lines = model.promotions.map((p) => {
+      const nick = renderPlayerName({ name: p.name, tag: p.tag, isCommunity: true });
+      const rankEmoji = rankToEmojiHtml(p.rank);
+      return `${nick} → ${rankEmoji || esc(p.rank)}`;
+    });
+    const header = model.promotions.length === 1 ? 'Повышение по службе' : 'Повышения по службе';
+    push(`🎖 <b>${header}</b>`, ...lines);
+  }
+
+  // 7. Мастера своего дела — one line per weapon (was a 3-column table).
   if (model.weaponMasters.length > 0) {
     const lines = model.weaponMasters.map((w) => {
       const link = w.matchUrl
@@ -425,38 +457,13 @@ function buildBlocks(model: RichDigestModel): Block[] {
     );
   }
 
-  // 6. Повышение по службе — one line per player (was a table).
-  if (model.promotions.length > 0) {
-    const lines = model.promotions.map((p) => {
-      const nick = renderPlayerName({ name: p.name, tag: p.tag, isCommunity: true });
-      const rankEmoji = rankToEmojiHtml(p.rank);
-      return `${nick} → ${rankEmoji || esc(p.rank)}`;
-    });
-    const header = model.promotions.length === 1 ? 'Повышение по службе' : 'Повышения по службе';
-    push(`🎖 <b>${header}</b>`, ...lines);
-  }
-
-  // 7. Почти рекорды.
-  for (const nm of model.nearMisses) {
-    const nick = renderPlayerName({
-      name: nm.player.name,
-      tag: nm.player.tag,
-      isCommunity: true,
-      agent: nm.player.agent ?? null,
-    });
-    const nmLink = nm.matchUrl
-      ? ` · ${matchLink({ url: nm.matchUrl, mapName: nm.mapName ?? null })}`
-      : '';
-    push(`${nm.emoji} <u>${esc(nm.header)}</u>`, `${nick} · ${esc(nm.value)}${nmLink}`);
-  }
-
-  // 8. Больше всех матчей.
-  if (model.mostActive) {
-    push(
-      '🏆 <b>Больше всех матчей</b>',
-      `${model.mostActive.nameHtml} · ${model.mostActive.count} за неделю`,
-    );
-  }
+  // 8. Ace / knife leaderboards — the former daily digest, now plain counts.
+  // Same podium-plus-accordion treatment as maps/agents: on a busy week these
+  // reach a dozen players and the tail is everyone with a single ace.
+  const aceBlock = leaderboardBlock('🎯', 'Эйсы недели', standingsRows(model.aces), PLAYER_TAIL);
+  if (aceBlock) blocks.push(aceBlock);
+  const knifeBlock = leaderboardBlock('🔪', 'Ножи недели', standingsRows(model.knives), PLAYER_TAIL);
+  if (knifeBlock) blocks.push(knifeBlock);
 
   // 9. Карты и агенты — full boards in the ace/knife shape, but with the tail
   // folded into a `<details>` (owner: «топ3 показывать, остальное в

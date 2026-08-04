@@ -407,6 +407,46 @@ describe('renderDigest — collapsed map/agent tail', () => {
   });
 });
 
+describe('renderDigest — section order', () => {
+  it('follows the owner-specified sequence', () => {
+    const { html } = renderDigest(fullModel());
+    const order = [
+      'мы сыграли',                    // пульс
+      'Больше всех матчей',
+      'Винстрик недели',
+      'Серийный маньяк',               // рекорды
+      'Был(ла) близко к рекорду',      // почти рекорды
+      'Повышение по службе',
+      'Мастера своего дела',
+      'Эйсы недели',
+      'Ножи недели',
+      'Карты недели',
+      'Агенты недели',
+      '#digest',
+    ];
+    const positions = order.map((marker) => {
+      const at = html.indexOf(marker);
+      expect(at, `section "${marker}" must be present`).toBeGreaterThan(-1);
+      return at;
+    });
+    // Strictly increasing ⇒ the rendered order matches the list above.
+    for (let i = 1; i < positions.length; i++) {
+      expect(
+        positions[i]!,
+        `"${order[i]}" must come after "${order[i - 1]}"`,
+      ).toBeGreaterThan(positions[i - 1]!);
+    }
+  });
+
+  it('keeps the order stable when optional sections drop out', () => {
+    const { html } = renderDigest(fullModel({ winstreaks: [], promotions: [], nearMisses: [] }));
+    const seq = ['Больше всех матчей', 'Серийный маньяк', 'Мастера своего дела', 'Эйсы недели', 'Карты недели'];
+    const pos = seq.map((m) => html.indexOf(m));
+    expect(pos.every((p) => p > -1)).toBe(true);
+    expect([...pos].sort((a, b) => a - b)).toEqual(pos);
+  });
+});
+
 describe('renderDigest — section spacing', () => {
   it('puts a blank line between a header and its body', () => {
     const { html } = renderDigest(fullModel());
