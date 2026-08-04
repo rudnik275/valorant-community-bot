@@ -71,3 +71,20 @@ weekly digest as plain per-player leaderboards — «кто сколько эй�
   in one round count as 2 — the old daily post deduped them to one row).
 
 See `src/server/digest/ace-knife.ts`.
+
+## 2026-08-04 (позже в тот же день) — 🐴 Троянский конь / ⚓ Якорь наконец видимы
+
+Не относится к определению эйса, но обнаружено при чистке `templates.ts`.
+
+`record_died_first_rounds` (#281) и `record_survived_last_rounds` детектировались
+и обновляли `all_time_records`, но **никогда не показывались**: обоих не было ни
+в `BRIGHT_EVENT_WEIGHTS`, ни в `RICH_RECORD_META` в `digest/build.ts`. На проде
+накопилось 30 таких событий (все `silent`) при рекордах 14 и 12. При этом
+near-miss-строка «чуть не стал троянским конём» сработать могла — то есть чат мог
+сообщить о почти-рекорде, которого никто никогда не видел.
+
+Починено: оба добавлены как обычные bright-рекорды. Заодно исправлено
+расхождение в неймингах — событие `record_died_first_rounds` ведёт запись с
+`record_type = 'died_first_rounds_match'` (лишний суффикс `_match`), поэтому
+`alreadyBeaten` считался неверно и near-miss не подавлялся. Теперь маппинг явный
+(`RECORD_TYPE_OVERRIDES`).

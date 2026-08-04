@@ -269,7 +269,7 @@ describe('buildDigest', () => {
   });
 
   describe('top maps section', () => {
-    it('renders top 3 maps by match count', async () => {
+    it('renders EVERY map played, desc by match count (no top-3 cut)', async () => {
       seedUser(sqlite, 1, 'p1');
       seedUser(sqlite, 2, 'p2');
 
@@ -290,8 +290,13 @@ describe('buildDigest', () => {
       expect(result.text).toContain('Ascent');
       expect(result.text).toContain('Bind');
       expect(result.text).toContain('Haven');
-      // Pearl is 4th — should NOT appear (only top 3)
-      expect(result.text).not.toContain('Pearl');
+      // Owner asked for «топ всех карт» — the 4th map appears too.
+      expect(result.text).toContain('Pearl');
+      // Podium order, then a bullet for the tail.
+      expect(result.text).toContain('🥇 Ascent — 4');
+      expect(result.text).toContain('🥈 Bind — 3');
+      expect(result.text).toContain('🥉 Haven — 2');
+      expect(result.text).toContain('• Pearl — 1');
     });
 
     it('renders top maps with count annotations', async () => {
@@ -301,8 +306,8 @@ describe('buildDigest', () => {
       }
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
-      // Flat inline form: «🗺 <emoji> Ascent 3» — the old «(3×)» annotation is gone.
-      expect(result.text).toContain('Ascent 3');
+      expect(result.text).toContain('🗺 <b>Карты недели</b>');
+      expect(result.text).toContain('🥇 Ascent — 3');
     });
   });
 
@@ -1091,6 +1096,60 @@ describe('buildDigest', () => {
     });
   });
 
+  describe('Троянский конь / Якорь — records that used to be detected but never shown', () => {
+    it('renders record_died_first_rounds as a normal bright record', async () => {
+      seedUser(sqlite, 99, 'p-holder', { riotName: 'Holder', riotTag: 'HLD' });
+      seedAllTimeRecord(sqlite, { recordType: 'died_first_rounds_match', value: 3, puuid: 'p-holder' });
+      seedUser(sqlite, 1, 'p1', { riotName: 'Horse', riotTag: 'TRJ' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'tk-m', startedAt: IN_WINDOW, map: 'Bind', agent: 'Sova' });
+      seedEvent(sqlite, {
+        puuid: 'p1', matchId: 'tk-m', eventType: 'record_died_first_rounds',
+        payload: { value: 6 }, detectedAt: IN_WINDOW,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).toContain('record_died_first_rounds');
+      expect(result.richHtml!).toContain('🐴 <b>Троянский конь</b>');
+      expect(result.richHtml!).toContain('6 первых смертей');
+      expect(result.richHtml!).toContain('<b>Horse#TRJ</b>');
+    });
+
+    it('renders record_survived_last_rounds as ⚓ Якорь', async () => {
+      seedUser(sqlite, 99, 'p-holder', { riotName: 'Holder', riotTag: 'HLD' });
+      seedAllTimeRecord(sqlite, { recordType: 'survived_last_rounds_match', value: 3, puuid: 'p-holder' });
+      seedUser(sqlite, 1, 'p1', { riotName: 'Anchor', riotTag: 'ANC' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'an-m', startedAt: IN_WINDOW, map: 'Lotus' });
+      seedEvent(sqlite, {
+        puuid: 'p1', matchId: 'an-m', eventType: 'record_survived_last_rounds',
+        payload: { value: 7 }, detectedAt: IN_WINDOW,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).toContain('record_survived_last_rounds');
+      expect(result.richHtml!).toContain('⚓ <b>Якорь</b>');
+      expect(result.richHtml!).toContain('7 последних смертей');
+    });
+
+    it('suppresses the near-miss line when the Троянский конь record itself fired', async () => {
+      // Regression guard: the event is `record_died_first_rounds` but the
+      // all_time_records key is `died_first_rounds_match`. A naive prefix strip
+      // would not match, and the digest would print both the record AND
+      // «чуть не стал троянским конём недели».
+      seedUser(sqlite, 99, 'p-holder', { riotName: 'Holder', riotTag: 'HLD' });
+      seedAllTimeRecord(sqlite, { recordType: 'died_first_rounds_match', value: 3, puuid: 'p-holder' });
+      seedUser(sqlite, 1, 'p1', { riotName: 'Horse', riotTag: 'TRJ' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'tk-m', startedAt: IN_WINDOW, diedFirstRounds: 6 });
+      seedEvent(sqlite, {
+        puuid: 'p1', matchId: 'tk-m', eventType: 'record_died_first_rounds',
+        payload: { value: 6 }, detectedAt: IN_WINDOW,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.richHtml!).toContain('🐴 <b>Троянский конь</b>');
+      expect(result.richHtml!).not.toContain('Чуть не стал(а) троянским конём недели');
+    });
+  });
+
   describe('richHtml rendering (#315)', () => {
     it('richHtml is null exactly when text is null (empty week)', async () => {
       seedUser(sqlite, 1, 'p1');
@@ -1126,15 +1185,15 @@ describe('buildDigest', () => {
       expect(result.richHtml!).not.toContain('<img');
     });
 
-    it('renders top-maps and top-agents as inline flat lines (no tables)', async () => {
+    it('renders maps and agents as full leaderboard blocks (no tables, no top-3)', async () => {
       seedUser(sqlite, 1, 'p1');
       for (let i = 0; i < 4; i++) seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW + i * 1000, map: 'Ascent', agent: 'Jett' });
       for (let i = 0; i < 2; i++) seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW + (i + 10) * 1000, map: 'Bind', agent: 'Sage' });
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       const html = result.richHtml!;
-      expect(html).toContain('🗺 Ascent 4 · Bind 2');
-      expect(html).toContain('🎭 Jett 4 · Sage 2');
+      expect(html).toContain('🗺 <b>Карты недели</b><br>🥇 Ascent — 4<br>🥈 Bind — 2');
+      expect(html).toContain('🎭 <b>Агенты недели</b><br>🥇 Jett — 4<br>🥈 Sage — 2');
       expect(html).not.toContain('<table');
       expect(html).not.toContain('align="right"');
     });

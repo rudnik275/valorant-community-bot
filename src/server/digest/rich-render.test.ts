@@ -220,18 +220,32 @@ describe('renderDigest — former table sections as flat lines', () => {
     expect(html).toContain('🎖 <b>Повышения по службе</b>');
   });
 
-  it('collapses top maps and top agents into one inline line each', () => {
+  it('renders maps and agents as full leaderboard boards, same shape as ace/knife', () => {
     const { html } = renderDigest(fullModel());
-    expect(html).toContain('🗺 Ascent 12 · UnknownMap 3');
-    expect(html).toContain('🎭 Jett 15');
+    expect(html).toContain('🗺 <b>Карты недели</b><br>🥇 Ascent — 12<br>🥈 UnknownMap — 3');
+    expect(html).toContain('🎭 <b>Агенты недели</b><br>🥇 Jett — 15');
   });
 
-  it('does not repeat a per-entry icon on the maps/agents recap lines', () => {
-    // The leading 🗺 / 🎭 labels the row; per-entry pack icons here rendered as
-    // a doubled emoji, so they are dropped on these two lines only.
+  it('shows every entry, not a top-3 slice, with a bullet past the podium', () => {
+    const { html } = renderDigest(
+      fullModel({
+        topMaps: [
+          { map: 'A', count: 5 },
+          { map: 'B', count: 4 },
+          { map: 'C', count: 3 },
+          { map: 'D', count: 2 },
+          { map: 'E', count: 1 },
+        ],
+      }),
+    );
+    expect(html).toContain('🥉 C — 3');
+    expect(html).toContain('• D — 2');
+    expect(html).toContain('• E — 1');
+  });
+
+  it('carries no per-entry pack icon on the map/agent rows', () => {
     const { html } = renderDigest(fullModel());
-    expect(html).not.toContain('🗺 <tg-emoji');
-    expect(html).not.toContain('🎭 <tg-emoji');
+    expect(html).not.toContain('🥇 <tg-emoji');
   });
 });
 

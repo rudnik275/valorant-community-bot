@@ -119,8 +119,8 @@ export interface RichNearMiss {
 }
 
 /**
- * One top-map row. No per-entry pack icon: the recap line is prefixed with a
- * single 🗺 and repeating a map icon per entry read as a doubled emoji.
+ * One map row. No per-entry pack icon — the board already has a 🗺 header line
+ * and a podium marker per row; a third glyph made the line unreadable.
  */
 export interface RichTopMap {
   /** Map name (escaped at render). */
@@ -129,7 +129,7 @@ export interface RichTopMap {
   count: number;
 }
 
-/** One top-agent row. Same no-per-entry-icon rule as {@link RichTopMap}. */
+/** One agent row. Same no-per-entry-icon rule as {@link RichTopMap}. */
 export interface RichTopAgent {
   /** Agent name (escaped at render). */
   agent: string;
@@ -174,9 +174,16 @@ export interface RichDigestModel {
    * build.ts) — rendered verbatim; do NOT re-escape.
    */
   mostActive: { nameHtml: string; count: number } | null;
-  /** Top maps (already limited to 3, sorted desc). Empty ⇒ omitted. */
+  /**
+   * EVERY map played this window, sorted desc by match count (owner asked for
+   * «топ всех карт», not a top-3). Empty ⇒ section omitted.
+   */
   topMaps: RichTopMap[];
-  /** Top agents (already limited to 3, sorted desc). Empty ⇒ omitted. */
+  /**
+   * EVERY agent picked this window, sorted desc. Note this is naturally long —
+   * a real week sees ~28 distinct agents with a long 1-2 pick tail.
+   * Empty ⇒ section omitted.
+   */
   topAgents: RichTopAgent[];
 }
 
@@ -245,23 +252,30 @@ const MEDALS = ['🥇', '🥈', '🥉'];
 type Block = string[];
 
 /**
- * Render one ace/knife leaderboard block, or null when the board is empty.
- * Line shape: `🥇 <b>Ник#Тег</b> — 4`. Aces and knives render identically —
- * the «заколол баранчика» / «распотрошил гуся» (AFK victim) split is retired
- * (owner, 2026-08-04): a knife kill is a knife kill.
+ * ONE board shape for every ranked list in the digest — aces, knives, maps,
+ * agents. Header line, then `<медаль|•> подпись — N` per row, desc-sorted by
+ * the caller.
+ *
+ * `labelHtml` is a TRUSTED fragment (a rendered nick, or an already-escaped
+ * name) and goes in verbatim. Returns null for an empty board so the caller
+ * can drop the section entirely.
  */
-function standingsBlock(
+function leaderboardBlock(
   emoji: string,
   title: string,
-  standings: AceKnifeStanding[],
+  rows: Array<{ labelHtml: string; count: number }>,
 ): Block | null {
-  if (standings.length === 0) return null;
-  const lines = standings.map((s, i) => {
-    const marker = MEDALS[i] ?? '•';
-    const nick = renderPlayerName({ name: s.name, tag: s.tag, isCommunity: true });
-    return `${marker} ${nick} — ${s.count}`;
-  });
+  if (rows.length === 0) return null;
+  const lines = rows.map((r, i) => `${MEDALS[i] ?? '•'} ${r.labelHtml} — ${r.count}`);
   return [`${emoji} <b>${title}</b>`, ...lines];
+}
+
+/** Ace/knife board rows: the label is the player's rendered nick. */
+function standingsRows(standings: AceKnifeStanding[]): Array<{ labelHtml: string; count: number }> {
+  return standings.map((s) => ({
+    labelHtml: renderPlayerName({ name: s.name, tag: s.tag, isCommunity: true }),
+    count: s.count,
+  }));
 }
 
 /**
@@ -291,9 +305,9 @@ function buildBlocks(model: RichDigestModel): Block[] {
   }
 
   // 3. Ace / knife leaderboards — the former daily digest, now plain counts.
-  const aceBlock = standingsBlock('🎯', 'Эйсы недели', model.aces);
+  const aceBlock = leaderboardBlock('🎯', 'Эйсы недели', standingsRows(model.aces));
   if (aceBlock) blocks.push(aceBlock);
-  const knifeBlock = standingsBlock('🔪', 'Ножи недели', model.knives);
+  const knifeBlock = leaderboardBlock('🔪', 'Ножи недели', standingsRows(model.knives));
   if (knifeBlock) blocks.push(knifeBlock);
 
   // 4. Винстрик недели.
@@ -353,21 +367,23 @@ function buildBlocks(model: RichDigestModel): Block[] {
     ]);
   }
 
-  // 9. Карты и агенты — one inline line each instead of two tables.
-  //
-  // The per-entry custom map/agent icons are deliberately NOT used here. A
-  // leading 🗺 / 🎭 already labels the row, and repeating an icon per entry
-  // read as a doubled emoji («🗺 🗺️ Ascent 14 · 🗺️ Bind 10»). The pack icons
-  // still ride along everywhere they carry information — next to nicks, ranks,
-  // agents, weapons and match links.
-  if (model.topMaps.length > 0) {
-    const inline = model.topMaps.map((m) => `${esc(m.map)} ${m.count}`).join(' · ');
-    blocks.push([`🗺 ${inline}`]);
-  }
-  if (model.topAgents.length > 0) {
-    const inline = model.topAgents.map((a) => `${esc(a.agent)} ${a.count}`).join(' · ');
-    blocks.push([`🎭 ${inline}`]);
-  }
+  // 9. Карты и агенты — full boards in the same shape as the ace/knife ones
+  // (owner: «как с ножами, топ всех карт и всех агентов»), not a top-3 inline
+  // line. No per-entry pack icon: the header line plus the podium marker are
+  // already two glyphs.
+  const mapsBlock = leaderboardBlock(
+    '🗺',
+    'Карты недели',
+    model.topMaps.map((m) => ({ labelHtml: esc(m.map), count: m.count })),
+  );
+  if (mapsBlock) blocks.push(mapsBlock);
+
+  const agentsBlock = leaderboardBlock(
+    '🎭',
+    'Агенты недели',
+    model.topAgents.map((a) => ({ labelHtml: esc(a.agent), count: a.count })),
+  );
+  if (agentsBlock) blocks.push(agentsBlock);
 
   return blocks;
 }
