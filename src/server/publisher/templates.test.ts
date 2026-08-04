@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderTemplate, esc } from './templates.ts';
-import { mapToEmojiHtml, weaponToEmojiHtml, agentToEmojiHtml } from './valorant-emoji.ts';
+import { isRealtimeEvent } from './types.ts';
+import { mapToEmojiHtml, agentToEmojiHtml } from './valorant-emoji.ts';
 import { rankToEmojiHtml } from './rank-emoji.ts';
 import type { EventType } from './types.ts';
 
@@ -90,6 +91,35 @@ describe('renderTemplate — all event types render without throwing', () => {
   }
 });
 
+describe('renderTemplate — only realtime types have a template', () => {
+  const FALLBACK = 'Новое событие у';
+
+  it('every realtime event type renders a real template, not the fallback', () => {
+    for (const t of ALL_EVENT_TYPES.filter((e) => isRealtimeEvent(e))) {
+      const out = renderTemplate(t, minimalPayloads[t]!, safeUser);
+      expect(out, `realtime type ${t} must have its own template`).not.toContain(FALLBACK);
+    }
+  });
+
+  it('weekly types fall back — the digest renders them from its own model', () => {
+    // ace / knife_kill / records / winstreaks / rank-ups are rendered by
+    // digest/rich-render.ts, so their chat templates were deleted rather than
+    // left to duplicate that copy.
+    for (const t of ['ace', 'knife_kill', 'record_kills_match', 'winstreak_10plus', 'peak_rank_up'] as EventType[]) {
+      expect(renderTemplate(t, {}, safeUser), `${t} should fall back`).toContain(FALLBACK);
+    }
+  });
+
+  it('the two unrendered records still keep their wording (nothing shows them yet)', () => {
+    // record_survived_last_rounds / record_died_first_rounds (🐴 Троянский конь,
+    // #281) are weekly but are ALSO missing from the digest's
+    // BRIGHT_EVENT_WEIGHTS / RICH_RECORD_META, so these templates are the only
+    // surviving copy of their text. Guard them until the digest wires them up.
+    expect(renderTemplate('record_died_first_rounds', { value: 4 }, safeUser)).toContain('Троянский конь');
+    expect(renderTemplate('record_survived_last_rounds', { value: 4 }, safeUser)).not.toContain(FALLBACK);
+  });
+});
+
 describe('renderTemplate — HTML injection prevention', () => {
   it('escapes <script> in riot_name for ace', () => {
     const output = renderTemplate('ace', {}, injectionUser);
@@ -111,60 +141,6 @@ describe('renderTemplate — payload-specific behavior', () => {
   it('ace: no kill count when round had exactly 5 kills', () => {
     const output = renderTemplate('ace', { weapons_per_round: [['Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal']] }, safeUser);
     expect(output).not.toContain('убийств');
-  });
-
-
-
-
-  it('rank_promo: Ascendant 1 shows "Повышение по службе" heading + icon only (no tier text)', () => {
-    const output = renderTemplate('peak_rank_up', { from_tier_name: 'Diamond 3', to_tier_name: 'Ascendant 1' }, safeUser);
-    expect(output).toContain('Повышение по службе');
-    expect(output).toContain('<b>Player#TAG</b>');
-    expect(output).toContain('<tg-emoji emoji-id="5267234697951353645">🟩</tg-emoji>');
-    // #301: rank → emoji only, tier text dropped.
-    expect(output).not.toContain('Ascendant 1');
-    expect(output).not.toContain('Diamond 3');
-  });
-
-  it('rank_promo: Immortal 1 shows icon only (no tier text)', () => {
-    const output = renderTemplate('peak_rank_up', { to_tier_name: 'Immortal 1' }, safeUser);
-    expect(output).toContain('Повышение по службе');
-    expect(output).toContain('<tg-emoji emoji-id="5264913804998778625">♦️</tg-emoji>');
-    expect(output).not.toContain('Immortal 1');
-  });
-
-  it('rank_promo: Radiant shows icon only (no tier text)', () => {
-    const output = renderTemplate('peak_rank_up', { to_tier_name: 'Radiant' }, safeUser);
-    expect(output).toContain('Повышение по службе');
-    expect(output).toContain('<tg-emoji emoji-id="5267161374269675067">🌟</tg-emoji>');
-    expect(output).not.toContain('Radiant');
-  });
-
-  it('rank_promo: no-payload produces Повышение по службе with player tag', () => {
-    const output = renderTemplate('peak_rank_up', {}, safeUser);
-    expect(output).toContain('Повышение по службе');
-    expect(output).toContain('<b>Player#TAG</b>');
-    expect(output).not.toContain('<tg-emoji');
-  });
-
-  it('rank_promo: unknown rank label renders escaped plain text without tg-emoji', () => {
-    const output = renderTemplate('peak_rank_up', { to_tier_name: 'MetaTier 1' }, safeUser);
-    expect(output).toContain('Повышение по службе');
-    expect(output).toContain('MetaTier 1');
-    expect(output).not.toContain('<tg-emoji');
-  });
-
-  it('winstreak_10plus: shows streak count and Винстрик heading', () => {
-    const output = renderTemplate('winstreak_10plus', { streak: 10 }, safeUser);
-    expect(output).toContain('10');
-    expect(output).toContain('Винстрик');
-    expect(output).toContain('побед подряд');
-  });
-
-  it('winstreak_10plus: player tag appears before count', () => {
-    const output = renderTemplate('winstreak_10plus', { streak: 15 }, safeUser);
-    expect(output).toContain('<b>Player#TAG</b>');
-    expect(output).toContain('15');
   });
 
   it('giant_slayer: shows enemy avg rank as emoji (no text) and Поводил по губам text', () => {
@@ -334,193 +310,12 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).not.toContain('· <a href=');
   });
 
-  it('record_damage_dealt_match: shows Мясник heading and value', () => {
-    const output = renderTemplate('record_damage_dealt_match', { value: 6840, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '' }, safeUser);
-    expect(output).toContain('Мясник');
-    expect(output).toContain('6840 dmg');
-    expect(output).toContain('<b>Player#TAG</b>');
-  });
-
-  it('record_damage_dealt_match: does NOT render prev_name line (prev-record removed per user)', () => {
-    const output = renderTemplate('record_damage_dealt_match', {
-      value: 6840,
-      prev_value: 6420,
-      prev_puuid: 'other-puuid',
-      prev_name: 'OldHolder',
-      prev_tag: 'OLD',
-    }, { ...safeUser, riot_puuid: 'current-puuid' });
-    expect(output).not.toContain('6420');
-    expect(output).not.toContain('OldHolder');
-    expect(output).not.toContain('прошлый рекорд');
-  });
-
-  it('record_damage_dealt_match: does NOT render "тоже его" (prev-record removed per user)', () => {
-    const output = renderTemplate('record_damage_dealt_match', {
-      value: 7000,
-      prev_value: 6840,
-      prev_puuid: 'same-puuid',
-      prev_name: 'Player',
-      prev_tag: 'TAG',
-    }, { ...safeUser, riot_puuid: 'same-puuid' });
-    expect(output).not.toContain('тоже его');
-  });
-
-  it('record_damage_dealt_match: includes match link', () => {
-    const output = renderTemplate('record_damage_dealt_match', { value: 6840, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '' }, safeUser, { match_id: 'dmg-match-1' });
-    expect(output).toContain('tracker.gg/valorant/match/dmg-match-1');
-  });
-
-  it('record_damage_received_match: shows Груша для битья heading and value', () => {
-    const output = renderTemplate('record_damage_received_match', { value: 5910, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '' }, safeUser);
-    expect(output).toContain('Груша для битья');
-    expect(output).toContain('5910 dmg');
-    expect(output).toContain('<b>Player#TAG</b>');
-  });
-
-  it('record_damage_received_match: does NOT render "тоже его" (prev-record removed)', () => {
-    const output = renderTemplate('record_damage_received_match', {
-      value: 6100,
-      prev_value: 5910,
-      prev_puuid: 'same-puuid',
-      prev_name: 'Player',
-      prev_tag: 'TAG',
-    }, { ...safeUser, riot_puuid: 'same-puuid' });
-    expect(output).not.toContain('тоже его');
-    expect(output).not.toContain('прошлый рекорд');
-  });
-
-  it('record_damage_received_match: does NOT render prev_name line (prev-record removed)', () => {
-    const output = renderTemplate('record_damage_received_match', {
-      value: 6100,
-      prev_value: 5910,
-      prev_puuid: 'other-puuid',
-      prev_name: 'ToughGuy',
-      prev_tag: 'TGH',
-    }, { ...safeUser, riot_puuid: 'current-puuid' });
-    expect(output).not.toContain('5910');
-    expect(output).not.toContain('ToughGuy');
-  });
-
-  it('record_damage_received_match: includes match link', () => {
-    const output = renderTemplate('record_damage_received_match', { value: 5910, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '' }, safeUser, { match_id: 'rcv-match-1' });
-    expect(output).toContain('tracker.gg/valorant/match/rcv-match-1');
-  });
-
-  it('record_longest_match_minutes: shows minutes, rounds, map, result emoji, player line', () => {
-    const output = renderTemplate('record_longest_match_minutes', {
-      value: 58,
-      rounds: 30,
-      result: 'win',
-      prev_value: null,
-      prev_puuid: null,
-      prev_name: '',
-      prev_tag: '',
-      community_players: [
-        { puuid: 'p1', name: 'Alice', tag: 'ALI' },
-        { puuid: 'p2', name: 'Bob', tag: 'BOB' },
-      ],
-    }, safeUser, { map: 'Ascent' });
-    expect(output).toContain('Дело принципа');
-    expect(output).toContain('58 минут');
-    expect(output).toContain('(30 раундов)');
-    expect(output).toContain(`на карте ${mapToEmojiHtml('Ascent')} Ascent`);
-    expect(output).toContain('🏆'); // win
-    // Player line: nick#tag, nick#tag — not bolded, not "проинвестировал"
-    expect(output).toContain('Alice#ALI');
-    expect(output).toContain('Bob#BOB');
-  });
-
-  it('record_longest_match_minutes: shows loss emoji 💀 on result=loss', () => {
-    const output = renderTemplate('record_longest_match_minutes', {
-      value: 58, rounds: 30, result: 'loss',
-      prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '',
-      community_players: [],
-    }, safeUser, { map: 'Bind' });
-    expect(output).toContain('💀');
-    expect(output).not.toContain('🏆');
-  });
-
-  it('record_longest_match_minutes: shows draw emoji 🏳️ on result=draw', () => {
-    const output = renderTemplate('record_longest_match_minutes', {
-      value: 58, rounds: 30, result: 'draw',
-      prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '',
-      community_players: [],
-    }, safeUser, { map: 'Haven' });
-    expect(output).toContain('🏳️');
-  });
-
-  it('record_longest_match_minutes: does NOT render prev_name line (prev-record removed)', () => {
-    const output = renderTemplate('record_longest_match_minutes', {
-      value: 60, rounds: 32, result: 'win',
-      prev_value: 45,
-      prev_puuid: 'other-puuid',
-      prev_name: 'OldHolder',
-      prev_tag: 'OLD',
-      community_players: [],
-    }, { ...safeUser, riot_puuid: 'current-puuid' });
-    expect(output).not.toContain('OldHolder');
-    expect(output).not.toContain('прошлый рекорд');
-  });
-
-  it('record_longest_match_minutes: does NOT render "тоже его" (prev-record removed)', () => {
-    const output = renderTemplate('record_longest_match_minutes', {
-      value: 60, rounds: 32, result: 'win',
-      prev_value: 45,
-      prev_puuid: 'same-puuid',
-      prev_name: 'Player',
-      prev_tag: 'TAG',
-      community_players: [],
-    }, { ...safeUser, riot_puuid: 'same-puuid' });
-    expect(output).not.toContain('тоже его');
-  });
-
-  it('record_longest_match_minutes: nick appears BEFORE the data line (single line)', () => {
-    const output = renderTemplate('record_longest_match_minutes', {
-      value: 49, rounds: 23, result: 'win',
-      community_players: [{ puuid: 'p1', name: 'Champ', tag: '7777' }],
-    }, safeUser, { map: 'Ascent' });
-    // Single line: nick - minutes (rounds) на карте X 🏆
-    expect(output).toContain(`Champ#7777</b> - 49 минут (23 раундов) на карте ${mapToEmojiHtml('Ascent')} Ascent 🏆`);
-  });
-
-  it('record_longest_match_minutes: includes match link when match_id present', () => {
-    const output = renderTemplate('record_longest_match_minutes', {
-      value: 45, rounds: 25, result: 'win',
-      prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '',
-      community_players: [],
-    }, safeUser, { match_id: 'test-match-id' });
-    expect(output).toContain('tracker.gg/valorant/match/test-match-id');
-  });
-
-  it('record_longest_match_minutes: HTML-escapes community player names and tags', () => {
-    const output = renderTemplate('record_longest_match_minutes', {
-      value: 45, rounds: 25, result: 'win',
-      prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '',
-      community_players: [{ puuid: 'p1', name: '<script>xss</script>', tag: '<img>' }],
-    }, safeUser);
-    expect(output).not.toContain('<script>');
-    expect(output).toContain('&lt;script&gt;');
-    expect(output).toContain('&lt;img&gt;');
-  });
 });
 
 describe('renderTemplate — agent emoji next to nicks (#301)', () => {
   // Jett → AGENT_EMOJI['jett'] = 5265124043647916479.
   const JETT = '<tg-emoji emoji-id="5265124043647916479">';
   const SAGE = '<tg-emoji emoji-id="5267462919628560472">';
-
-
-  it('record_kills_match: shows agent emoji next to nick from match.agent', () => {
-    const output = renderTemplate('record_kills_match', { value: 30 }, safeUser, { agent: 'Jett' });
-    expect(output).toContain('<b>Player#TAG</b> ' + JETT);
-    expect(output).toContain('30 фрагов');
-  });
-
-  it('record_kills_match: no agent emoji when match.agent absent', () => {
-    const output = renderTemplate('record_kills_match', { value: 30 }, safeUser, {});
-    expect(output).not.toContain('<tg-emoji');
-    expect(output).toContain('<b>Player#TAG</b> — 30 фрагов');
-  });
 
   it('teamkill: killer + community victim each show their agent emoji', () => {
     const output = renderTemplate(
@@ -541,16 +336,6 @@ describe('renderTemplate — agent emoji next to nicks (#301)', () => {
   it('return_after_pause: shows agent emoji next to nick from match.agent', () => {
     const output = renderTemplate('return_after_pause', { days_paused: 14 }, safeUser, { agent: 'Jett' });
     expect(output).toContain('<b>Player#TAG</b> ' + JETT);
-  });
-
-  it('record_mvp_count_week: no agent emoji (weekly aggregate, not one match)', () => {
-    const output = renderTemplate('record_mvp_count_week', { value: 6 }, safeUser, { agent: 'Jett' });
-    expect(output).not.toContain('<tg-emoji');
-  });
-
-  it('record_kills_per_weapon: weapon icon only, no agent emoji next to nick', () => {
-    const output = renderTemplate('record_kills_per_weapon', { weapon: 'Vandal', value: 7 }, safeUser, { agent: 'Jett' });
-    expect(output).not.toContain(JETT);
   });
 
   it('community_clash: each player shows their agent emoji from payload', () => {
