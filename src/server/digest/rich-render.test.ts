@@ -249,6 +249,70 @@ describe('renderDigest — former table sections as flat lines', () => {
   });
 });
 
+describe('renderDigest — collapsed map/agent tail', () => {
+  const maps = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ map: `M${i + 1}`, count: n - i }));
+
+  it('keeps the podium visible and folds the rest into a <details>', () => {
+    const { html } = renderDigest(fullModel({ topMaps: maps(7) }));
+    expect(html).toContain('🗺 <b>Карты недели</b><br>🥇 M1 — 7<br>🥈 M2 — 6<br>🥉 M3 — 5');
+    expect(html).toContain('<details><summary>ещё 4 карты</summary>• M4 — 4<br>• M5 — 3<br>• M6 — 2<br>• M7 — 1</details>');
+  });
+
+  it('does not open an accordion for a tail of one — it would cost more than it saves', () => {
+    const { html } = renderDigest(fullModel({ topMaps: maps(4) }));
+    expect(html).not.toContain('<details>');
+    expect(html).toContain('• M4 — 1');
+  });
+
+  it('leaves a board of 3 or fewer completely alone', () => {
+    const { html } = renderDigest(fullModel({ topMaps: maps(3), topAgents: [] }));
+    expect(html).not.toContain('<details>');
+    expect(html).toContain('🥉 M3 — 1');
+  });
+
+  it('declines the Russian plural in the summary', () => {
+    const sum = (n: number) => {
+      const { html } = renderDigest(fullModel({ topMaps: maps(3 + n) }));
+      return /<summary>([^<]*)<\/summary>/.exec(html)?.[1];
+    };
+    expect(sum(2)).toBe('ещё 2 карты');
+    expect(sum(5)).toBe('ещё 5 карт');
+    expect(sum(11)).toBe('ещё 11 карт');
+    expect(sum(21)).toBe('ещё 21 карта');
+  });
+
+  it('collapses agents with their own noun', () => {
+    const { html } = renderDigest(
+      fullModel({
+        topAgents: Array.from({ length: 28 }, (_, i) => ({ agent: `A${i + 1}`, count: 28 - i })),
+      }),
+    );
+    expect(html).toContain('<summary>ещё 25 агентов</summary>');
+    expect(html).toContain('🥇 A1 — 28');
+    expect(html).toContain('• A28 — 1');
+  });
+
+  it('the text twin has no accordion and lists every row', () => {
+    const { text } = renderDigest(fullModel({ topMaps: maps(7) }));
+    expect(text).not.toContain('<details>');
+    expect(text).not.toContain('<summary>');
+    expect(text).toContain('🥇 M1 — 7');
+    expect(text).toContain('• M7 — 1');
+  });
+
+  it('ace and knife boards are never collapsed — they are short by nature', () => {
+    const { html } = renderDigest(
+      fullModel({
+        aces: Array.from({ length: 8 }, (_, i) => ({ name: `P${i}`, tag: 'T', count: 8 - i })),
+      }),
+    );
+    const aceIdx = html.indexOf('🎯 <b>Эйсы недели</b>');
+    const nextBlock = html.indexOf('🔪 <b>Ножи недели</b>');
+    expect(html.slice(aceIdx, nextBlock)).not.toContain('<details>');
+  });
+});
+
 describe('renderDigest — records', () => {
   it('renders a record as a title line plus a nick · value · match-link line', () => {
     const { html } = renderDigest(fullModel());
