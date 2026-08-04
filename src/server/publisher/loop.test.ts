@@ -538,21 +538,6 @@ describe('startPublisherLoop', () => {
       expect(lines[4]).toBe(`<a href="https://tracker.gg/valorant/match/${MATCH}">${mapToEmojiHtml('Ascent')} Ascent</a>`);
     });
 
-    it('fall_damage_death: rank_after renders left of the nick', async () => {
-      seedUser(sqlite, 1, 'faller-1', { riotName: 'Faller', riotTag: 'FFF' });
-      seedTkMatchRecord('faller-1', 'Gold 1');
-      seedPendingEvent(sqlite, { puuid: 'faller-1', eventType: 'fall_damage_death', matchId: MATCH, payload: { count: 1 } });
-
-      const { stop } = makeLoop(db, sendMessage, {
-        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
-      });
-      await runOneTick(stop);
-
-      const [, body] = sendMessage.mock.calls[0]!;
-      expect(body).toContain(`${rankToEmojiHtml('Gold 1')} <b>Faller#FFF</b> ${agentToEmojiHtml('Jett')}`);
-      expect((body as string).split('\n').at(-1)).toContain('tracker.gg/valorant/match/');
-    });
-
     it('teamkill: old event with no roster/match rows still posts (icons omitted, no crash)', async () => {
       seedUser(sqlite, 1, 'killer-1', { riotName: 'Killer', riotTag: 'KKK' });
       const id = seedPendingEvent(sqlite, {

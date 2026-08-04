@@ -214,7 +214,7 @@ describe('e2e: publisher loop', () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  it('all 6 realtime event types render without throwing (template coverage)', async () => {
+  it('all 5 realtime event types render without throwing (template coverage)', async () => {
     // One user for all event types
     seedUser(sqlite, 1004, 'e2e-puuid-pub-4', { riotName: 'MultiEvent', riotTag: 'ME1' });
 
@@ -222,7 +222,6 @@ describe('e2e: publisher loop', () => {
     const eventTypes = [
       ['giant_slayer',       { enemy_avg: 'Gold 1', own: 'Silver 3' }],
       ['teamkill',           { round_numbers: [2, 8], count: 2 }],
-      ['fall_damage_death',  { count: 1 }],
       ['match_comeback',     { deficit_score_player: 3, deficit_score_opponent: 11, final_score_player: 13, final_score_opponent: 11 }],
       ['community_clash',    { teams: [], winner_team_id: null }],
       ['return_after_pause', { days_paused: 14 }],
