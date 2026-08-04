@@ -242,14 +242,42 @@ function esc(s: string): string {
     .replace(/'/g, '&#39;');
 }
 
-/** Podium markers for the ace / knife leaderboards; 4th place onward gets a bullet. */
+/** Podium markers; 4th place onward gets a bullet. */
 const MEDALS = ['🥇', '🥈', '🥉'];
 
+/** How many rows stay visible above a collapsed tail. */
+const PODIUM = 3;
+
 /**
- * One rendered section: a list of inline-HTML lines. Blocks are separated by a
- * blank line in both renderings; lines inside a block are not.
+ * Russian plural for a count: 1 карта / 2 карты / 5 карт.
+ * (11-14 take the genitive-plural form despite ending in 1-4.)
  */
-type Block = string[];
+function pluralRu(n: number, one: string, few: string, many: string): string {
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 14) return many;
+  const mod10 = n % 10;
+  if (mod10 === 1) return one;
+  if (mod10 >= 2 && mod10 <= 4) return few;
+  return many;
+}
+
+/**
+ * One rendered section.
+ *
+ * `lines` are always visible. `more` is an optional tail that the rich
+ * rendering hides behind a `<details>` accordion — used for the long map /
+ * agent boards, where the podium is the interesting part and the tail is a
+ * list of one-pick agents. The plain-text twin has no accordions, so it simply
+ * appends the tail (it is a send-failure fallback and the promo-image prompt
+ * input, where completeness beats brevity).
+ *
+ * Blocks are separated by a blank line in both renderings; lines inside a
+ * block are not.
+ */
+interface Block {
+  lines: string[];
+  more?: { summary: string; lines: string[] };
+}
 
 /**
  * ONE board shape for every ranked list in the digest — aces, knives, maps,
@@ -264,10 +292,22 @@ function leaderboardBlock(
   emoji: string,
   title: string,
   rows: Array<{ labelHtml: string; count: number }>,
+  collapse?: { after: number; summary: (hidden: number) => string },
 ): Block | null {
   if (rows.length === 0) return null;
-  const lines = rows.map((r, i) => `${MEDALS[i] ?? '•'} ${r.labelHtml} — ${r.count}`);
-  return [`${emoji} <b>${title}</b>`, ...lines];
+  const rendered = rows.map((r, i) => `${MEDALS[i] ?? '•'} ${r.labelHtml} — ${r.count}`);
+
+  // Podium stays open, the tail folds away. Never collapse a tail of one — an
+  // accordion hiding a single line costs more than it saves.
+  if (collapse && rendered.length > collapse.after + 1) {
+    const head = rendered.slice(0, collapse.after);
+    const tail = rendered.slice(collapse.after);
+    return {
+      lines: [`${emoji} <b>${title}</b>`, ...head],
+      more: { summary: collapse.summary(tail.length), lines: tail },
+    };
+  }
+  return { lines: [`${emoji} <b>${title}</b>`, ...rendered] };
 }
 
 /** Ace/knife board rows: the label is the player's rendered nick. */
@@ -285,8 +325,13 @@ function standingsRows(standings: AceKnifeStanding[]): Array<{ labelHtml: string
 function buildBlocks(model: RichDigestModel): Block[] {
   const blocks: Block[] = [];
 
+  /** Push a section made of always-visible lines. */
+  const push = (...lines: string[]): void => {
+    blocks.push({ lines });
+  };
+
   // 1. Pulse line.
-  blocks.push([`📊 За неделю мы сыграли <b>${model.totalMatches}</b> матчей`]);
+  push(`📊 За неделю мы сыграли <b>${model.totalMatches}</b> матчей`);
 
   // 2. Records — two flat lines each: title, then `ник · значение · ссылка`.
   for (const r of model.records) {
@@ -301,7 +346,7 @@ function buildBlocks(model: RichDigestModel): Block[] {
     if (r.matchUrl) {
       parts.push(matchLink({ url: r.matchUrl, mapName: r.mapName ?? null }));
     }
-    blocks.push([`${r.emoji} <b>${esc(r.title)}</b>`, parts.join(' · ')]);
+    push(`${r.emoji} <b>${esc(r.title)}</b>`, parts.join(' · '));
   }
 
   // 3. Ace / knife leaderboards — the former daily digest, now plain counts.
@@ -320,7 +365,7 @@ function buildBlocks(model: RichDigestModel): Block[] {
           `${renderPlayerName({ name: w.name, tag: w.tag, isCommunity: true })}` +
           ` · ${w.streak} побед подряд`,
       );
-    blocks.push(['🏆 <b>Винстрик недели</b>', ...lines]);
+    push('🏆 <b>Винстрик недели</b>', ...lines);
   }
 
   // 5. Мастера своего дела — one line per weapon (was a 3-column table).
@@ -330,11 +375,11 @@ function buildBlocks(model: RichDigestModel): Block[] {
         `${w.weaponEmojiHtml ? `${w.weaponEmojiHtml} ` : ''}${esc(w.weapon)}` +
         ` · ${w.value} — ${w.playerHtml}`,
     );
-    blocks.push([
+    push(
       '🔫 <b>Мастера своего дела</b>',
       '<i>лидеры по убийствам одним оружием за матч</i>',
       ...lines,
-    ]);
+    );
   }
 
   // 6. Повышение по службе — one line per player (was a table).
@@ -345,7 +390,7 @@ function buildBlocks(model: RichDigestModel): Block[] {
       return `${nick} → ${rankEmoji || esc(p.rank)}`;
     });
     const header = model.promotions.length === 1 ? 'Повышение по службе' : 'Повышения по службе';
-    blocks.push([`🎖 <b>${header}</b>`, ...lines]);
+    push(`🎖 <b>${header}</b>`, ...lines);
   }
 
   // 7. Почти рекорды.
@@ -356,25 +401,26 @@ function buildBlocks(model: RichDigestModel): Block[] {
       isCommunity: true,
       agent: nm.player.agent ?? null,
     });
-    blocks.push([`${nm.emoji} <u>${esc(nm.header)}</u>`, `${nick} · ${esc(nm.value)}`]);
+    push(`${nm.emoji} <u>${esc(nm.header)}</u>`, `${nick} · ${esc(nm.value)}`);
   }
 
   // 8. Больше всех матчей.
   if (model.mostActive) {
-    blocks.push([
+    push(
       '🏆 <b>Больше всех матчей</b>',
       `${model.mostActive.nameHtml} · ${model.mostActive.count} за неделю`,
-    ]);
+    );
   }
 
-  // 9. Карты и агенты — full boards in the same shape as the ace/knife ones
-  // (owner: «как с ножами, топ всех карт и всех агентов»), not a top-3 inline
-  // line. No per-entry pack icon: the header line plus the podium marker are
-  // already two glyphs.
+  // 9. Карты и агенты — full boards in the ace/knife shape, but with the tail
+  // folded into a `<details>` (owner: «топ3 показывать, остальное в
+  // аккордеон»). A real week is ~7 maps and ~28 agents, so the podium carries
+  // the signal and the one-pick tail would otherwise be ~25 lines of noise.
   const mapsBlock = leaderboardBlock(
     '🗺',
     'Карты недели',
     model.topMaps.map((m) => ({ labelHtml: esc(m.map), count: m.count })),
+    { after: PODIUM, summary: (n) => `ещё ${n} ${pluralRu(n, 'карта', 'карты', 'карт')}` },
   );
   if (mapsBlock) blocks.push(mapsBlock);
 
@@ -382,6 +428,7 @@ function buildBlocks(model: RichDigestModel): Block[] {
     '🎭',
     'Агенты недели',
     model.topAgents.map((a) => ({ labelHtml: esc(a.agent), count: a.count })),
+    { after: PODIUM, summary: (n) => `ещё ${n} ${pluralRu(n, 'агент', 'агента', 'агентов')}` },
   );
   if (agentsBlock) blocks.push(agentsBlock);
 
@@ -403,12 +450,24 @@ export function renderDigest(model: RichDigestModel): RenderedDigest {
   const htmlParts: string[] = [`<h2>📅 Дайджест за неделю · ${esc(model.headerDate)}</h2>`];
   const coverUrl = mapSplashUrl(model.coverMap);
   if (coverUrl) htmlParts.push(`<img src="${esc(coverUrl)}">`);
-  htmlParts.push(blocks.map((b) => b.join('<br>')).join('<br><br>'));
+  htmlParts.push(
+    blocks
+      .map((b) => {
+        const head = b.lines.join('<br>');
+        if (!b.more) return head;
+        // The tail folds away; `<details>` is block-level, so no <br> before it.
+        return `${head}<details><summary>${esc(b.more.summary)}</summary>${b.more.lines.join('<br>')}</details>`;
+      })
+      .join('<br><br>'),
+  );
   htmlParts.push('<footer>#digest</footer>');
 
   // ── Plain text twin ──
   const textParts: string[] = [`📅 <b>Дайджест за неделю · ${esc(model.headerDate)}</b>`];
-  textParts.push(blocks.map((b) => b.join('\n')).join('\n\n'));
+  // No accordions in plain text — the tail is simply listed.
+  textParts.push(
+    blocks.map((b) => [...b.lines, ...(b.more?.lines ?? [])].join('\n')).join('\n\n'),
+  );
   textParts.push('#digest');
 
   return {
