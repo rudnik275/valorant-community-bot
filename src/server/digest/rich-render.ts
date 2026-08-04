@@ -38,8 +38,9 @@
  * tests) while the text twin is built from the same lines with real newlines.
  */
 
-import { renderPlayerName, matchLink } from '../publisher/player-render.ts';
+import { renderPlayerName } from '../publisher/player-render.ts';
 import { rankToEmojiHtml } from '../publisher/rank-emoji.ts';
+import { mapToEmojiHtml } from '../publisher/valorant-emoji.ts';
 import type { AceKnifeStanding } from './ace-knife.ts';
 
 /** A community player attached to a specific match (record events). */
@@ -246,6 +247,20 @@ export function mapSplashUrl(map: string | null | undefined): string | null {
   return uuid ? `https://media.valorant-api.com/maps/${uuid}/splash.png` : null;
 }
 
+/**
+ * Match link for a RICH message. Deliberately not the shared `matchLink`
+ * helper: in a Rich Message an `<a>` whose content includes a `<tg-emoji>`
+ * does not render as a tappable link (owner screenshot, 2026-08-04 — the map
+ * name came out plain black), while the identical markup links fine in a
+ * normal `sendMessage`. So here the icon sits OUTSIDE the anchor and only the
+ * map name is linked.
+ */
+function richMatchLink(url: string, mapName: string | null): string {
+  const icon = mapName ? mapToEmojiHtml(mapName) : '';
+  const label = mapName ? esc(mapName) : 'матч';
+  return `${icon ? `${icon} ` : ''}<a href="${esc(url)}">${label}</a>`;
+}
+
 /** HTML-escape (same rules as publisher/templates.ts esc). */
 function esc(s: string): string {
   return String(s)
@@ -407,7 +422,7 @@ function buildBlocks(model: RichDigestModel): Block[] {
     });
     const parts = [nick, esc(r.value)];
     if (r.matchUrl) {
-      parts.push(matchLink({ url: r.matchUrl, mapName: r.mapName ?? null }));
+      parts.push(richMatchLink(r.matchUrl, r.mapName ?? null));
     }
     push(`${r.emoji} <b>${esc(r.title)}</b>`, parts.join(' · '));
   }
@@ -420,9 +435,7 @@ function buildBlocks(model: RichDigestModel): Block[] {
       isCommunity: true,
       agent: nm.player.agent ?? null,
     });
-    const nmLink = nm.matchUrl
-      ? ` · ${matchLink({ url: nm.matchUrl, mapName: nm.mapName ?? null })}`
-      : '';
+    const nmLink = nm.matchUrl ? ` · ${richMatchLink(nm.matchUrl, nm.mapName ?? null)}` : '';
     push(`${nm.emoji} <u>${esc(nm.header)}</u>`, `${nick} · ${esc(nm.value)}${nmLink}`);
   }
 
@@ -440,9 +453,7 @@ function buildBlocks(model: RichDigestModel): Block[] {
   // 7. Мастера своего дела — one line per weapon (was a 3-column table).
   if (model.weaponMasters.length > 0) {
     const lines = model.weaponMasters.map((w) => {
-      const link = w.matchUrl
-        ? ` · ${matchLink({ url: w.matchUrl, mapName: w.mapName ?? null })}`
-        : '';
+      const link = w.matchUrl ? ` · ${richMatchLink(w.matchUrl, w.mapName ?? null)}` : '';
       return (
         `${w.weaponEmojiHtml ? `${w.weaponEmojiHtml} ` : ''}${esc(w.weapon)}` +
         ` · ${w.value} — ${w.playerHtml}${link}`

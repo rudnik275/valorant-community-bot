@@ -292,37 +292,76 @@ describe('deriveMatchRecord (v4)', () => {
 
   // ── Fall damage ─────────────────────────────────────────────────────────────
 
-  describe('fall_damage_kills', () => {
-    it('counts fall damage deaths where victim.puuid matches target and weapon.id=Fall', () => {
-      const fallMatch: HenrikMatchV4 = {
-        ...v4Fixture,
-        kills: [
-          {
-            round: 2,
-            time_in_round_in_ms: 5000,
-            killer: { puuid: '', name: '', tag: '', team: 'Red' },
-            victim: { puuid: TARGET_PUUID, name: 'Player', tag: 'EU1', team: 'Blue' },
-            weapon: { id: 'Fall', name: 'Fall', type: 'EnvironmentalDamage' },
-          },
-          {
-            round: 5,
-            time_in_round_in_ms: 3000,
-            killer: { puuid: 'enemy-1', name: 'Enemy1', tag: 'NA1', team: 'Red' },
-            victim: { puuid: TARGET_PUUID, name: 'Player', tag: 'EU1', team: 'Blue' },
-            weapon: { id: 'Vandal', name: 'Vandal', type: 'Rifle' },
-          },
-          {
-            round: 7,
-            time_in_round_in_ms: 8000,
-            killer: { puuid: '', name: '', tag: '', team: 'Red' },
-            victim: { puuid: TARGET_PUUID, name: 'Player', tag: 'EU1', team: 'Blue' },
-            weapon: { id: 'Fall', name: 'Fall', type: 'EnvironmentalDamage' },
-          },
-        ],
-      } as HenrikMatchV4;
+  describe('fall_damage_kills — environmental deaths of the target player', () => {
+    /**
+     * Weapon shapes below are VERBATIM from the live Henrik v4 API
+     * (match 1905bc20…, Summit, inspected 2026-08-04). The previously-asserted
+     * `{id:'Fall'}` marker does not exist in v4 at all — the column was 0 for
+     * every row ever written and the event never once fired.
+     */
+    const kill = (over: Record<string, unknown>) => ({
+      round: 1,
+      time_in_round_in_ms: 1000,
+      killer: { puuid: TARGET_PUUID, name: 'Player', tag: 'EU1', team: 'Blue' },
+      victim: { puuid: TARGET_PUUID, name: 'Player', tag: 'EU1', team: 'Blue' },
+      ...over,
+    });
+    const derive = (kills: unknown[]) =>
+      deriveMatchRecord({ ...v4Fixture, kills } as HenrikMatchV4, TARGET_PUUID)!.fall_damage_kills;
 
-      const record = deriveMatchRecord(fallMatch, TARGET_PUUID);
-      expect(record!.fall_damage_kills).toBe(2);
+    it('counts a self-inflicted death with no weapon id/name/type', () => {
+      expect(derive([kill({ weapon: { id: null, name: null, type: null } })])).toBe(1);
+    });
+
+    it('counts an unattributed death (blank killer puuid)', () => {
+      expect(
+        derive([kill({ killer: { puuid: '', name: '', tag: '', team: 'Blue' }, weapon: { id: null, name: null, type: null } })]),
+      ).toBe(1);
+    });
+
+    it('does NOT count a spike death — weapon.type is "Bomb" (id is "" and falsy)', () => {
+      expect(derive([kill({ weapon: { id: '', name: null, type: 'Bomb' } })])).toBe(0);
+    });
+
+    it('does NOT count an ability self-kill', () => {
+      expect(derive([kill({ weapon: { id: 'Ability2', name: 'Sky Smoke', type: 'Ability' } })])).toBe(0);
+    });
+
+    it('does NOT count a death caused by another player', () => {
+      expect(
+        derive([
+          kill({
+            killer: { puuid: 'enemy-1', name: 'Enemy1', tag: 'NA1', team: 'Red' },
+            weapon: { id: 'Vandal', name: 'Vandal', type: 'Rifle' },
+          }),
+        ]),
+      ).toBe(0);
+    });
+
+    it('does NOT count an environmental death of a DIFFERENT player', () => {
+      expect(
+        derive([
+          kill({
+            killer: { puuid: 'other', name: 'Other', tag: 'X', team: 'Red' },
+            victim: { puuid: 'other', name: 'Other', tag: 'X', team: 'Red' },
+            weapon: { id: null, name: null, type: null },
+          }),
+        ]),
+      ).toBe(0);
+    });
+
+    it('sums several environmental deaths in one match', () => {
+      expect(
+        derive([
+          kill({ round: 2, weapon: { id: null, name: null, type: null } }),
+          kill({ round: 5, weapon: { id: '', name: null, type: 'Bomb' } }),
+          kill({ round: 9, weapon: { id: null, name: null, type: null } }),
+        ]),
+      ).toBe(2);
+    });
+
+    it('is zero for a match with no environmental deaths', () => {
+      expect(deriveMatchRecord(v4Fixture as HenrikMatchV4, TARGET_PUUID)!.fall_damage_kills).toBe(0);
     });
   });
 

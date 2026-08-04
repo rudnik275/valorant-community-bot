@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { renderRichTemplate, isTrioRichEvent, type RichTemplateContext } from './rich-templates.ts';
-import { matchLink } from './player-render.ts';
+import { mapToEmojiHtml } from './valorant-emoji.ts';
 import type { FullRosterRow } from '../db/queries.ts';
 
 /**
@@ -116,49 +116,55 @@ describe('renderRichTemplate — table structure & content', () => {
   it('giant_slayer names its subject on a line under the title (heroPuuid)', () => {
     const html = renderRichTemplate('giant_slayer', ctx({ heroPuuid: 'b1' }))!;
     // The hero (Alice, community → bold) is named right after the title,
-    // before the details accordion.
+    // before the description line.
     const titleEnd = html.indexOf('</b>') + '</b>'.length;
     const heroIdx = html.indexOf('<b>Alice#AAA</b>');
-    const detailsIdx = html.indexOf('<details>');
+    const descIdx = html.indexOf('<i>Выиграл');
     expect(heroIdx).toBeGreaterThan(titleEnd);
-    expect(heroIdx).toBeLessThan(detailsIdx);
+    expect(heroIdx).toBeLessThan(descIdx);
     // A <br> separates the title line from the hero line (rich dialect).
     expect(html).toContain('</b><br>');
   });
 
   it('giant_slayer without heroPuuid renders no hero line (graceful)', () => {
     const html = renderRichTemplate('giant_slayer', ctx())!;
-    // No <br> hero line before the accordion; title flows straight into details.
-    expect(html).toContain('Поводил(ла) по губам</b><details>');
-    expect(html).not.toContain('</b><br>');
+    // No hero line: the title flows straight into the description line.
+    expect(html).toContain('Поводил(ла) по губам</b><br><i>');
   });
 
   it('giant_slayer with an unknown heroPuuid renders no hero line', () => {
     const html = renderRichTemplate('giant_slayer', ctx({ heroPuuid: 'not-in-roster' }))!;
-    expect(html).toContain('Поводил(ла) по губам</b><details>');
-    expect(html).not.toContain('</b><br>');
+    expect(html).toContain('Поводил(ла) по губам</b><br><i>');
   });
 
   it('match_comeback / community_clash ignore heroPuuid (no single subject)', () => {
     const comeback = renderRichTemplate('match_comeback', ctx({ heroPuuid: 'b1' }))!;
-    expect(comeback).toContain('Мы вами гордимся</b><details>');
+    expect(comeback).toContain('Мы вами гордимся</b><br><i>');
     const clash = renderRichTemplate('community_clash', ctx({ heroPuuid: 'b1', winnerTeamId: 'Blue' }))!;
-    expect(clash).toContain('Френдлифаер</b><details>');
+    expect(clash).toContain('Френдлифаер</b><br><i>');
   });
 
-  it('wraps the description in a details/blockquote/i accordion', () => {
+  it('renders the description as a plain italic line — no accordion', () => {
     const html = renderRichTemplate('giant_slayer', ctx())!;
-    expect(html).toMatch(/<details><summary>ℹ️[^<]*<\/summary><blockquote><i>[^<]+<\/i><\/blockquote><\/details>/);
+    expect(html).toContain('<br><i>Выиграл(а) против превосходящего врага.</i>');
+    // The «ℹ️ Что случилось» accordion is gone for every trio event.
+    for (const t of ['giant_slayer', 'match_comeback', 'community_clash'] as const) {
+      const out = renderRichTemplate(t, ctx({ winnerTeamId: 'Blue' }))!;
+      expect(out, t).not.toContain('<details>');
+      expect(out, t).not.toContain('Что случилось');
+      expect(out, t).not.toContain('<blockquote>');
+    }
   });
 
-  it('renders the match link under the table via matchLink() (no hand-rolled label)', () => {
+  it('renders the match link under the table with the icon OUTSIDE the anchor', () => {
     const html = renderRichTemplate('giant_slayer', ctx())!;
-    // Assert against the helper's own output — survives the helper's contract
-    // change (spec amendment: word «матч» is being removed globally).
-    const expectedLink = matchLink({ url: `https://tracker.gg/valorant/match/${MATCH_ID}`, mapName: MAP });
-    expect(html).toContain(expectedLink);
-    // The link is the last element (under the table).
-    expect(html.endsWith(expectedLink)).toBe(true);
+    // A Rich Message will not linkify an <a> that contains a <tg-emoji>, so the
+    // map icon sits outside and only the name is the anchor.
+    const expected =
+      `<br>${mapToEmojiHtml(MAP)} <a href="https://tracker.gg/valorant/match/${MATCH_ID}">${MAP}</a>`;
+    expect(html).toContain(expected);
+    expect(html.endsWith(expected)).toBe(true);
+    expect(html).not.toContain(`<a href="https://tracker.gg/valorant/match/${MATCH_ID}"><tg-emoji`);
   });
 });
 

@@ -5,14 +5,14 @@
  * Each renders a SINGLE rich HTML message with the approved format:
  *
  *   [эмодзи] <b>Заголовок</b>
- *   <details><summary>ℹ️ …</summary><blockquote><i>описание</i></blockquote></details>
+ *   <i>описание</i>
  *   <table>  Игрок | Агент · K/D   — ALL 10 participants, split into two teams
- *     [team-separator row, colspan=2]
+ *     [team-separator row, colspan=2 — team name, or blank between the fives]
  *     … 5 rows …
  *     [team-separator row]
  *     … 5 rows …
  *   </table>
- *   <a href="…">матч [map-emoji]</a>
+ *   [map-emoji] <a href="…">Карта</a>
  *
  * The renderer returns `null` when the data is incomplete (no roster rows, or
  * any participant missing tier/kills/deaths — pre-#315 rows). `null` ⇒ the
@@ -28,8 +28,8 @@
 
 import type { EventType } from './types.ts';
 import { getFullRoster, type FullRosterRow, type SqliteDb } from '../db/queries.ts';
-import { renderPlayerName, matchLink } from './player-render.ts';
-import { agentToEmojiHtml } from './valorant-emoji.ts';
+import { renderPlayerName } from './player-render.ts';
+import { agentToEmojiHtml, mapToEmojiHtml } from './valorant-emoji.ts';
 
 /** The three realtime events that render as full-roster rich messages (#315). */
 const TRIO_EVENT_TYPES: ReadonlySet<EventType> = new Set<EventType>([
@@ -89,16 +89,11 @@ const TITLES: Partial<Record<EventType, string>> = {
   community_clash: '⚔️ <b>Френдлифаер</b>',
 };
 
-/** «Что случилось» summary label for the details accordion. */
-const DETAILS_SUMMARY: Partial<Record<EventType, string>> = {
-  giant_slayer: 'ℹ️ Что случилось',
-  match_comeback: 'ℹ️ Что случилось',
-  community_clash: 'ℹ️ Что случилось',
-};
-
 /**
- * Descriptive body for the details accordion — the EXISTING descriptive text
- * for each event, not new copy. Built from the roster / payload context.
+ * One-line description under the title. Used to sit behind an «ℹ️ Что
+ * случилось» `<details>` accordion; the owner dropped both the accordion and
+ * the label (2026-08-04) — one short sentence is not worth a tap, and the
+ * collapsed widget added a lot of vertical noise above the table.
  */
 function describe(eventType: EventType, ctx: RichTemplateContext): string {
   switch (eventType) {
@@ -187,13 +182,22 @@ function groupByTeam(roster: FullRosterRow[]): Array<{ teamId: string; rows: Ful
   return order.map((teamId) => ({ teamId, rows: byTeam.get(teamId)! }));
 }
 
-/** Build the match link line under the table. Empty when no match id. */
+/**
+ * Build the match link line under the table. Empty when no match id.
+ *
+ * NOT the shared `matchLink` helper: in a Rich Message an `<a>` whose content
+ * includes a `<tg-emoji>` does not render as a tappable link — the map name
+ * came out as plain black text (owner screenshot, 2026-08-04), while the very
+ * same markup in a normal `sendMessage` links fine. So the rich path keeps the
+ * map icon OUTSIDE the anchor and links the name alone, and puts the line on
+ * its own row instead of butting it straight against `</table>`.
+ */
 function matchLinkLine(ctx: RichTemplateContext): string {
   if (!ctx.matchId) return '';
-  return matchLink({
-    url: trackerUrl(ctx.matchId),
-    ...(ctx.map ? { mapName: ctx.map } : {}),
-  });
+  const icon = ctx.map ? mapToEmojiHtml(ctx.map) : '';
+  const label = ctx.map ? esc(ctx.map) : 'матч';
+  const anchor = `<a href="${esc(trackerUrl(ctx.matchId))}">${label}</a>`;
+  return `<br>${icon ? `${icon} ` : ''}${anchor}`;
 }
 
 /**
@@ -235,11 +239,8 @@ export function renderRichTemplate(
   // The other trio events have no single subject, so no hero line for them.
   const hero = eventType === 'giant_slayer' ? heroLine(ctx) : '';
 
-  const summary = DETAILS_SUMMARY[eventType]!;
   const desc = describe(eventType, ctx);
-  const details =
-    `<details><summary>${summary}</summary>` +
-    `<blockquote><i>${esc(desc)}</i></blockquote></details>`;
+  const descLine = desc ? `<br><i>${esc(desc)}</i>` : '';
 
   // Build table body: team A rows, separator, team B rows, separator between.
   const bodyRows: string[] = [];
@@ -247,9 +248,10 @@ export function renderRichTemplate(
     if (eventType === 'community_clash') {
       bodyRows.push(separatorRow(clashTeamLabel(t.teamId, i, ctx)));
     } else if (i > 0) {
-      // giant_slayer / match_comeback: neutral separator between the two fives
-      // (no team names). First team needs no leading separator.
-      bodyRows.push(separatorRow('<i>———</i>'));
+      // giant_slayer / match_comeback: a BLANK full-width row between the two
+      // fives — no team names, and no dash either (owner, 2026-08-04: the
+      // «———» read as a stray artefact). First team needs no leading row.
+      bodyRows.push(separatorRow(''));
     }
     for (const row of t.rows) bodyRows.push(playerRow(row));
   });
@@ -259,10 +261,7 @@ export function renderRichTemplate(
     bodyRows.join('') +
     '</table>';
 
-  const link = matchLinkLine(ctx);
-  const linkPart = link ? link : '';
-
-  return `${title}${hero}${details}${table}${linkPart}`;
+  return `${title}${hero}${descLine}${table}${matchLinkLine(ctx)}`;
 }
 
 /**

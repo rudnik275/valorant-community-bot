@@ -172,10 +172,11 @@ describe('/test_runtime_events replay parity (#315)', () => {
       expect(texts).toContain(expected);
 
       // Guard against a vacuous pass: the expected render must actually carry
-      // the roster-enriched data and the three-line #315 layout.
+      // the roster-enriched data and the blank-line-separated layout
+      // (title / '' / body / '' / link).
       expect(expected).toContain('<b>Danya#UA1</b>');
       expect(expected).toContain('<tg-emoji'); // rank/agent icons resolved
-      expect(expected.split('\n')).toHaveLength(3);
+      expect(expected.split('\n')).toHaveLength(5);
     } finally {
       sqlite.close();
     }
