@@ -325,6 +325,63 @@ describe('scanForPuuid', () => {
     expect(rows).toHaveLength(0);
   });
 
+  // Owner requirement (2026-08-04): «для абсолютно всех рекордов учитываем
+  // только рейтинговые игры». Every record, digest section and leaderboard in
+  // this bot reads from `match_records`, and `scanForPuuid` is its ONLY writer
+  // — so the ranked-only guarantee reduces entirely to this filter. Locking it
+  // per non-ranked console queue keeps a future queue-id tweak from silently
+  // letting unrated/swiftplay/spikerush data into the records.
+  it.each([
+    'console_unrated',
+    'console_swiftplay',
+    'console_spikerush',
+    'console_deathmatch',
+    'console_teamdeathmatch',
+    'console_escalation',
+    'console_replication',
+    'console_hurm',
+    'console_premier',
+    'console_custom',
+  ])('never records a %s match — records count ranked games only', async (queueId) => {
+    seedUser();
+    fetchMock.mockImplementation(async () =>
+      new Response(JSON.stringify(makeFakeMatchResponse(`nonranked-${queueId}`, queueId)), { status: 200 }),
+    );
+
+    const result = await scanForPuuid(db, TARGET_PUUID, { detection: false });
+
+    expect(result.newRecords).toHaveLength(0);
+    expect(sqlite.prepare('SELECT * FROM match_records').all()).toHaveLength(0);
+    // No roster rows either — a non-ranked match must leave no trace at all.
+    expect(sqlite.prepare('SELECT * FROM match_rosters').all()).toHaveLength(0);
+  });
+
+  it('records a match when queue.id IS console_competitive (positive control)', async () => {
+    seedUser();
+    fetchMock.mockImplementation(async () =>
+      new Response(JSON.stringify(makeFakeMatchResponse('ranked-ok')), { status: 200 }),
+    );
+
+    const result = await scanForPuuid(db, TARGET_PUUID, { detection: false });
+
+    expect(result.newRecords).toHaveLength(1);
+    expect(sqlite.prepare('SELECT * FROM match_records').all()).toHaveLength(1);
+  });
+
+  it('drops a match whose metadata carries no queue at all (unknown ⇒ not ranked)', async () => {
+    seedUser();
+    const resp = makeFakeMatchResponse('no-queue-match') as {
+      data: { metadata: { queue?: unknown } }[];
+    };
+    delete resp.data[0]!.metadata.queue;
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify(resp), { status: 200 }));
+
+    const result = await scanForPuuid(db, TARGET_PUUID, { detection: false });
+
+    expect(result.newRecords).toHaveLength(0);
+    expect(sqlite.prepare('SELECT * FROM match_records').all()).toHaveLength(0);
+  });
+
   it('calls getMatches with puuid, region, and platform=console', async () => {
     seedUser();
     fetchMock.mockImplementation(async () => new Response(JSON.stringify(makeFakeMatchResponse('call-check-match')), { status: 200 }),

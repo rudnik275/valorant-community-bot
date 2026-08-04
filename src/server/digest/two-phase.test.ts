@@ -507,38 +507,3 @@ describe('rich weekly digest publish (#309)', () => {
     expect(row?.posted_message_id).toBe(42);
   });
 });
-
-// ── HARD INVARIANT #1 — daily digest behaviour is unaffected ────────────────
-describe('daily digest regression guard (#227 must not regress daily)', () => {
-  it('the daily runner still uses the shared no-dup-on-crash path (no two-phase override)', async () => {
-    // The two-phase override is wired ONLY into the weekly spec (via
-    // sendPhotoReply). The daily loop builds its own DigestSpec with no
-    // publishOverride, so it must keep the documented shared behaviour:
-    // a zero-ace day records a daily_digest_runs row and sends nothing.
-    const { runDailyDigestNow } = await import('../digest-daily/loop.ts');
-
-    const sqlite2 = new Database(':memory:');
-    sqlite2.exec('PRAGMA foreign_keys=OFF;');
-    const db2 = drizzle(sqlite2);
-    migrate(db2, { migrationsFolder: MIGRATIONS_FOLDER });
-
-    const send = vi.fn().mockResolvedValue({ message_id: 7 });
-    // Empty DB → buildDailyAceDigest yields no text → marker row, no send.
-    await runDailyDigestNow({ db: db2, sendMessage: send, getPrimaryChatId: () => -100 });
-
-    expect(send).not.toHaveBeenCalled();
-    const row = sqlite2
-      .prepare('SELECT * FROM daily_digest_runs LIMIT 1')
-      .get() as { posted_at: number | null; posted_text: string | null } | undefined;
-    // Shared no-dup-on-crash + daily semantics: row recorded (posted_at set),
-    // no message text. Identical to pre-#227 behaviour.
-    expect(row).toBeDefined();
-    expect(row?.posted_at).not.toBeNull();
-    expect(row?.posted_text).toBeNull();
-
-    // Second tick same day is a no-op (dedup) — still no send.
-    await runDailyDigestNow({ db: db2, sendMessage: send, getPrimaryChatId: () => -100 });
-    expect(send).not.toHaveBeenCalled();
-    sqlite2.close();
-  });
-});

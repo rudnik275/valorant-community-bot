@@ -88,26 +88,29 @@ export interface Detector {
   ) => Promise<DetectedEvent[]>;
 }
 
-export type EventCategory = 'realtime' | 'daily' | 'weekly';
+export type EventCategory = 'realtime' | 'weekly';
 
 /**
  * Source of truth: each EventType belongs to exactly ONE category.
  * - Realtime events fire immediately via the publisher loop and NEVER appear in a digest.
- * - Daily events are batched into the 23:00 daily digest (ace / knife_kill — too
- *   frequent for immediate posts) and NEVER fire as realtime notifications.
  * - Weekly events appear ONLY in the Friday weekly digest (records, winstreaks,
- *   rank-ups) and NEVER fire as realtime notifications.
+ *   rank-ups, ace/knife leaderboards) and NEVER fire as realtime notifications.
+ *
+ * There is no 'daily' category any more. `ace` / `knife_kill` used to be batched
+ * into a 23:00 daily post; the owner moved them into the weekly digest as plain
+ * per-player COUNTS («кто сколько эйсов сделал, кто сколько ножей сделал»), so
+ * the whole `digest-daily` module is gone. See `digest/ace-knife.ts`.
  */
 export const EVENT_CATEGORY: Record<EventType, EventCategory> = {
   giant_slayer: 'realtime',
   teamkill: 'realtime',
   fall_damage_death: 'realtime',
-  knife_kill: 'daily',
   match_comeback: 'realtime',
   community_clash: 'realtime',
   return_after_pause: 'realtime',
 
-  ace: 'daily',
+  ace: 'weekly',
+  knife_kill: 'weekly',
 
   winstreak_10plus: 'weekly',
   peak_rank_up: 'weekly',
@@ -126,10 +129,6 @@ export const EVENT_CATEGORY: Record<EventType, EventCategory> = {
 
 export function isRealtimeEvent(t: EventType): boolean {
   return EVENT_CATEGORY[t] === 'realtime';
-}
-
-export function isDailyEvent(t: EventType): boolean {
-  return EVENT_CATEGORY[t] === 'daily';
 }
 
 export function isWeeklyEvent(t: EventType): boolean {

@@ -172,7 +172,7 @@ describe('startDetectionListener', () => {
     cleanup();
   });
 
-  it('inserts regular ace event with status=pending', async () => {
+  it('inserts regular ace event with status=digest-only (weekly leaderboard, not realtime)', async () => {
     const cleanup = startDetectionListener({ db, getPrevRecords: async () => [] });
 
     const kills = [
@@ -195,7 +195,10 @@ describe('startDetectionListener', () => {
       .all(TARGET_PUUID) as { status: string }[];
 
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.status).toBe('pending');
+    // Since the daily digest was dropped, `ace` is a WEEKLY event: it is
+    // inserted 'digest-only' so it never enters the realtime publisher queue,
+    // and is counted into the weekly «Эйсы недели» leaderboard instead.
+    expect(rows[0]!.status).toBe('digest-only');
 
     cleanup();
   });
