@@ -261,6 +261,12 @@ function pluralRu(n: number, one: string, few: string, many: string): string {
   return many;
 }
 
+/** Collapse config for the two player boards (aces, knives). */
+const PLAYER_TAIL = {
+  after: PODIUM,
+  summary: (n: number) => `ещё ${n} ${pluralRu(n, 'игрок', 'игрока', 'игроков')}`,
+};
+
 /**
  * One rendered section.
  *
@@ -297,13 +303,14 @@ function leaderboardBlock(
   if (rows.length === 0) return null;
   const rendered = rows.map((r, i) => `${MEDALS[i] ?? '•'} ${r.labelHtml} — ${r.count}`);
 
-  // Podium stays open, the tail folds away. Never collapse a tail of one — an
-  // accordion hiding a single line costs more than it saves.
+  // Podium stays open, the tail folds away. The `> after + 1` bound means the
+  // tail is always ≥ 2 rows, so an accordion is never empty and never hides a
+  // single line (which would cost more than it saves). A board that fits in
+  // the podium renders wholly open.
   if (collapse && rendered.length > collapse.after + 1) {
-    const head = rendered.slice(0, collapse.after);
     const tail = rendered.slice(collapse.after);
     return {
-      lines: [`${emoji} <b>${title}</b>`, ...head],
+      lines: [`${emoji} <b>${title}</b>`, ...rendered.slice(0, collapse.after)],
       more: { summary: collapse.summary(tail.length), lines: tail },
     };
   }
@@ -350,9 +357,11 @@ function buildBlocks(model: RichDigestModel): Block[] {
   }
 
   // 3. Ace / knife leaderboards — the former daily digest, now plain counts.
-  const aceBlock = leaderboardBlock('🎯', 'Эйсы недели', standingsRows(model.aces));
+  // Same podium-plus-accordion treatment as maps/agents: on a busy week these
+  // reach a dozen players and the tail is everyone with a single ace.
+  const aceBlock = leaderboardBlock('🎯', 'Эйсы недели', standingsRows(model.aces), PLAYER_TAIL);
   if (aceBlock) blocks.push(aceBlock);
-  const knifeBlock = leaderboardBlock('🔪', 'Ножи недели', standingsRows(model.knives));
+  const knifeBlock = leaderboardBlock('🔪', 'Ножи недели', standingsRows(model.knives), PLAYER_TAIL);
   if (knifeBlock) blocks.push(knifeBlock);
 
   // 4. Винстрик недели.
@@ -454,8 +463,11 @@ export function renderDigest(model: RichDigestModel): RenderedDigest {
     blocks
       .map((b) => {
         const head = b.lines.join('<br>');
-        if (!b.more) return head;
-        // The tail folds away; `<details>` is block-level, so no <br> before it.
+        // Belt-and-braces: an accordion with nothing inside is worse than no
+        // accordion, so an empty tail is dropped here regardless of how the
+        // block was built.
+        if (!b.more || b.more.lines.length === 0) return head;
+        // `<details>` is block-level, so no <br> before it.
         return `${head}<details><summary>${esc(b.more.summary)}</summary>${b.more.lines.join('<br>')}</details>`;
       })
       .join('<br><br>'),
