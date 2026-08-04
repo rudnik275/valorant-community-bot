@@ -137,6 +137,9 @@ export function encodePerRoundAfk(map: Map<number, Set<string>>): string {
  * Same degradation contract as the other decoders: null / empty / malformed
  * / wrong-shape → empty map. Callers do `map.get(round)?.has(puuid)`.
  */
+// Currently unused by any detector — the knife goose/lamb split it was written
+// for was retired 2026-08-04. Kept as the reader for the still-populated
+// `match_records.per_round_afk_compact` column.
 export function decodePerRoundAfk(raw: string | null | undefined): Map<number, Set<string>> {
   const out = new Map<number, Set<string>>();
   if (!raw) return out;

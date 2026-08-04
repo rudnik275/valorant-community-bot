@@ -1,7 +1,9 @@
 /**
- * scheduled-digest.ts — the one module behind both the weekly and the daily
- * digest. Owns the shared scaffold that used to be copy-pasted across
- * `digest/loop.ts` and `digest-daily/loop.ts`:
+ * scheduled-digest.ts — the scaffold behind the scheduled digest. It was
+ * extracted (#255) to de-duplicate the weekly and daily loops; since the daily
+ * digest was removed on 2026-08-04 the only remaining adapter is
+ * `digest/loop.ts`. The generic `DigestSpec` seam is kept — it is what makes
+ * the idempotency contract below testable in isolation:
  *
  *   - cron registration (Croner, Europe/Kyiv, `protect: true`)
  *   - the idempotency contract (dedup-key lookup + run-row recording)
@@ -9,11 +11,10 @@
  *   - the optional Healthchecks.io fire-and-forget ping
  *   - the unexpected-error boundary
  *
- * Weekly and daily are now THIN adapters (see `DigestSpec`) that supply only
- * what genuinely differs: the cron expression, the time window + dedup key,
- * the builder call, the run-row persistence (different tables/columns), and
- * two booleans (does the Silent-period gate apply? does the healthcheck ping
- * apply?).
+ * An adapter (see `DigestSpec`) supplies only what is digest-specific: the
+ * cron expression, the time window + dedup key, the builder call, the run-row
+ * persistence, and two booleans (does the Silent-period gate apply? does the
+ * healthcheck ping apply?).
  *
  * ─── Idempotency ordering (decided once, here, for BOTH digests) ──────────
  *

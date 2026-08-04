@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { EVENT_CATEGORY, isRealtimeEvent, isDailyEvent, isWeeklyEvent, type EventType } from './types.ts';
+import { EVENT_CATEGORY, isRealtimeEvent, isWeeklyEvent, type EventType } from './types.ts';
 
 describe('EVENT_CATEGORY', () => {
   it('covers all 21 EventType values exactly once', () => {
@@ -43,20 +43,14 @@ describe('EVENT_CATEGORY', () => {
     ]);
   });
 
-  it('has 2 daily types', () => {
-    const daily = Object.entries(EVENT_CATEGORY)
-      .filter(([, v]) => v === 'daily')
-      .map(([k]) => k);
-    expect(daily.length).toBe(2);
-    expect(daily.sort()).toEqual(['ace', 'knife_kill']);
-  });
-
-  it('has 13 weekly types', () => {
+  it('has 15 weekly types — ace/knife_kill moved here when the daily digest was dropped', () => {
     const weekly = Object.entries(EVENT_CATEGORY)
       .filter(([, v]) => v === 'weekly')
       .map(([k]) => k);
-    expect(weekly.length).toBe(13);
+    expect(weekly.length).toBe(15);
     expect(weekly.sort()).toEqual([
+      'ace',
+      'knife_kill',
       'peak_rank_up',
       'record_damage_dealt_match',
       'record_damage_received_match',
@@ -73,38 +67,26 @@ describe('EVENT_CATEGORY', () => {
     ]);
   });
 
-  it('every value is "realtime", "daily", or "weekly"', () => {
+  it('every value is "realtime" or "weekly" — there is no "daily" category any more', () => {
     for (const v of Object.values(EVENT_CATEGORY)) {
-      expect(['realtime', 'daily', 'weekly']).toContain(v);
+      expect(['realtime', 'weekly']).toContain(v);
     }
   });
 });
 
-describe('isRealtimeEvent / isDailyEvent / isWeeklyEvent', () => {
+describe('isRealtimeEvent / isWeeklyEvent', () => {
   it('isRealtimeEvent returns true for realtime types', () => {
     expect(isRealtimeEvent('teamkill')).toBe(true);
     expect(isRealtimeEvent('return_after_pause')).toBe(true);
     expect(isRealtimeEvent('giant_slayer')).toBe(true);
   });
 
-  it('isRealtimeEvent returns false for daily/weekly types', () => {
+  it('isRealtimeEvent returns false for weekly types', () => {
     expect(isRealtimeEvent('ace')).toBe(false);
+    expect(isRealtimeEvent('knife_kill')).toBe(false);
     expect(isRealtimeEvent('winstreak_10plus')).toBe(false);
     expect(isRealtimeEvent('peak_rank_up')).toBe(false);
     expect(isRealtimeEvent('record_kills_match')).toBe(false);
-  });
-
-  it('isDailyEvent returns true for daily types', () => {
-    expect(isDailyEvent('ace')).toBe(true);
-    expect(isDailyEvent('knife_kill')).toBe(true);
-  });
-
-  it('isDailyEvent returns false for realtime and weekly types', () => {
-    expect(isDailyEvent('teamkill')).toBe(false);
-    expect(isDailyEvent('giant_slayer')).toBe(false);
-    expect(isDailyEvent('winstreak_10plus')).toBe(false);
-    expect(isDailyEvent('peak_rank_up')).toBe(false);
-    expect(isDailyEvent('record_kills_match')).toBe(false);
   });
 
   it('isWeeklyEvent returns true for weekly types', () => {
@@ -113,26 +95,23 @@ describe('isRealtimeEvent / isDailyEvent / isWeeklyEvent', () => {
     expect(isWeeklyEvent('record_kills_match')).toBe(true);
   });
 
-  it('isWeeklyEvent returns false for realtime and daily types', () => {
+  it('isWeeklyEvent returns false for realtime types', () => {
     expect(isWeeklyEvent('teamkill')).toBe(false);
     expect(isWeeklyEvent('giant_slayer')).toBe(false);
-    expect(isWeeklyEvent('ace')).toBe(false);
-    expect(isWeeklyEvent('knife_kill')).toBe(false);
   });
 
-  it('knife_kill is daily, not realtime or weekly', () => {
-    expect(isDailyEvent('knife_kill')).toBe(true);
+  it('ace and knife_kill are weekly, not realtime — they feed the weekly leaderboards', () => {
+    expect(isWeeklyEvent('ace')).toBe(true);
+    expect(isWeeklyEvent('knife_kill')).toBe(true);
+    expect(isRealtimeEvent('ace')).toBe(false);
     expect(isRealtimeEvent('knife_kill')).toBe(false);
-    expect(isWeeklyEvent('knife_kill')).toBe(false);
   });
 
-  it('every EventType is exactly one of realtime, daily, or weekly', () => {
+  it('every EventType is exactly one of realtime or weekly', () => {
     for (const k of Object.keys(EVENT_CATEGORY) as EventType[]) {
       const r = isRealtimeEvent(k);
-      const d = isDailyEvent(k);
       const w = isWeeklyEvent(k);
-      // Exactly one of the three must be true.
-      expect([r, d, w].filter(Boolean).length).toBe(1);
+      expect([r, w].filter(Boolean).length).toBe(1);
     }
   });
 });

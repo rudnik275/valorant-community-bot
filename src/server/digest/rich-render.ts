@@ -1,42 +1,46 @@
 /**
- * rich-render.ts — Rich Message (Bot API 10.1+) renderer for the weekly digest.
+ * rich-render.ts — Renderer for the weekly digest.
  *
- * The weekly digest is built once (see build.ts) into a structured
- * `RichDigestModel`; `renderRichDigest` turns that model into the `html` string
- * for `sendRichMessage`. The legacy plain-text rendering is byte-for-byte
- * unchanged (build.ts still produces it verbatim) — this module is a PARALLEL
- * renderer over the same section data.
+ * ─── Format: FLAT LINES, no tables (owner, 2026-08-04) ──────────────────────
  *
- * Approved layout (#315 «Недельный дайджест», owner-approved via #309 previews):
- *   <h2>📅 Дайджест за неделю · дата</h2>
- *   <img src="…splash.png">                       (cover; only when topMap known)
- *   📊 За неделю мы сыграли <b>N</b> матчей
- *   <details>…</details> per record event          (bright records incl. MVP king)
- *   🏆 <b>Винстрик недели:</b> card               (no details, no match link)
- *   <h3>🎖 Повышение по службе</h3> + table Игрок|Ранг
- *   <h3>🔫 Мастера своего дела</h3> + table Оружие|Фраги|Игрок
- *   near-miss OPEN blocks (эмодзи <u>…</u><br>renderPlayerName · значение единица)
- *   🏆 <b>Больше всех матчей</b> line
- *   <h3>🗺 Чаще всего играли на</h3> + table Карта|Матчей
- *   <h3>🎭 Чаще всего пикали</h3>   + table Агент|Пиков
- *   <footer>#digest</footer>
+ * The previous layout leaned on `<table>` for «Повышение по службе», «Мастера
+ * своего дела», «Чаще всего играли на» and «Чаще всего пикали». Tables read
+ * badly on a phone — narrow columns wrap, and the 3-column weapons table was
+ * the worst offender — so every table is gone. Each section is now a header
+ * line plus one line per item:
+ *
+ *   🔫 <b>Мастера своего дела</b>
+ *   🔫 Vandal · 28 — <b>Ник#Тег</b>
+ *
+ * `<details>` accordions are gone for the same reason: the owner picked the
+ * "всё видно сразу" variant, so records render as two flat lines (title, then
+ * `ник · значение · ссылка-на-матч`) instead of a tap-to-expand summary. The
+ * per-record context line («рекорд по количеству фрагов за игру») went with
+ * them — it lived inside the accordion body and would have cost a visible line
+ * per record in a flat layout.
+ *
+ * ─── One model, two renderings ──────────────────────────────────────────────
+ *
+ * `renderDigest` returns BOTH the Rich Message html and the plain-text
+ * fallback from the SAME `RichDigestModel`. They differ only in how lines are
+ * joined (`<br>` vs `\n`) and in html-only chrome (the `<h2>` title, the cover
+ * `<img>`, the `<footer>`). Previously build.ts assembled the legacy text
+ * through publisher/templates.ts while this module assembled the rich html
+ * separately — two hand-synced formats that could drift. Now they cannot.
+ *
+ * Inline markup (`<b>/<i>/<u>/<a>/<tg-emoji>`) is valid in BOTH Rich Messages
+ * and classic `parse_mode: 'HTML'`, so every line is shared verbatim.
  *
  * Rich HTML facts we rely on (verified against the live Bot API docs + spike
- * #306, PRs #307/#308/#310):
- *   - `<h2>`/`<h3>` render as headings; `<table>`/`<tr>/<th>/<td>` render as
- *     tables (custom `<tg-emoji>` survives inside cells; `align`/`striped`
- *     attributes pass through); `<details><summary>` renders collapsible;
- *     `<img src>` renders an inline HTTP(S) image.
- *   - Inline `<b>/<i>/<u>/<a>` and `<tg-emoji>` markup pass through untouched.
- *   - **Raw `\n` collapses browser-style** — the produced html carries NO raw
- *     `\n`; every break is `<br>` or block markup. Enforced + asserted in tests.
- *
- * The player-name / match-link rendering goes through the shared publisher
- * helpers (`renderPlayerName`, `matchLink`) landed in slice A (#316).
+ * #306, PRs #307/#308/#310): `<h2>` renders as a heading, `<img src>` renders
+ * an inline HTTP(S) image, inline markup passes through, and **raw `\n`
+ * collapses browser-style** — so the html carries NO raw `\n` (asserted in
+ * tests) while the text twin is built from the same lines with real newlines.
  */
 
 import { renderPlayerName, matchLink } from '../publisher/player-render.ts';
 import { rankToEmojiHtml } from '../publisher/rank-emoji.ts';
+import type { AceKnifeStanding } from './ace-knife.ts';
 
 /** A community player attached to a specific match (record events). */
 export interface RichPlayerRef {
@@ -50,9 +54,9 @@ export interface RichPlayerRef {
   agent?: string | null;
 }
 
-/** One record event rendered as a `<details>` accordion. */
+/** One record event rendered as a two-line flat block. */
 export interface RichRecord {
-  /** Leading unicode emoji for the summary (e.g. "💀"). */
+  /** Leading unicode emoji for the title line (e.g. "💀"). */
   emoji: string;
   /** Record title (e.g. "Серийный маньяк"). Escaped at render. */
   title: string;
@@ -64,7 +68,11 @@ export interface RichRecord {
   matchUrl?: string | null;
   /** Map name of that match (drives the map emoji on the link). */
   mapName?: string | null;
-  /** Context description (verbatim from templates). Escaped at render. */
+  /**
+   * Context description (e.g. "рекорд по количеству фрагов за игру").
+   * Retained on the model — build.ts still fills it — but NOT rendered in the
+   * flat layout (see the header note).
+   */
   context: string;
 }
 
@@ -75,7 +83,7 @@ export interface RichWinstreak {
   streak: number;
 }
 
-/** One promotion row for the «Повышение по службе» table. */
+/** One promotion row for «Повышение по службе». */
 export interface RichPromotion {
   name: string;
   tag: string;
@@ -83,7 +91,7 @@ export interface RichPromotion {
   rank: string;
 }
 
-/** One structured weapon-master row for the «Мастера своего дела» table. */
+/** One structured weapon-master row for «Мастера своего дела». */
 export interface RichWeaponMaster {
   /** Custom-emoji HTML for the weapon (or a unicode fallback marker). */
   weaponEmojiHtml: string;
@@ -93,12 +101,12 @@ export interface RichWeaponMaster {
   value: number;
   /**
    * Player display, as a TRUSTED HTML fragment (already `<b>…</b>`-wrapped and
-   * `esc()`-escaped by build.ts). Rendered verbatim into the cell.
+   * `esc()`-escaped by build.ts). Rendered verbatim into the line.
    */
   playerHtml: string;
 }
 
-/** One near-miss ("почти рекорд") OPEN block. */
+/** One near-miss ("почти рекорд") block. */
 export interface RichNearMiss {
   /** Leading unicode emoji (e.g. "💀"). */
   emoji: string;
@@ -110,20 +118,19 @@ export interface RichNearMiss {
   value: string;
 }
 
-/** One structured top-map row for the «Чаще всего играли на» table. */
+/**
+ * One top-map row. No per-entry pack icon: the recap line is prefixed with a
+ * single 🗺 and repeating a map icon per entry read as a doubled emoji.
+ */
 export interface RichTopMap {
-  /** Custom-emoji HTML for the map, or '' when unknown. */
-  emojiHtml: string;
   /** Map name (escaped at render). */
   map: string;
   /** Match count. */
   count: number;
 }
 
-/** One structured top-agent row for the «Чаще всего пикали» table. */
+/** One top-agent row. Same no-per-entry-icon rule as {@link RichTopMap}. */
 export interface RichTopAgent {
-  /** Custom-emoji HTML for the agent, or '' when unknown. */
-  emojiHtml: string;
   /** Agent name (escaped at render). */
   agent: string;
   /** Pick count. */
@@ -131,26 +138,35 @@ export interface RichTopAgent {
 }
 
 /**
- * Structured data for the rich rendering of one weekly digest. Assembled in
- * the same pass as the legacy text (build.ts). Every field mirrors a legacy
- * section so nothing drifts.
+ * Structured data for one weekly digest. Assembled in a single pass by
+ * build.ts and rendered twice (html + text) by `renderDigest`.
  */
 export interface RichDigestModel {
-  /** Localised date for the `<h2>` title (e.g. "27 апреля 2025 г."). */
+  /** Localised date for the title (e.g. "27 апреля 2025 г."). */
   headerDate: string;
   /** Most-played map name this week (topMap) — drives the cover image. */
   coverMap: string | null;
   /** Total matches this window (pulse line). */
   totalMatches: number;
-  /** Record events rendered as `<details>` accordions (order-preserving). */
+  /** Record events, order-preserving. */
   records: RichRecord[];
-  /** Winstreak rows for the «Винстрик недели» card. Empty ⇒ card omitted. */
+  /** Winstreak rows. Empty ⇒ section omitted. */
   winstreaks: RichWinstreak[];
-  /** Promotion rows for the «Повышение по службе» table. Empty ⇒ omitted. */
+  /**
+   * Ace leaderboard — «кто сколько эйсов сделал». Desc by count.
+   * Empty ⇒ section omitted.
+   */
+  aces: AceKnifeStanding[];
+  /**
+   * Knife-kill leaderboard — «кто сколько ножей сделал». Desc by count.
+   * Empty ⇒ section omitted.
+   */
+  knives: AceKnifeStanding[];
+  /** Promotion rows. Empty ⇒ omitted. */
   promotions: RichPromotion[];
-  /** Weapons-masters rows for the «Мастера своего дела» table. Empty ⇒ omitted. */
+  /** Weapons-masters rows. Empty ⇒ omitted. */
   weaponMasters: RichWeaponMaster[];
-  /** Near-miss OPEN blocks. Empty ⇒ «Почти рекорды» omitted. */
+  /** Near-miss blocks. Empty ⇒ «Почти рекорды» omitted. */
   nearMisses: RichNearMiss[];
   /**
    * Most-active player: `{ nameHtml, count }`, or null when omitted (<5).
@@ -158,10 +174,18 @@ export interface RichDigestModel {
    * build.ts) — rendered verbatim; do NOT re-escape.
    */
   mostActive: { nameHtml: string; count: number } | null;
-  /** Top maps (already limited to 3, sorted desc). Empty ⇒ section omitted. */
+  /** Top maps (already limited to 3, sorted desc). Empty ⇒ omitted. */
   topMaps: RichTopMap[];
-  /** Top agents (already limited to 3, sorted desc). Empty ⇒ section omitted. */
+  /** Top agents (already limited to 3, sorted desc). Empty ⇒ omitted. */
   topAgents: RichTopAgent[];
+}
+
+/** The two renderings of one digest, produced together from one model. */
+export interface RenderedDigest {
+  /** Rich Message html for `sendRichMessage`. Contains NO raw `\n`. */
+  html: string;
+  /** Plain-text fallback for `sendMessage` with `parse_mode: 'HTML'`. */
+  text: string;
 }
 
 /**
@@ -211,57 +235,68 @@ function esc(s: string): string {
     .replace(/'/g, '&#39;');
 }
 
+/** Podium markers for the ace / knife leaderboards; 4th place onward gets a bullet. */
+const MEDALS = ['🥇', '🥈', '🥉'];
+
 /**
- * Render one record event as a `<details>` accordion:
- *   <details><summary>эмодзи <b>Название</b><br>
- *     renderPlayerName · значение · matchLink</summary>
- *     <blockquote><i>контекст</i></blockquote></details>
- * Aggregate records (no matchUrl) omit the match-link segment.
+ * One rendered section: a list of inline-HTML lines. Blocks are separated by a
+ * blank line in both renderings; lines inside a block are not.
  */
-function renderRecord(r: RichRecord): string {
-  const nameHtml = renderPlayerName({
-    name: r.player.name,
-    tag: r.player.tag,
-    isCommunity: true,
-    rank: r.player.rank ?? null,
-    agent: r.player.agent ?? null,
+type Block = string[];
+
+/**
+ * Render one ace/knife leaderboard block, or null when the board is empty.
+ * Line shape: `🥇 <b>Ник#Тег</b> — 4`. Aces and knives render identically —
+ * the «заколол баранчика» / «распотрошил гуся» (AFK victim) split is retired
+ * (owner, 2026-08-04): a knife kill is a knife kill.
+ */
+function standingsBlock(
+  emoji: string,
+  title: string,
+  standings: AceKnifeStanding[],
+): Block | null {
+  if (standings.length === 0) return null;
+  const lines = standings.map((s, i) => {
+    const marker = MEDALS[i] ?? '•';
+    const nick = renderPlayerName({ name: s.name, tag: s.tag, isCommunity: true });
+    return `${marker} ${nick} — ${s.count}`;
   });
-  const parts = [nameHtml, esc(r.value)];
-  if (r.matchUrl) {
-    parts.push(matchLink({ url: r.matchUrl, mapName: r.mapName ?? null }));
-  }
-  const summary = `${r.emoji} <b>${esc(r.title)}</b><br>${parts.join(' · ')}`;
-  const body = `<blockquote><i>${esc(r.context)}</i></blockquote>`;
-  return `<details><summary>${summary}</summary>${body}</details>`;
+  return [`${emoji} <b>${title}</b>`, ...lines];
 }
 
 /**
- * Render the weekly digest as Rich HTML for `sendRichMessage`.
- *
- * The produced string contains NO raw `\n` (every break is `<br>` or block
- * markup) — the digest text otherwise collapses in the rich client.
+ * Assemble every section of the digest as a list of blocks. Shared by both
+ * renderings — the html/text split happens only at join time.
  */
-export function renderRichDigest(model: RichDigestModel): string {
-  const parts: string[] = [];
+function buildBlocks(model: RichDigestModel): Block[] {
+  const blocks: Block[] = [];
 
-  // 1. Title.
-  parts.push(`<h2>📅 Дайджест за неделю · ${esc(model.headerDate)}</h2>`);
+  // 1. Pulse line.
+  blocks.push([`📊 За неделю мы сыграли <b>${model.totalMatches}</b> матчей`]);
 
-  // 2. Cover image — splash of the week's top map (omitted when unknown).
-  const coverUrl = mapSplashUrl(model.coverMap);
-  if (coverUrl) {
-    parts.push(`<img src="${esc(coverUrl)}">`);
-  }
-
-  // 3. Pulse line.
-  parts.push(`📊 За неделю мы сыграли <b>${model.totalMatches}</b> матчей`);
-
-  // 4. Records — one <details> accordion each.
+  // 2. Records — two flat lines each: title, then `ник · значение · ссылка`.
   for (const r of model.records) {
-    parts.push(renderRecord(r));
+    const nick = renderPlayerName({
+      name: r.player.name,
+      tag: r.player.tag,
+      isCommunity: true,
+      rank: r.player.rank ?? null,
+      agent: r.player.agent ?? null,
+    });
+    const parts = [nick, esc(r.value)];
+    if (r.matchUrl) {
+      parts.push(matchLink({ url: r.matchUrl, mapName: r.mapName ?? null }));
+    }
+    blocks.push([`${r.emoji} <b>${esc(r.title)}</b>`, parts.join(' · ')]);
   }
 
-  // 5. Винстрик недели — card without details.
+  // 3. Ace / knife leaderboards — the former daily digest, now plain counts.
+  const aceBlock = standingsBlock('🎯', 'Эйсы недели', model.aces);
+  if (aceBlock) blocks.push(aceBlock);
+  const knifeBlock = standingsBlock('🔪', 'Ножи недели', model.knives);
+  if (knifeBlock) blocks.push(knifeBlock);
+
+  // 4. Винстрик недели.
   if (model.winstreaks.length > 0) {
     const lines = model.winstreaks
       .slice()
@@ -271,101 +306,97 @@ export function renderRichDigest(model: RichDigestModel): string {
           `${renderPlayerName({ name: w.name, tag: w.tag, isCommunity: true })}` +
           ` · ${w.streak} побед подряд`,
       );
-    parts.push(`🏆 <b>Винстрик недели:</b><br>${lines.join('<br>')}`);
+    blocks.push(['🏆 <b>Винстрик недели</b>', ...lines]);
   }
 
-  // 6. Повышение по службе — table Игрок | Ранг.
-  if (model.promotions.length > 0) {
-    const rows = model.promotions
-      .map((p) => {
-        const player = renderPlayerName({ name: p.name, tag: p.tag, isCommunity: true });
-        const rankEmoji = rankToEmojiHtml(p.rank);
-        const rankCell = rankEmoji || esc(p.rank);
-        return `<tr><td>${player}</td><td>${rankCell}</td></tr>`;
-      })
-      .join('');
-    parts.push(
-      '<h3>🎖 Повышение по службе</h3>' +
-        '<table><tr><th>Игрок</th><th>Ранг</th></tr>' +
-        rows +
-        '</table>',
-    );
-  }
-
-  // 7. Мастера своего дела — striped weapons table.
+  // 5. Мастера своего дела — one line per weapon (was a 3-column table).
   if (model.weaponMasters.length > 0) {
-    const rows = model.weaponMasters
-      .map(
-        (w) =>
-          `<tr><td>${w.weaponEmojiHtml} ${esc(w.weapon)}</td>` +
-          `<td align="right">${w.value}</td>` +
-          `<td>${w.playerHtml}</td></tr>`,
-      )
-      .join('');
-    parts.push(
-      '<h3>🔫 Мастера своего дела</h3>' +
-        '<i>лидеры по убийствам одним оружием за матч</i>' +
-        '<table striped><tr><th>Оружие</th><th>Фраги</th><th>Игрок</th></tr>' +
-        rows +
-        '</table>',
+    const lines = model.weaponMasters.map(
+      (w) =>
+        `${w.weaponEmojiHtml ? `${w.weaponEmojiHtml} ` : ''}${esc(w.weapon)}` +
+        ` · ${w.value} — ${w.playerHtml}`,
     );
+    blocks.push([
+      '🔫 <b>Мастера своего дела</b>',
+      '<i>лидеры по убийствам одним оружием за матч</i>',
+      ...lines,
+    ]);
   }
 
-  // 8. Почти рекорды — OPEN blocks (no details).
+  // 6. Повышение по службе — one line per player (was a table).
+  if (model.promotions.length > 0) {
+    const lines = model.promotions.map((p) => {
+      const nick = renderPlayerName({ name: p.name, tag: p.tag, isCommunity: true });
+      const rankEmoji = rankToEmojiHtml(p.rank);
+      return `${nick} → ${rankEmoji || esc(p.rank)}`;
+    });
+    const header = model.promotions.length === 1 ? 'Повышение по службе' : 'Повышения по службе';
+    blocks.push([`🎖 <b>${header}</b>`, ...lines]);
+  }
+
+  // 7. Почти рекорды.
   for (const nm of model.nearMisses) {
-    const player = renderPlayerName({
+    const nick = renderPlayerName({
       name: nm.player.name,
       tag: nm.player.tag,
       isCommunity: true,
       agent: nm.player.agent ?? null,
     });
-    parts.push(`${nm.emoji} <u>${esc(nm.header)}</u><br>${player} · ${esc(nm.value)}`);
+    blocks.push([`${nm.emoji} <u>${esc(nm.header)}</u>`, `${nick} · ${esc(nm.value)}`]);
   }
 
-  // 9. Больше всех матчей — plain bold nick line (aggregate, no icons).
+  // 8. Больше всех матчей.
   if (model.mostActive) {
-    parts.push(
-      `🏆 <b>Больше всех матчей</b><br>${model.mostActive.nameHtml} · ${model.mostActive.count} за неделю`,
-    );
+    blocks.push([
+      '🏆 <b>Больше всех матчей</b>',
+      `${model.mostActive.nameHtml} · ${model.mostActive.count} за неделю`,
+    ]);
   }
 
-  // 10a. Top maps table.
+  // 9. Карты и агенты — one inline line each instead of two tables.
+  //
+  // The per-entry custom map/agent icons are deliberately NOT used here. A
+  // leading 🗺 / 🎭 already labels the row, and repeating an icon per entry
+  // read as a doubled emoji («🗺 🗺️ Ascent 14 · 🗺️ Bind 10»). The pack icons
+  // still ride along everywhere they carry information — next to nicks, ranks,
+  // agents, weapons and match links.
   if (model.topMaps.length > 0) {
-    const rows = model.topMaps
-      .map(
-        (m) =>
-          `<tr><td>${m.emojiHtml ? `${m.emojiHtml} ` : ''}${esc(m.map)}</td>` +
-          `<td align="right">${m.count}</td></tr>`,
-      )
-      .join('');
-    parts.push(
-      '<h3>🗺 Чаще всего играли на</h3>' +
-        '<table><tr><th>Карта</th><th>Матчей</th></tr>' +
-        rows +
-        '</table>',
-    );
+    const inline = model.topMaps.map((m) => `${esc(m.map)} ${m.count}`).join(' · ');
+    blocks.push([`🗺 ${inline}`]);
   }
-
-  // 10b. Top agents table.
   if (model.topAgents.length > 0) {
-    const rows = model.topAgents
-      .map(
-        (a) =>
-          `<tr><td>${a.emojiHtml ? `${a.emojiHtml} ` : ''}${esc(a.agent)}</td>` +
-          `<td align="right">${a.count}</td></tr>`,
-      )
-      .join('');
-    parts.push(
-      '<h3>🎭 Чаще всего пикали</h3>' +
-        '<table><tr><th>Агент</th><th>Пиков</th></tr>' +
-        rows +
-        '</table>',
-    );
+    const inline = model.topAgents.map((a) => `${esc(a.agent)} ${a.count}`).join(' · ');
+    blocks.push([`🎭 ${inline}`]);
   }
 
-  // 11. Footer.
-  parts.push('<footer>#digest</footer>');
+  return blocks;
+}
 
-  // Join sections; the whole thing carries no raw '\n'.
-  return parts.join('');
+/**
+ * Render the weekly digest once into both a Rich Message html string and the
+ * plain-text fallback.
+ *
+ * The html carries NO raw `\n` (every break is `<br>` or block markup) — the
+ * digest otherwise collapses in the rich client. The text twin uses real
+ * newlines and drops html-only chrome (cover image, `<h2>`, `<footer>`).
+ */
+export function renderDigest(model: RichDigestModel): RenderedDigest {
+  const blocks = buildBlocks(model);
+
+  // ── Rich html ──
+  const htmlParts: string[] = [`<h2>📅 Дайджест за неделю · ${esc(model.headerDate)}</h2>`];
+  const coverUrl = mapSplashUrl(model.coverMap);
+  if (coverUrl) htmlParts.push(`<img src="${esc(coverUrl)}">`);
+  htmlParts.push(blocks.map((b) => b.join('<br>')).join('<br><br>'));
+  htmlParts.push('<footer>#digest</footer>');
+
+  // ── Plain text twin ──
+  const textParts: string[] = [`📅 <b>Дайджест за неделю · ${esc(model.headerDate)}</b>`];
+  textParts.push(blocks.map((b) => b.join('\n')).join('\n\n'));
+  textParts.push('#digest');
+
+  return {
+    html: htmlParts.join(''),
+    text: textParts.join('\n\n'),
+  };
 }

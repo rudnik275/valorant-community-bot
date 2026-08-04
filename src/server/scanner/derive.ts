@@ -312,9 +312,9 @@ export function deriveMatchRecord(match: HenrikMatchV4, puuid: string): MatchRec
   // per_round_afk_compact: { "<round>": ["puuid", ...] } of players Riot
   // flagged `was_afk` per round. `null` when `rounds[].stats[]` is absent
   // entirely (legacy/unexpected); `"{}"` when present but no AFK anywhere
-  // (the normal case). Feeds the knife-kill detector to tag "распотрошил
-  // гуся" vs "заколол баранчика" and is the source-of-truth for any
-  // future AFK-related stat / record.
+  // (the normal case). Nothing reads it today — the knife goose/lamb split it
+  // used to feed was retired 2026-08-04 — but it stays the source-of-truth for
+  // any future AFK-related stat / record, and re-deriving it needs a rescan.
   let perRoundAfkRaw: string | null = null;
   if (Array.isArray(match.rounds)) {
     const afkMap = new Map<number, Set<string>>();

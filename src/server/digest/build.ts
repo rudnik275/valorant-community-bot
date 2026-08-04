@@ -1,17 +1,23 @@
 /**
- * build.ts — Pure aggregator for weekly digest content.
+ * build.ts — Aggregator for the weekly digest.
  *
- * Queries DB over a rolling 7-day window and renders sections in block layout:
+ * Queries the DB over a rolling 7-day window and assembles ONE structured
+ * `RichDigestModel`. It does not format anything: `rich-render.ts` turns that
+ * model into both the Rich Message html and the plain-text fallback. (Until
+ * 2026-08 this file also hand-assembled a parallel legacy text through
+ * publisher/templates.ts — two formats that had to be kept in sync by hand.)
  *
- * BRIGHT EVENTS (top block — omitted if none):
- *   record_*_match, winstreak_10plus, peak_rank_up,
- *   record_kills_per_weapon (combined section), record_longest_match_minutes,
- *   record_mvp_count_week, plus near-miss blocks (merged into the same group).
+ * Section order in the rendered digest:
+ *   Pulse
+ *   → bright records (record_*_match, record_mvp_count_week,
+ *     record_longest_match_minutes)
+ *   → 🎯 Эйсы недели / 🔪 Ножи недели  (see ./ace-knife.ts)
+ *   → winstreak → weapons masters → promotions → near-misses
+ *   → most-active → top maps → top agents → #digest
  *
- * ALWAYS-SECTIONS (bottom block, no divider):
- *   Pulse → Top Player → Top Maps → Top Agents
- *
- * Last line: #digest
+ * Everything reads from `match_records` / `detected_events`, which only ever
+ * carry ranked (`console_competitive`) matches — the scanner drops every other
+ * queue, so every record and leaderboard here is ranked-only by construction.
  *
  * Anti-coercion: NEVER mentions who didn't play, who opted out, or
  * includes "play more / come back" calls (memory rule: valorant_no_qol_coercion).
@@ -25,12 +31,13 @@ import { optOuts } from '../db/schema/opt_outs.ts';
 import { allTimeRecords } from '../db/schema/all_time_records.ts';
 import { computeAndEmitWeeklyMvpRecord } from './weekly-mvp-record.ts';
 import { NEAR_MISS_THRESHOLDS } from './near-miss-config.ts';
-import { renderTemplate, renderDigestGroup, type TemplateUser, type TemplateMatch } from '../publisher/templates.ts';
+import type { TemplateUser, TemplateMatch } from '../publisher/templates.ts';
 import { renderPlayerName } from '../publisher/player-render.ts';
-import { agentToEmojiHtml, mapToEmojiHtml, weaponToEmojiHtml } from '../publisher/valorant-emoji.ts';
+import { weaponToEmojiHtml } from '../publisher/valorant-emoji.ts';
 import type { EventType } from '../publisher/types.ts';
+import { buildAceKnifeStandings } from './ace-knife.ts';
 import {
-  renderRichDigest,
+  renderDigest,
   type RichDigestModel,
   type RichWeaponMaster,
   type RichRecord,
@@ -42,13 +49,14 @@ import {
 type AnyDb = any;
 
 /**
- * Per-record-type metadata for the rich `<details>` accordions (#315).
- * `emoji` + `title` mirror the header of each record template in
- * publisher/templates.ts; `context` is the verbatim context-description line;
- * `value(payload)` formats the value line WITHOUT the nick/link (those come
- * from the shared helpers). Kept in sync with templates.ts by construction —
- * the legacy text still renders through templates.ts, so these two only both
- * change when the record's user-visible copy changes.
+ * Per-record-type display metadata. `emoji` + `title` make the record's first
+ * line; `value(payload)` formats the value WITHOUT the nick/link (those come
+ * from the shared render helpers).
+ *
+ * `context` is retained but no longer rendered — the flat layout dropped the
+ * explanation line that used to live inside each record's `<details>` body.
+ * This table is now the SOLE source of record copy for the digest; the
+ * matching entries in publisher/templates.ts serve the realtime path only.
  */
 const RICH_RECORD_META: Record<
   string,
@@ -109,20 +117,6 @@ const RICH_RECORD_META: Record<
 };
 
 /**
- * HTML-escape a string to prevent injection in Telegram HTML messages.
- * Intentional duplication of the same helper in publisher/templates.ts —
- * avoids touching templates.ts and risking merge conflicts; can be DRY'd later.
- */
-function esc(s: string): string {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-/**
  * Bright event types rendered in the top block of the digest.
  * Ordered by display priority (highest weight first for sort).
  */
@@ -175,8 +169,7 @@ async function renderNearMisses(
   weekStart: number,
   weekEnd: number,
   alreadyBeaten: Set<string>,
-): Promise<{ blocks: string[]; rich: RichNearMiss[] }> {
-  const blocks: string[] = [];
+): Promise<RichNearMiss[]> {
   const rich: RichNearMiss[] = [];
 
   for (const cfg of NEAR_MISS_THRESHOLDS) {
@@ -218,8 +211,6 @@ async function renderNearMisses(
         .from(users)
         .where(eq(users.riot_puuid, mvpRow.riot_puuid))
         .limit(1);
-      const userTag = user ? `<b>${esc(user.riot_name)}#${esc(user.riot_tag)}</b>` : `<b>${esc(String(mvpRow.riot_puuid))}</b>`;
-      blocks.push(`${cfg.emoji} <u>${cfg.header}</u>\n${userTag} — ${weekMax} ${cfg.unit}`);
       // mvp_count_week is an aggregate ⇒ no match, no agent, no rank.
       rich.push({
         emoji: cfg.emoji,
@@ -281,15 +272,7 @@ async function renderNearMisses(
       .where(eq(users.riot_puuid, row.riot_puuid))
       .limit(1);
 
-    const userTag = user ? `<b>${esc(user.riot_name)}#${esc(user.riot_tag)}</b>` : `<b>${esc(String(row.riot_puuid))}</b>`;
-    // Agent emoji next to the nick — near-miss is tied to a specific match (#301).
-    const agentEmoji = agentToEmojiHtml(row.agent);
-    const agentSuffix = agentEmoji ? ` ${agentEmoji}` : '';
-    // New format consistent with bright events: underlined caption, value line.
-    // Drops the "(рекорд: X)" prev-record info — same call user made for the
-    // record templates.
-    blocks.push(`${cfg.emoji} <u>${cfg.header}</u>\n${userTag}${agentSuffix} — ${weekMax} ${cfg.unit}`);
-    // Structured near-miss for the rich renderer — tied to the near-miss match,
+    // Structured near-miss for the renderer — tied to the near-miss match,
     // so the agent emoji rides along (no rank-in-match captured for near-miss;
     // the aggregated MAX() row doesn't reliably carry the matching rank_after).
     rich.push({
@@ -304,7 +287,7 @@ async function renderNearMisses(
     });
   }
 
-  return { blocks, rich };
+  return rich;
 }
 
 export interface BuildDigestDeps {
@@ -404,20 +387,12 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
     month: 'long',
     year: 'numeric',
   }).format(weekEnd);
-  const header = `📅 <b>Дайджест за неделю · ${headerDate}</b>`;
-
   // ─── BRIGHT EVENTS (top block) ───────────────────────────────────────────────
-  const brightBlocks: string[] = [];
-  // Weapons section renders last in the bright area — collected separately so
-  // it can be appended after near-miss blocks too.
-  const weaponsBlocks: string[] = [];
-  // Structured weapons-masters rows for the rich «Мастера своего дела» table
-  // (#309). Populated from the same merged weapons group that produces the
-  // legacy text block — sorted desc by value, mirroring renderDigestGroup.
+  // Structured model captures — the ONE representation of each section. Both
+  // the rich html and the plain-text fallback are rendered from these by
+  // `renderDigest`, so there is no second hand-maintained text assembly to
+  // drift from (pre-2026-08 build.ts kept both).
   const richWeaponMasters: RichWeaponMaster[] = [];
-  // Structured rich-model captures (#315), populated in the SAME pass as the
-  // legacy text so they never drift. Records → <details> accordions; winstreak
-  // → card; peak_rank_up → «Повышение по службе» table.
   const richRecords: RichRecord[] = [];
   const richWinstreaks: RichWinstreak[] = [];
   const richPromotions: RichPromotion[] = [];
@@ -646,30 +621,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       groups.push(merged);
     }
 
-    // Phase 3: render each group
-    const GROUP_CAPABLE_TYPES = new Set<string>([
-      'winstreak_10plus',
-      'peak_rank_up',
-      'record_kills_per_weapon',
-    ]);
-    const renderGroup = (g: Group): string => {
-      if (g.entries.length >= 2 && GROUP_CAPABLE_TYPES.has(g.eventType)) {
-        return renderDigestGroup(g.eventType, g.entries);
-      }
-      if (g.eventType === 'record_kills_per_weapon' && g.entries.length === 1) {
-        // Single weapon record this week — still use the combined renderer for
-        // consistency (one-line section with the same header), not the legacy
-        // per-weapon template.
-        return renderDigestGroup(g.eventType, g.entries);
-      }
-      // Single-event format via renderTemplate. If a group-capable type has length === 1,
-      // we still use the single-event template (which has the singular header).
-      return g.entries
-        .map((e) => renderTemplate(e.eventType, e.payload, e.user, e.match))
-        .join('\n\n');
-    };
-    // Capture structured rich data for one group in the SAME order as the
-    // legacy text. Records → accordions; winstreak → card; peak_rank_up → table.
+    // Phase 3: capture each group into the structured model, in display order.
     const captureRich = (g: Group): void => {
       if (g.eventType === 'winstreak_10plus') {
         for (const e of g.entries) {
@@ -723,19 +675,14 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
     for (const g of groups) {
       // Skip weapons here — rendered last (just above weekly recap) per user.
       if (g.eventType === 'record_kills_per_weapon') continue;
-      brightBlocks.push(renderGroup(g));
       captureRich(g);
       sectionsIncluded.push(g.eventType);
     }
-    // Render weapons last so it sits right above the always-bottom recap,
-    // AFTER the near-miss blocks too — collected in `weaponsBlocks` and
-    // appended after near-miss in the final concat below.
+    // Weapons sit last so they're right above the always-bottom recap.
     const weaponsGroup = groups.find((g) => g.eventType === 'record_kills_per_weapon');
     if (weaponsGroup) {
-      weaponsBlocks.push(renderGroup(weaponsGroup));
       sectionsIncluded.push(weaponsGroup.eventType);
-      // Capture structured rows for the rich table — same weapon/value/player
-      // and same desc-by-value sort as renderDigestGroup's weapons branch.
+      // Sorted desc by value — the display order of «Мастера своего дела».
       for (const e of [...weaponsGroup.entries].sort(
         (a, b) => Number(b.payload['value'] ?? 0) - Number(a.payload['value'] ?? 0),
       )) {
@@ -769,30 +716,29 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
     }
   }
 
-  const { blocks: nearMissBlocks, rich: richNearMisses } = await renderNearMisses(
-    db,
-    weekStart,
-    weekEnd,
-    alreadyBeaten,
-  );
-  if (nearMissBlocks.length > 0) {
+  const richNearMisses = await renderNearMisses(db, weekStart, weekEnd, alreadyBeaten);
+  if (richNearMisses.length > 0) {
     sectionsIncluded.push('nearMiss');
   }
 
-  // ─── ALWAYS-SECTIONS ─────────────────────────────────────────────────────────
-  const alwaysSections: string[] = [];
+  // ─── ACE / KNIFE LEADERBOARDS ────────────────────────────────────────────────
+  // Formerly the standalone 23:00 daily digest. Now plain per-player counts —
+  // «кто сколько эйсов сделал, кто сколько ножей сделал» (owner, 2026-08-04).
+  const { aces: richAces, knives: richKnives } = await buildAceKnifeStandings(
+    db,
+    weekStart,
+    weekEnd,
+    await getOptOutSet(),
+  );
+  if (richAces.length > 0) sectionsIncluded.push('aces');
+  if (richKnives.length > 0) sectionsIncluded.push('knives');
 
-  // Structured rich-model fields for the bottom sections (#309), captured in
-  // the same pass as the legacy text.
+  // ─── ALWAYS-SECTIONS ─────────────────────────────────────────────────────────
   let richMostActive: { nameHtml: string; count: number } | null = null;
   const richTopMaps: RichDigestModel['topMaps'] = [];
   const richTopAgents: RichDigestModel['topAgents'] = [];
 
-  // Pulse (simplified)
-  {
-    alwaysSections.push(`📊 За неделю мы сыграли <b>${totalMatches}</b> матчей`);
-    sectionsIncluded.push('pulse');
-  }
+  sectionsIncluded.push('pulse');
 
   // Top Player (Most Active) — top by match count, ≥5 matches
   {
@@ -824,7 +770,6 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
         tag: user.riot_tag,
         isCommunity: true,
       });
-      alwaysSections.push(`🏆 Больше всех матчей\n${name} - ${cnt} за неделю`);
       richMostActive = { nameHtml: name, count: cnt };
       sectionsIncluded.push('mostActive');
       break;
@@ -847,19 +792,8 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
     topMap = maps[0]?.map != null ? String(maps[0].map) : null;
 
     if (maps.length > 0) {
-      const mapLines = maps
-        .map((m: { map: string; cnt: number }) => {
-          const icon = mapToEmojiHtml(String(m.map));
-          return `• ${icon ? `${icon} ` : ''}<b>${esc(String(m.map))}</b> (${Number(m.cnt)}×)`;
-        })
-        .join('\n');
-      alwaysSections.push(`🗺 Чаще всего играли на:\n${mapLines}`);
       for (const m of maps as Array<{ map: string; cnt: number }>) {
-        richTopMaps.push({
-          emojiHtml: mapToEmojiHtml(String(m.map)),
-          map: String(m.map),
-          count: Number(m.cnt),
-        });
+        richTopMaps.push({ map: String(m.map), count: Number(m.cnt) });
       }
       sectionsIncluded.push('topMaps');
     }
@@ -881,55 +815,27 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
     topAgent = agents[0]?.agent != null ? String(agents[0].agent) : null;
 
     if (agents.length > 0) {
-      const agentLines = agents
-        .map((a: { agent: string; cnt: number }) => {
-          const icon = agentToEmojiHtml(String(a.agent));
-          return `• ${icon ? `${icon} ` : ''}<b>${esc(String(a.agent))}</b> (${Number(a.cnt)}×)`;
-        })
-        .join('\n');
-      alwaysSections.push(`🎭 Чаще всего пикали:\n${agentLines}`);
       for (const a of agents as Array<{ agent: string; cnt: number }>) {
-        richTopAgents.push({
-          emojiHtml: agentToEmojiHtml(String(a.agent)),
-          agent: String(a.agent),
-          count: Number(a.cnt),
-        });
+        richTopAgents.push({ agent: String(a.agent), count: Number(a.cnt) });
       }
       sectionsIncluded.push('topAgents');
     }
   }
 
   // ─── Compose ─────────────────────────────────────────────────────────────────
-  const parts: string[] = [header];
-
-  // Order in the bright area: regular bright blocks → near-miss → weapons.
-  // Weapons sit last so they're right above the always-bottom recap.
-  const allBrightBlocks = [...brightBlocks, ...nearMissBlocks, ...weaponsBlocks];
-  if (allBrightBlocks.length > 0) {
-    parts.push('');
-    parts.push(allBrightBlocks.join('\n\n'));
-  }
-
-  parts.push('');
-  // Blank line between each sub-section of the weekly recap (matches / top
-  // player / top maps / top agents) so they breathe instead of mushing into
-  // one block.
-  parts.push(alwaysSections.join('\n\n'));
-  parts.push('');
-  parts.push('#digest');
-
-  const text = parts.join('\n');
-
-  // ─── Rich rendering (#315) — SAME data, parallel renderer ────────────────────
-  // Built from the structured section data captured above, so every section in
-  // the legacy `text` is present in the rich HTML. `topMap` (the strongest map
-  // of the week, already computed for the promo image) drives the cover splash.
-  const richHtml = renderRichDigest({
+  // ONE render pass produces both the Rich Message html (what the group sees)
+  // and the plain-text fallback (used only when sendRichMessage errors, and as
+  // the promo-image prompt input). They come from the same block list, so a
+  // section can never appear in one and not the other. `topMap` — the strongest
+  // map of the week, already computed for the promo image — drives the cover.
+  const { html: richHtml, text } = renderDigest({
     headerDate,
     coverMap: topMap,
     totalMatches,
     records: richRecords,
     winstreaks: richWinstreaks,
+    aces: richAces,
+    knives: richKnives,
     promotions: richPromotions,
     weaponMasters: richWeaponMasters,
     nearMisses: richNearMisses,

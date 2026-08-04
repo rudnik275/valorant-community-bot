@@ -14,7 +14,7 @@
 import { scannerEvents } from '../scanner/events.ts';
 import { ALL_DETECTORS } from './detectors/index.ts';
 import { detectedEvents } from '../db/schema/detected_events.ts';
-import type { MatchRecord } from './types.ts';
+import { isWeeklyEvent, type EventType, type MatchRecord } from './types.ts';
 import logger from '../lib/log.ts';
 import { getOpponentPeakRanks } from '../lib/opponent-context.ts';
 import {
@@ -116,18 +116,16 @@ export function startDetectionListener(deps: DetectionDeps): () => void {
         return eventsByDetector[i]!;
       });
 
-      // Map of event_type → initial status. Default is 'pending' (realtime).
-      const INITIAL_STATUS: Partial<Record<string, 'pending' | 'digest-only'>> = {
-        winstreak_10plus: 'digest-only',
-        record_kills_match: 'digest-only',
-        record_deaths_match: 'digest-only',
-        record_headshots_match: 'digest-only',
-        record_legshots_match: 'digest-only',
-        record_damage_dealt_match: 'digest-only',
-        record_damage_received_match: 'digest-only',
-        record_kills_per_weapon: 'digest-only',
-        record_longest_match_minutes: 'digest-only',
-      };
+      // Initial status is DERIVED from the single source of truth
+      // (`EVENT_CATEGORY` in types.ts) rather than a hand-maintained list:
+      // weekly events go straight to 'digest-only' (never enter the realtime
+      // queue), realtime events start 'pending'. The old hardcoded map had
+      // already drifted — peak_rank_up / record_mvp_count_week /
+      // record_survived_last_rounds / record_died_first_rounds are weekly but
+      // were missing from it, so they were inserted 'pending' and only got
+      // parked as 'silent' by the publisher's defense-in-depth a tick later.
+      const initialStatus = (t: EventType): 'pending' | 'digest-only' =>
+        isWeeklyEvent(t) ? 'digest-only' : 'pending';
 
       // Insert all events. Each iteration is wrapped so a single CHECK / FK /
       // JSON.stringify failure doesn't drop subsequent events of the same record.
@@ -140,7 +138,7 @@ export function startDetectionListener(deps: DetectionDeps): () => void {
               riot_puuid: ev.riot_puuid,
               match_id: ev.match_id,
               payload_json: JSON.stringify(ev.payload),
-              status: INITIAL_STATUS[ev.type] ?? 'pending',
+              status: initialStatus(ev.type),
             })
             .onConflictDoNothing();
 

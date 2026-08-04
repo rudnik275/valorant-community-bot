@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderTemplate, renderDigestGroup, esc } from './templates.ts';
+import { renderTemplate, esc } from './templates.ts';
 import { mapToEmojiHtml, weaponToEmojiHtml, agentToEmojiHtml } from './valorant-emoji.ts';
 import { rankToEmojiHtml } from './rank-emoji.ts';
 import type { EventType } from './types.ts';
@@ -107,30 +107,14 @@ describe('renderTemplate — HTML injection prevention', () => {
 });
 
 describe('renderTemplate — payload-specific behavior', () => {
-  it('ace: shows kill count when round had 6+ kills', () => {
-    const output = renderTemplate('ace', { weapons_per_round: [['Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal']] }, safeUser);
-    expect(output).toContain('6 убийств');
-  });
 
   it('ace: no kill count when round had exactly 5 kills', () => {
     const output = renderTemplate('ace', { weapons_per_round: [['Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal']] }, safeUser);
     expect(output).not.toContain('убийств');
   });
 
-  it('ace: includes map from match param', () => {
-    const output = renderTemplate('ace', {}, safeUser, { map: 'Ascent' });
-    expect(output).toContain(`на карте ${mapToEmojiHtml('Ascent')} Ascent`);
-  });
 
-  it('ace: contains AAAAAAACE heading', () => {
-    const output = renderTemplate('ace', {}, safeUser);
-    expect(output).toContain('AAAAAAACE');
-  });
 
-  it('ace: includes match link when match_id present', () => {
-    const output = renderTemplate('ace', {}, safeUser, { match_id: 'abc123' });
-    expect(output).toContain('tracker.gg/valorant/match/abc123');
-  });
 
   it('rank_promo: Ascendant 1 shows "Повышение по службе" heading + icon only (no tier text)', () => {
     const output = renderTemplate('peak_rank_up', { from_tier_name: 'Diamond 3', to_tier_name: 'Ascendant 1' }, safeUser);
@@ -520,77 +504,11 @@ describe('renderTemplate — payload-specific behavior', () => {
   });
 });
 
-describe('renderDigestGroup — record_kills_per_weapon combined section', () => {
-  const playerA = { riot_name: 'Alice', riot_tag: 'AAA', telegram_id: 1 };
-  const playerB = { riot_name: 'Bob',   riot_tag: 'BBB', telegram_id: 2 };
-  const playerC = { riot_name: 'Cara',  riot_tag: 'CCC', telegram_id: 3 };
-
-  it('renders header "Мастера своего дела" with `Weapon - N | <b>nick#tag</b>` lines', () => {
-    const output = renderDigestGroup('record_kills_per_weapon', [
-      { payload: { weapon: 'Bulldog', value: 7 }, user: playerA },
-      { payload: { weapon: 'Sheriff', value: 10 }, user: playerB },
-      { payload: { weapon: 'Operator', value: 6 }, user: playerC },
-    ]);
-    expect(output).toContain('Мастера своего дела');
-    expect(output).toContain('лидеры по убийствам одним оружием');
-    expect(output).toContain(`${weaponToEmojiHtml('Bulldog')} Bulldog 7 - <b>Alice#AAA</b>`);
-    expect(output).toContain(`${weaponToEmojiHtml('Sheriff')} Sheriff 10 - <b>Bob#BBB</b>`);
-    expect(output).toContain(`${weaponToEmojiHtml('Operator')} Operator 6 - <b>Cara#CCC</b>`);
-  });
-
-  it('sorts entries by frag count descending', () => {
-    const output = renderDigestGroup('record_kills_per_weapon', [
-      { payload: { weapon: 'Bulldog', value: 4 }, user: playerA },
-      { payload: { weapon: 'Sheriff', value: 10 }, user: playerB },
-      { payload: { weapon: 'Operator', value: 7 }, user: playerC },
-    ]);
-    const idxSheriff = output.indexOf('Sheriff');
-    const idxOperator = output.indexOf('Operator');
-    const idxBulldog = output.indexOf('Bulldog');
-    expect(idxSheriff).toBeLessThan(idxOperator);
-    expect(idxOperator).toBeLessThan(idxBulldog);
-  });
-
-  it('does NOT include match link or prev-record line', () => {
-    const output = renderDigestGroup('record_kills_per_weapon', [
-      {
-        payload: {
-          weapon: 'Bulldog',
-          value: 7,
-          real_match_id: 'some-match-id',
-          prev_value: 5,
-          prev_name: 'Old',
-          prev_tag: 'OLD',
-          prev_puuid: 'other-puuid',
-        },
-        user: playerA,
-      },
-    ]);
-    expect(output).not.toContain('tracker.gg');
-    expect(output).not.toContain('прошлый рекорд');
-    expect(output).not.toContain('Old#OLD');
-  });
-
-  it('HTML-escapes weapon names and player nicks', () => {
-    const output = renderDigestGroup('record_kills_per_weapon', [
-      { payload: { weapon: '<img>', value: 1 }, user: { riot_name: '<script>', riot_tag: 'X', telegram_id: 1 } },
-    ]);
-    expect(output).not.toContain('<img>');
-    expect(output).not.toContain('<script>');
-    expect(output).toContain('&lt;img&gt;');
-    expect(output).toContain('&lt;script&gt;');
-  });
-});
-
 describe('renderTemplate — agent emoji next to nicks (#301)', () => {
   // Jett → AGENT_EMOJI['jett'] = 5265124043647916479.
   const JETT = '<tg-emoji emoji-id="5265124043647916479">';
   const SAGE = '<tg-emoji emoji-id="5267462919628560472">';
 
-  it('ace: shows triggering player agent emoji from match.agent', () => {
-    const output = renderTemplate('ace', {}, safeUser, { agent: 'Jett' });
-    expect(output).toContain('<b>Player#TAG</b> ' + JETT);
-  });
 
   it('record_kills_match: shows agent emoji next to nick from match.agent', () => {
     const output = renderTemplate('record_kills_match', { value: 30 }, safeUser, { agent: 'Jett' });

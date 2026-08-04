@@ -197,35 +197,40 @@ describe('knifeKillDetector', () => {
     expect(events[0]!.payload.rounds_won).toEqual([]);
   });
 
-  it('victims_afk is parallel to rounds, looked up from per_round_afk_compact', async () => {
+  it('emits NO per-kill AFK flag — the goose/lamb split is retired', async () => {
     const record: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
-        makeKill(3, 'Knife', 'puuid-1', 'enemy-1'), // enemy-1 NOT flagged AFK
-        makeKill(5, 'Knife', 'puuid-1', 'enemy-2'), // enemy-2 AFK in round 5
-        makeKill(7, 'Knife', 'puuid-1', 'enemy-3'), // round 7 has no AFK entry
+        makeKill(3, 'Knife', 'puuid-1', 'enemy-1'),
+        makeKill(5, 'Knife', 'puuid-1', 'enemy-2'), // enemy-2 WAS afk in round 5
+        makeKill(7, 'Knife', 'puuid-1', 'enemy-3'),
       ]),
-      // Round 5 lists the victim (and someone unrelated) as AFK; round 8
-      // lists enemy-3 — but there is no kill in 8, so that does not surface.
       per_round_afk_compact: JSON.stringify({
         '5': ['enemy-2', 'someone-else'],
         '8': ['enemy-3'],
       }),
     };
     const events = await knifeKillDetector.detect(record, []);
-    expect(events[0]!.payload.victims_afk).toEqual([false, true, false]);
+    // A knife kill is a knife kill: the payload no longer carries victims_afk,
+    // and an AFK victim contributes to `count`/`rounds` like any other.
+    expect(events[0]!.payload).not.toHaveProperty('victims_afk');
+    expect(events[0]!.payload.count).toBe(3);
+    expect(events[0]!.payload.rounds).toEqual([3, 5, 7]);
   });
 
-  it('victims_afk is all-false when per_round_afk_compact is null (legacy match)', async () => {
-    const record: MatchRecord = {
+  it('per_round_afk_compact is ignored entirely (raw data kept, not consumed)', async () => {
+    const withAfk: MatchRecord = {
       ...BASE_RECORD,
       kill_events_compact: JSON.stringify([
         makeKill(3, 'Knife', 'puuid-1', 'enemy-1'),
         makeKill(5, 'Knife', 'puuid-1', 'enemy-2'),
       ]),
-      per_round_afk_compact: null,
+      per_round_afk_compact: JSON.stringify({ '3': ['enemy-1'], '5': ['enemy-2'] }),
     };
-    const events = await knifeKillDetector.detect(record, []);
-    expect(events[0]!.payload.victims_afk).toEqual([false, false]);
+    const withoutAfk: MatchRecord = { ...withAfk, per_round_afk_compact: null };
+
+    const a = await knifeKillDetector.detect(withAfk, []);
+    const b = await knifeKillDetector.detect(withoutAfk, []);
+    expect(a[0]!.payload).toEqual(b[0]!.payload);
   });
 });

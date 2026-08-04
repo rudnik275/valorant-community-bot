@@ -1,3 +1,13 @@
+/**
+ * daily_digest_runs — HISTORICAL. The 23:00 daily ace/knife digest was removed
+ * on 2026-08-04 when `ace` / `knife_kill` moved into the weekly digest as
+ * per-player counts (see `digest/ace-knife.ts`). Nothing writes this table any
+ * more.
+ *
+ * The table itself is deliberately KEPT: it holds the record of what was
+ * actually posted each day, and deleting this schema file would make
+ * `drizzle-kit generate` emit a DROP TABLE on the next migration diff.
+ */
 import { sqliteTable, integer, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const dailyDigestRuns = sqliteTable(

@@ -41,3 +41,33 @@ Daily Ace digest format also changes to surface per-round outcome (💀 round lo
 ## 2026-05-15 — single-list message format
 
 The daily digest layout is reorganised into a single chronological list (`src/server/digest-daily/build.ts`). Aces and knife kills are no longer grouped into two separate sections; each row carries a leading type emoji (`🎯` for ace, `🔪` for knife) and Europe/Kyiv `HH:MM`. Multi-round events fan out into one row per round (sorted ascending), so a Sage-revive 6-kill round and a same-match second ace each get their own line. The header (`🍿 Эйсы и ножи за предыдущие 24 часа`) is plain text at the top, and the legend now lives in a Telegram `<blockquote>` with one row per emoji (4 rows total). Selection rules, status filtering, dedupe by `daily_digest_runs.run_date` and the 23:00 Europe/Kyiv schedule are unchanged.
+
+## 2026-08-04 — daily digest removed; ace/knife become weekly counts
+
+The core decision above (**ace = ≥5 enemy kills in a round**) is unchanged — it
+is still exactly what the detector emits and what gets counted.
+
+What is superseded is the *delivery* described in the 2026-05-15 section. The
+owner moved aces and knife kills out of the standalone 23:00 post and into the
+weekly digest as plain per-player leaderboards — «кто сколько эйсов сделал, кто
+сколько ножей сделал». Consequently:
+
+- `EVENT_CATEGORY` has no `'daily'` category any more; `ace` and `knife_kill`
+  are `'weekly'` and are inserted `status='digest-only'`.
+- The whole `src/server/digest-daily/` module, its 23:00 cron and its
+  `daily_digest_runs` bookkeeping are gone. The table is kept for history.
+- The single chronological list — per-round rows with `HH:MM`, the 🏆/💀
+  round-outcome marker, the round number and the per-round match link — no
+  longer exists anywhere. Only counts survive.
+- The «заколол баранчика» / «распотрошил гуся» (AFK victim) split is **retired
+  entirely** — a knife kill is a knife kill. The knife detector no longer emits
+  `victims_afk`, and no message anywhere distinguishes the two. The raw Riot
+  flags stay on `match_records.per_round_afk_compact`, so it is re-derivable if
+  the joke is ever wanted back.
+- The `ace` and `knife_kill` chat templates in `publisher/templates.ts` are
+  deleted — both types are weekly now, so neither the publisher loop nor the
+  `/test_runtime_events` replay could ever reach them.
+- Aces are counted per **aced round**; knife kills per **kill** (two knife kills
+  in one round count as 2 — the old daily post deduped them to one row).
+
+See `src/server/digest/ace-knife.ts`.
