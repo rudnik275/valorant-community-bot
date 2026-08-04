@@ -300,6 +300,20 @@ interface Block {
 }
 
 /**
+ * A section: header (plus an optional italic description) — BLANK LINE — body.
+ *
+ * The blank line is owner-requested: a heading sitting flush against its own
+ * numbers read as one cramped clump. When a heading carries a description the
+ * gap goes AFTER the description, so heading and description stay together.
+ *
+ * An empty string is just another line; joined with `<br>` it yields the blank
+ * line in the rich rendering and a real one in the text twin.
+ */
+function section(header: string[], body: string[]): Block {
+  return { lines: [...header, '', ...body] };
+}
+
+/**
  * ONE board shape for every ranked list in the digest — aces, knives, maps,
  * agents. Header line, then `<медаль|•> подпись — N` per row, desc-sorted by
  * the caller.
@@ -324,11 +338,11 @@ function leaderboardBlock(
   if (collapse && rendered.length > collapse.after + 1) {
     const tail = rendered.slice(collapse.after);
     return {
-      lines: [`${emoji} <b>${title}</b>`, ...rendered.slice(0, collapse.after)],
+      ...section([`${emoji} <b>${title}</b>`], rendered.slice(0, collapse.after)),
       more: { summary: collapse.summary(tail.length), lines: tail },
     };
   }
-  return { lines: [`${emoji} <b>${title}</b>`, ...rendered] };
+  return section([`${emoji} <b>${title}</b>`], rendered);
 }
 
 /** Ace/knife board rows: the label is the player's rendered nick. */
@@ -346,13 +360,13 @@ function standingsRows(standings: AceKnifeStanding[]): Array<{ labelHtml: string
 function buildBlocks(model: RichDigestModel): Block[] {
   const blocks: Block[] = [];
 
-  /** Push a section made of always-visible lines. */
-  const push = (...lines: string[]): void => {
-    blocks.push({ lines });
+  /** Push a header-then-body section (blank line inserted between). */
+  const push = (header: string, ...body: string[]): void => {
+    blocks.push(section([header], body));
   };
 
-  // 1. Pulse line.
-  push(`📊 За неделю мы сыграли <b>${model.totalMatches}</b> матчей`);
+  // 1. Pulse line — a standalone line, no body, so no blank after it.
+  blocks.push({ lines: [`📊 За неделю мы сыграли <b>${model.totalMatches}</b> матчей`] });
 
   // 2. Records — two flat lines each: title, then `ник · значение · ссылка`.
   for (const r of model.records) {
@@ -402,10 +416,12 @@ function buildBlocks(model: RichDigestModel): Block[] {
         ` · ${w.value} — ${w.playerHtml}${link}`
       );
     });
-    push(
-      '🔫 <b>Мастера своего дела</b>',
-      '<i>лидеры по убийствам одним оружием за матч</i>',
-      ...lines,
+    // Two header lines — the gap goes after the description, not before it.
+    blocks.push(
+      section(
+        ['🔫 <b>Мастера своего дела</b>', '<i>лидеры по убийствам одним оружием за матч</i>'],
+        lines,
+      ),
     );
   }
 
@@ -486,19 +502,23 @@ export function renderDigest(model: RichDigestModel): RenderedDigest {
   const htmlParts: string[] = [`<h2>📅 Дайджест за неделю · ${esc(model.headerDate)}</h2>`];
   const coverUrl = mapSplashUrl(model.coverMap);
   if (coverUrl) htmlParts.push(`<img src="${esc(coverUrl)}">`);
-  htmlParts.push(
-    blocks
-      .map((b) => {
-        const head = b.lines.join('<br>');
-        // Belt-and-braces: an accordion with nothing inside is worse than no
-        // accordion, so an empty tail is dropped here regardless of how the
-        // block was built.
-        if (!b.more || b.more.lines.length === 0) return head;
-        // `<details>` is block-level, so no <br> before it.
-        return `${head}<details><summary>${esc(b.more.summary)}</summary>${b.more.lines.join('<br>')}</details>`;
-      })
-      .join('<br><br>'),
-  );
+  // Sections are separated by a blank line — EXCEPT after an accordion.
+  // `<details>` renders with its own margins and a divider rule, so the extra
+  // `<br><br>` stacked on top of that left a visibly huge hole (owner screenshot).
+  const rendered: string[] = [];
+  blocks.forEach((b, i) => {
+    const head = b.lines.join('<br>');
+    // Belt-and-braces: an accordion with nothing inside is worse than no
+    // accordion, so an empty tail is dropped regardless of how it was built.
+    const hasMore = !!b.more && b.more.lines.length > 0;
+    rendered.push(
+      hasMore
+        ? `${head}<details><summary>${esc(b.more!.summary)}</summary>${b.more!.lines.join('<br>')}</details>`
+        : head,
+    );
+    if (i < blocks.length - 1) rendered.push(hasMore ? '' : '<br><br>');
+  });
+  htmlParts.push(rendered.join(''));
   htmlParts.push('<footer>#digest</footer>');
 
   // ── Plain text twin ──

@@ -1193,8 +1193,8 @@ describe('buildDigest', () => {
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       const html = result.richHtml!;
       // Maps: icon + name. Agents: icon alone.
-      expect(html).toContain('🗺 <b>Карты недели</b><br>🥇 <tg-emoji emoji-id="5267510877233387981">🗺️</tg-emoji> Ascent — 4');
-      expect(html).toContain('🎭 <b>Агенты недели</b><br>🥇 <tg-emoji emoji-id="5265124043647916479">🦸</tg-emoji> — 4');
+      expect(html).toContain('🗺 <b>Карты недели</b><br><br>🥇 <tg-emoji emoji-id="5267510877233387981">🗺️</tg-emoji> Ascent — 4');
+      expect(html).toContain('🎭 <b>Агенты недели</b><br><br>🥇 <tg-emoji emoji-id="5265124043647916479">🦸</tg-emoji> — 4');
       expect(html).not.toContain('🦸</tg-emoji> Jett —');
       expect(html).not.toContain('<table');
       expect(html).not.toContain('align="right"');
@@ -1237,7 +1237,7 @@ describe('buildDigest', () => {
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       const html = result.richHtml!;
       expect(html).toContain(
-        '💀 <b>Серийный маньяк</b><br>' +
+        '💀 <b>Серийный маньяк</b><br><br>' +
           '<tg-emoji emoji-id="5265219666799795636">💎</tg-emoji> <b>Killer#KLL</b> <tg-emoji emoji-id="5265124043647916479">🦸</tg-emoji>' +
           ' · 38 фрагов · ' +
           '<a href="https://tracker.gg/valorant/match/m-kills"><tg-emoji emoji-id="5267510877233387981">🗺️</tg-emoji> Ascent</a>',
@@ -1261,7 +1261,7 @@ describe('buildDigest', () => {
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       const html = result.richHtml!;
       // Nick with agent but NO leading rank emoji.
-      expect(html).toContain('<br><b>Killer#KLL</b> <tg-emoji emoji-id="5265124043647916479">🦸</tg-emoji> · 38 фрагов');
+      expect(html).toContain('<br><br><b>Killer#KLL</b> <tg-emoji emoji-id="5265124043647916479">🦸</tg-emoji> · 38 фрагов');
       expect(html).not.toContain('💎');
     });
 
@@ -1272,7 +1272,7 @@ describe('buildDigest', () => {
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       const html = result.richHtml!;
-      expect(html).toContain('🏆 <b>Винстрик недели</b><br><b>Streaker#STR</b> · 11 побед подряд');
+      expect(html).toContain('🏆 <b>Винстрик недели</b><br><br><b>Streaker#STR</b> · 11 побед подряд');
       expect(html).not.toContain('<summary>🏆 <b>Винстрик');
       expect(html).not.toContain('\n');
     });
@@ -1305,7 +1305,7 @@ describe('buildDigest', () => {
       expect(html).not.toContain('<details><summary>💨');
       // OPEN block: emoji <u>header</u><br>renderPlayerName · value; agent rides along.
       expect(html).toContain(
-        '💀 <u>Был(ла) близко к рекорду по киллам</u><br><b>NearMisser#NM</b> <tg-emoji emoji-id="5265124043647916479">🦸</tg-emoji> · 29 фрагов',
+        '💀 <u>Был(ла) близко к рекорду по киллам</u><br><br><b>NearMisser#NM</b> <tg-emoji emoji-id="5265124043647916479">🦸</tg-emoji> · 29 фрагов',
       );
       expect(html).not.toContain('\n');
     });
@@ -1326,7 +1326,7 @@ describe('buildDigest', () => {
       });
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       const html = result.richHtml!;
-      expect(html).toContain('👑 <b>Король MVP за неделю</b><br><b>Chief#MVP</b> · 5 MVP-матчей');
+      expect(html).toContain('👑 <b>Король MVP за неделю</b><br><br><b>Chief#MVP</b> · 5 MVP-матчей');
       // Aggregate → its value line carries no match <a> link. The block runs
       // from the title up to the next blank-line separator.
       const mvpIdx = html.indexOf('👑 <b>Король MVP');
