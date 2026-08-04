@@ -2,12 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { EVENT_CATEGORY, isRealtimeEvent, isWeeklyEvent, type EventType } from './types.ts';
 
 describe('EVENT_CATEGORY', () => {
-  it('covers all 21 EventType values exactly once', () => {
+  it('covers all 20 EventType values exactly once', () => {
     const allEvents: EventType[] = [
       'ace',
       'giant_slayer',
       'teamkill',
-      'fall_damage_death',
       'knife_kill',
       'match_comeback',
       'community_clash',
@@ -29,13 +28,12 @@ describe('EVENT_CATEGORY', () => {
     expect(Object.keys(EVENT_CATEGORY).sort()).toEqual([...allEvents].sort());
   });
 
-  it('has 6 realtime types', () => {
+  it('has 5 realtime types', () => {
     const realtime = Object.entries(EVENT_CATEGORY)
       .filter(([, v]) => v === 'realtime')
       .map(([k]) => k);
     expect(realtime.sort()).toEqual([
       'community_clash',
-      'fall_damage_death',
       'giant_slayer',
       'match_comeback',
       'return_after_pause',

@@ -153,37 +153,6 @@ describe('startDetectionListener — opponent peak augmentation', () => {
     expect(payload.opponents_peak['enemy-2']).toMatchObject({ tier_name: 'Ascendant 1' });
   });
 
-  it('does NOT add opponents_peak to non-ace events (e.g., fall_damage_death)', async () => {
-    const getOpponentPeakRanksFn = vi.fn().mockResolvedValue(new Map());
-
-    const db = makeMockDb();
-    const cleanup = startDetectionListener({
-      db: db as never,
-      getPrevRecords: async () => [],
-      getRegionForPuuid: async () => 'eu',
-      getOpponentPeakRanksFn,
-    });
-
-    // fall_damage_kills > 0 → triggers fall_damage_death, no ace
-    const record = makeRecord({
-      kills: 3,
-      fall_damage_kills: 2,
-      kill_events_compact: '[]',
-    });
-
-    scannerEvents.emit('newRecord', record);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    cleanup();
-
-    const fallRow = db._insertedRows.find((r) => r.event_type === 'fall_damage_death');
-    expect(fallRow).toBeDefined();
-    const payload = JSON.parse(fallRow!.payload_json);
-    expect(payload.opponents_peak).toBeUndefined();
-    // getOpponentPeakRanks should NOT be called (no ace events)
-    expect(getOpponentPeakRanksFn).not.toHaveBeenCalled();
-  });
-
   it('skips augmentation gracefully when no region found', async () => {
     const getOpponentPeakRanksFn = vi.fn();
 

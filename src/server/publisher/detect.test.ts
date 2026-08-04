@@ -112,7 +112,13 @@ describe('startDetectionListener', () => {
   it('handles UNIQUE conflict (duplicate event) without throwing', async () => {
     const cleanup = startDetectionListener({ db, getPrevRecords: async () => [] });
 
-    const record = makeRecord({ fall_damage_kills: 2 });
+    // An ace is the vehicle here — any detector would do, we are testing the
+    // UNIQUE(match_id, event_type, riot_puuid) guard, not the detector.
+    const kills = [1, 2, 3, 4, 5].map((i) => ({
+      round: 1, attacker_team: 'Blue', victim_team: 'Red', weapon: 'Vandal',
+      attacker_puuid: TARGET_PUUID, victim_puuid: `e${i}`,
+    }));
+    const record = makeRecord({ kill_events_compact: JSON.stringify(kills) });
 
     // Emit the same record twice → second insert should hit UNIQUE constraint
     scannerEvents.emit('newRecord', record);
@@ -122,7 +128,7 @@ describe('startDetectionListener', () => {
 
     // Should only have one row per event type despite two emissions
     const rows = sqlite.prepare(
-      "SELECT event_type, COUNT(*) as count FROM detected_events WHERE riot_puuid = ? AND event_type = 'fall_damage_death' GROUP BY event_type",
+      "SELECT event_type, COUNT(*) as count FROM detected_events WHERE riot_puuid = ? AND event_type = 'ace' GROUP BY event_type",
     ).all(TARGET_PUUID) as { event_type: string; count: number }[];
     expect(rows).toHaveLength(1);
     expect(rows[0]!.count).toBe(1);
@@ -140,24 +146,6 @@ describe('startDetectionListener', () => {
 
     const rows = sqlite.prepare('SELECT * FROM detected_events').all();
     expect(rows).toHaveLength(0);
-  });
-
-  it('inserts fall_damage_death event', async () => {
-    const cleanup = startDetectionListener({ db, getPrevRecords: async () => [] });
-
-    scannerEvents.emit(
-      'newRecord',
-      makeRecord({ match_id: 'match-fall-001', kills: 5, rounds_played: 20, fall_damage_kills: 2 }),
-    );
-
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    const rows = sqlite.prepare(
-      "SELECT * FROM detected_events WHERE event_type = 'fall_damage_death'",
-    ).all();
-    expect(rows).toHaveLength(1);
-
-    cleanup();
   });
 
   it('passes prevRecords to detectors via injectable getPrevRecords', async () => {

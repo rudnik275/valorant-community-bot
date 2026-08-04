@@ -69,7 +69,7 @@ describe('resolveTemplateMatch', () => {
 
   it('resolves map / agent / rank from the triggering player match_records row', async () => {
     seedMatchRecord(KILLER, { map: 'Bind', agent: 'Omen', rankAfter: 'Diamond 3' });
-    const out = await resolveTemplateMatch(db, 'fall_damage_death', MATCH, KILLER, {});
+    const out = await resolveTemplateMatch(db, 'return_after_pause', MATCH, KILLER, {});
     expect(out).toEqual({ map: 'Bind', match_id: MATCH, agent: 'Omen', rank: 'Diamond 3' });
   });
 
@@ -144,7 +144,7 @@ describe('resolveTemplateMatch', () => {
 
     it('non-teamkill events never get a victims key even with a victims payload', async () => {
       seedRosterRow(VICTIM, { tier: 'Gold 1' });
-      const out = await resolveTemplateMatch(db, 'fall_damage_death', MATCH, KILLER, {
+      const out = await resolveTemplateMatch(db, 'return_after_pause', MATCH, KILLER, {
         victims: [{ puuid: VICTIM, name: 'Danya', tag: 'UA1' }],
       });
       expect(out?.victims).toBeUndefined();

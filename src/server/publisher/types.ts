@@ -11,7 +11,6 @@ export type EventType =
   | 'giant_slayer'
   | 'return_after_pause'
   | 'teamkill'
-  | 'fall_damage_death'
   | 'record_kills_match'
   | 'record_damage_dealt_match'
   | 'record_damage_received_match'
@@ -104,7 +103,6 @@ export type EventCategory = 'realtime' | 'weekly';
 export const EVENT_CATEGORY: Record<EventType, EventCategory> = {
   giant_slayer: 'realtime',
   teamkill: 'realtime',
-  fall_damage_death: 'realtime',
   match_comeback: 'realtime',
   community_clash: 'realtime',
   return_after_pause: 'realtime',

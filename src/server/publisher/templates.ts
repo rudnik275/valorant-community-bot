@@ -100,7 +100,7 @@ function mapSuffix(map: string | undefined): string {
 
 /**
  * Match-link on its OWN line for the minimal realtime templates (teamkill,
- * fall_damage_death, return_after_pause — #315). The owner explicitly ordered
+ * return_after_pause — #315). The owner explicitly ordered
  * the separate line for teamkill; extended to the family for consistency.
  * Empty when there's no match_id to link to.
  */
@@ -212,13 +212,6 @@ const templates: Partial<Record<EventType, TemplateFn>> = {
     return `🐀 <b>Ля ты и крыса</b>\n\n${desc}${minimalMatchLine(match)}`;
   },
 
-  fall_damage_death: (payload, user, match) => {
-    const n = Number(payload['count'] ?? 1);
-    const countStr = n > 1 ? ` (${n}×)` : '';
-    const name = minimalPlayerName(user, match);
-    const desc = `${name} — умер(ла) от падения${countStr}`;
-    return `🪂 <b>1:0 в пользу гравитации</b>\n\n${desc}${minimalMatchLine(match)}`;
-  },
 
   match_comeback: (payload, user, match) => {
     const dp = payload['deficit_score_player'] ?? '?';

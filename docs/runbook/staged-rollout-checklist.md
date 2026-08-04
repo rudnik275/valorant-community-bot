@@ -155,7 +155,7 @@ docker exec valorant-bot-app sqlite3 /app/data/data.db \
   ```
 
 - [ ] **User quota:** Insert 2 pending events for the same `riot_puuid`. After 2 ticks: first is `posted`, second is `digest-only`.
-- [ ] **Antistat quota:** Insert 2 antistat events (`lostrick_9`, `fall_damage_death`) for different users. After 2 ticks: first is `posted`, second is `digest-only`.
+- [ ] **Antistat quota:** Insert 2 antistat events (any two realtime types, e.g. `teamkill`, `giant_slayer`) for different users. After 2 ticks: first is `posted`, second is `digest-only`.
 - [ ] **Quiet hours:** Temporarily fake pre-noon time by setting `TELEGRAM_TIMEZONE_OVERRIDE` (or wait until before 12:00 Kyiv). Events with `status='pending'` remain `pending` after the tick. Restore normal time and confirm they post afterward.
 - [ ] **Opt-out user:** Ensure one mock user has `chat_realtime_disabled=1` in `opt_outs`. Insert a pending event for that user. After tick: event is `status='opted-out'`, no message in chat.
 

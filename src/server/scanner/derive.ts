@@ -266,8 +266,15 @@ export function deriveMatchRecord(match: HenrikMatchV4, puuid: string): MatchRec
     : 0;
 
   // fall_damage_kills: environmental deaths of OUR player. Despite the column
-  // name these are deaths, not kills dealt (the «1:0 в пользу гравитации»
-  // template reads it that way).
+  // name these are deaths, not kills dealt.
+  //
+  // NOTHING consumes this today. The «1:0 в пользу гравитации» event was
+  // removed on 2026-08-04: Riot does not name the damage source, so a fall and
+  // a Summit door arrive identically as `type: null` and the bot could not
+  // honestly say what killed the player. The column keeps being filled because
+  // the value is now CORRECT and cheap, and re-deriving it later would need a
+  // full rescan — but read it as "died to something unattributed", never as
+  // "fell".
   //
   // Resolves the old `weapon.id === 'Fall'` TODO from Slice B #53: that marker
   // does NOT exist in Henrik v4 — verified against the live API and against

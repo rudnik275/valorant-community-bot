@@ -12,7 +12,6 @@ const ALL_EVENT_TYPES: EventType[] = [
   'giant_slayer',
   'return_after_pause',
   'teamkill',
-  'fall_damage_death',
   'record_kills_match',
   'record_damage_dealt_match',
   'record_damage_received_match',
@@ -48,7 +47,6 @@ const minimalPayloads: Record<EventType, Record<string, unknown>> = {
   giant_slayer: {},
   return_after_pause: {},
   teamkill: {},
-  fall_damage_death: {},
   record_kills_match: { value: 30, prev_value: null, prev_puuid: null },
   record_damage_dealt_match: { value: 6840, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '' },
   record_damage_received_match: { value: 5910, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '' },
@@ -280,37 +278,6 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).not.toContain('· <a href=');
   });
 
-  it('fall_damage_death: includes map and 1:0 в пользу гравитации text', () => {
-    const output = renderTemplate('fall_damage_death', { count: 2 }, safeUser, { map: 'Icebox', match_id: 'fall9' });
-    expect(output).toContain('Icebox'); // map now lives in the link label
-    expect(output.toLowerCase()).toContain('1:0 в пользу гравитации');
-  });
-
-  it('fall_damage_death: shows count when present', () => {
-    const output = renderTemplate('fall_damage_death', { count: 3 }, safeUser);
-    expect(output).toContain('3×');
-  });
-
-  it('fall_damage_death: includes match link when match_id present', () => {
-    const output = renderTemplate('fall_damage_death', {}, safeUser, { match_id: 'fall42' });
-    expect(output).toContain('tracker.gg/valorant/match/fall42');
-  });
-
-  it('fall_damage_death: minimal format — <b> header, blank-line separated, no <u>', () => {
-    const output = renderTemplate('fall_damage_death', {}, safeUser);
-    expect(output).toBe('🪂 <b>1:0 в пользу гравитации</b>\n\n<b>Player#TAG</b> — умер(ла) от падения');
-    expect(output).not.toContain('<u>');
-    // A blank line after the title is intended now (owner, 2026-08-04) — these
-    // messages are only a few lines and read better with air.
-    expect(output).toContain('\n\n');
-  });
-
-  it('fall_damage_death: match link with map-emoji label on its OWN line (#315)', () => {
-    const output = renderTemplate('fall_damage_death', { count: 2 }, safeUser, { map: 'Icebox', match_id: 'fall1' });
-    expect(output).toContain(`\n<a href="https://tracker.gg/valorant/match/fall1">${mapToEmojiHtml('Icebox')} Icebox</a>`);
-    expect(output).not.toContain('· <a href=');
-  });
-
 });
 
 describe('renderTemplate — agent emoji next to nicks (#301)', () => {
@@ -327,11 +294,6 @@ describe('renderTemplate — agent emoji next to nicks (#301)', () => {
     );
     expect(output).toContain('<b>Player#TAG</b> ' + JETT); // killer
     expect(output).toContain('<b>Friendly#GG</b> ' + SAGE); // victim — full Ник#Тег (#315)
-  });
-
-  it('fall_damage_death: shows agent emoji next to nick from match.agent', () => {
-    const output = renderTemplate('fall_damage_death', {}, safeUser, { agent: 'Jett' });
-    expect(output).toContain('<b>Player#TAG</b> ' + JETT);
   });
 
   it('return_after_pause: shows agent emoji next to nick from match.agent', () => {
@@ -429,20 +391,6 @@ describe('renderTemplate — #315 minimal trio: renderPlayerName + match link on
     expect(output).not.toContain('OldGuy#');
   });
 
-  it('fall_damage_death: three-line structure with rank + agent', () => {
-    const output = renderTemplate(
-      'fall_damage_death',
-      { count: 2 },
-      safeUser,
-      { match_id: 'f1', map: 'Icebox', rank: 'Diamond 3', agent: 'Jett' },
-    );
-    expect(output).toBe(
-      '🪂 <b>1:0 в пользу гравитации</b>\n\n' +
-      `${D3} <b>Player#TAG</b> ${JETT} — умер(ла) от падения (2×)\n\n` +
-      `<a href="https://tracker.gg/valorant/match/f1">${mapToEmojiHtml('Icebox')} Icebox</a>`,
-    );
-  });
-
   it('return_after_pause: three-line structure with rank + agent', () => {
     const output = renderTemplate(
       'return_after_pause',
@@ -457,10 +405,4 @@ describe('renderTemplate — #315 minimal trio: renderPlayerName + match link on
     );
   });
 
-  it('fall_damage_death / return_after_pause: no rank emoji when rank not resolvable', () => {
-    const fall = renderTemplate('fall_damage_death', {}, safeUser, { match_id: 'f2' });
-    expect(fall).not.toContain('<tg-emoji');
-    const ret = renderTemplate('return_after_pause', { days_paused: 3 }, safeUser, { match_id: 'r2' });
-    expect(ret).not.toContain('<tg-emoji');
-  });
 });

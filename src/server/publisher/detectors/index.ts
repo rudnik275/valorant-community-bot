@@ -4,7 +4,6 @@ import { winstreakDetector } from './winstreak.ts';
 import { giantSlayerDetector } from './giant-slayer.ts';
 import { returnAfterPauseDetector } from './return-after-pause.ts';
 import { teamkillDetector } from './teamkill.ts';
-import { fallDamageDeathDetector } from './fall-damage-death.ts';
 import { recordKillsMatchDetector } from './record-kills-match.ts';
 import { recordDamageDealtMatchDetector } from './record-damage-dealt-match.ts';
 import { recordDamageReceivedMatchDetector } from './record-damage-received-match.ts';
@@ -25,7 +24,6 @@ export const ALL_DETECTORS: Detector[] = [
   giantSlayerDetector,
   returnAfterPauseDetector,
   teamkillDetector,
-  fallDamageDeathDetector,
   recordKillsMatchDetector,
   recordDamageDealtMatchDetector,
   recordDamageReceivedMatchDetector,
