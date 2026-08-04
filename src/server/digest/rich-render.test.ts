@@ -274,7 +274,8 @@ describe('renderDigest — former table sections as flat lines', () => {
         }],
       }),
     );
-    expect(html).toContain('🔫 Sheriff · 22 — <b>Sniper#SNP</b> · <a href="https://tracker.gg/valorant/match/w-1"');
+    expect(html).toContain('🔫 Sheriff · 22 — <b>Sniper#SNP</b> · ');
+    expect(html).toContain('<a href="https://tracker.gg/valorant/match/w-1">Bind</a>');
   });
 
   it('links the match on a near-miss too', () => {
@@ -290,7 +291,7 @@ describe('renderDigest — former table sections as flat lines', () => {
         }],
       }),
     );
-    expect(html).toContain('29 фрагов · <a href="https://tracker.gg/valorant/match/nm-1"');
+    expect(html).toContain('<a href="https://tracker.gg/valorant/match/nm-1">Lotus</a>');
   });
 
   it('omits the link when a row has no match attached', () => {

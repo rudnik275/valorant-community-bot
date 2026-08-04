@@ -265,13 +265,31 @@ export function deriveMatchRecord(match: HenrikMatchV4, puuid: string): MatchRec
     ? (teamForRounds.rounds?.won ?? 0) + (teamForRounds.rounds?.lost ?? 0)
     : 0;
 
-  // fall_damage_kills: count kill events where victim is our player AND weapon indicates fall.
-  // In Henrik v4, fall damage appears as weapon.id === 'Fall' (same marker as v3 damage_weapon_id).
-  // TODO Slice B #53: identify fall-damage marker in Henrik v4 — fixture inspection needed.
-  // Using weapon.id === 'Fall' as best-effort; may also appear in weapon.name.
+  // fall_damage_kills: environmental deaths of OUR player. Despite the column
+  // name these are deaths, not kills dealt (the «1:0 в пользу гравитации»
+  // template reads it that way).
+  //
+  // Resolves the old `weapon.id === 'Fall'` TODO from Slice B #53: that marker
+  // does NOT exist in Henrik v4 — verified against the live API and against
+  // every stored match (2026-08-04). The column was 0 for every row ever
+  // written and the event had never once fired.
+  //
+  // What Henrik actually returns for a death with no killer is a kill event
+  // where killer.puuid === victim.puuid, with the source in `weapon.type`:
+  //   {id:"",   name:null, type:"Bomb"}     — died to the spike
+  //   {id:"…",  name:"…",  type:"Ability"}  — died to an ability
+  //   {id:null, name:null, type:null}       — environment (fall, and any other
+  //                                           source Riot does not name)
+  // So: no killer other than the victim, AND no id/name/type. `id` is `""` for
+  // Bomb, which is falsy — the `type` check is what actually excludes spike
+  // deaths. An absent/blank killer puuid counts too: an unattributed death is
+  // still not someone else's kill.
   const fallDamageKills = match.kills.filter((k) => {
     if (k.victim?.puuid !== puuid) return false;
-    return k.weapon?.id === 'Fall' || k.weapon?.name === 'Fall';
+    const killer = k.killer?.puuid;
+    if (killer && killer !== puuid) return false;
+    const w = k.weapon;
+    return !w?.id && !w?.name && !w?.type;
   }).length;
 
   // is_match_mvp: 1 if this player's combat score is the max among all players in

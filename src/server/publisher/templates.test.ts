@@ -226,11 +226,13 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('? дней паузы');
   });
 
-  it('return_after_pause: minimal format — <b> header, no blank line, no <u>', () => {
+  it('return_after_pause: minimal format — <b> header, blank-line separated, no <u>', () => {
     const output = renderTemplate('return_after_pause', { days_paused: 14 }, safeUser);
-    expect(output).toBe('👋 <b>С возвращением</b>\n<b>Player#TAG</b> — после 14 дней паузы снова в строю');
+    expect(output).toBe('👋 <b>С возвращением</b>\n\n<b>Player#TAG</b> — после 14 дней паузы снова в строю');
     expect(output).not.toContain('<u>');
-    expect(output).not.toContain('\n\n');
+    // A blank line after the title is intended now (owner, 2026-08-04) — these
+    // messages are only a few lines and read better with air.
+    expect(output).toContain('\n\n');
   });
 
   it('return_after_pause: match link with map-emoji on its OWN line (#315)', () => {
@@ -263,11 +265,13 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('tracker.gg/valorant/match/mID1');
   });
 
-  it('teamkill: minimal format — <b> header, no blank line, no <u>', () => {
+  it('teamkill: minimal format — <b> header, blank-line separated, no <u>', () => {
     const output = renderTemplate('teamkill', {}, safeUser);
-    expect(output).toContain('🐀 <b>Ля ты и крыса</b>\n');
+    expect(output).toContain('🐀 <b>Ля ты и крыса</b>\n\n');
     expect(output).not.toContain('<u>');
-    expect(output).not.toContain('\n\n');
+    // A blank line after the title is intended now (owner, 2026-08-04) — these
+    // messages are only a few lines and read better with air.
+    expect(output).toContain('\n\n');
   });
 
   it('teamkill: match link with map-emoji label on its OWN line (#315)', () => {
@@ -292,11 +296,13 @@ describe('renderTemplate — payload-specific behavior', () => {
     expect(output).toContain('tracker.gg/valorant/match/fall42');
   });
 
-  it('fall_damage_death: minimal format — <b> header, no blank line, no <u>', () => {
+  it('fall_damage_death: minimal format — <b> header, blank-line separated, no <u>', () => {
     const output = renderTemplate('fall_damage_death', {}, safeUser);
-    expect(output).toBe('🪂 <b>1:0 в пользу гравитации</b>\n<b>Player#TAG</b> — умер(ла) от падения');
+    expect(output).toBe('🪂 <b>1:0 в пользу гравитации</b>\n\n<b>Player#TAG</b> — умер(ла) от падения');
     expect(output).not.toContain('<u>');
-    expect(output).not.toContain('\n\n');
+    // A blank line after the title is intended now (owner, 2026-08-04) — these
+    // messages are only a few lines and read better with air.
+    expect(output).toContain('\n\n');
   });
 
   it('fall_damage_death: match link with map-emoji label on its OWN line (#315)', () => {
@@ -383,8 +389,8 @@ describe('renderTemplate — #315 minimal trio: renderPlayerName + match link on
       },
     );
     expect(output).toBe(
-      '🐀 <b>Ля ты и крыса</b>\n' +
-      `${D3} <b>Player#TAG</b> ${JETT} убил(а) своего (${G1} <b>Danya#UA1</b> ${SAGE}) (2× за матч)\n` +
+      '🐀 <b>Ля ты и крыса</b>\n\n' +
+      `${D3} <b>Player#TAG</b> ${JETT} убил(а) своего (${G1} <b>Danya#UA1</b> ${SAGE}) (2× за матч)\n\n` +
       `<a href="https://tracker.gg/valorant/match/m1">${mapToEmojiHtml('Ascent')} Ascent</a>`,
     );
   });
@@ -431,8 +437,8 @@ describe('renderTemplate — #315 minimal trio: renderPlayerName + match link on
       { match_id: 'f1', map: 'Icebox', rank: 'Diamond 3', agent: 'Jett' },
     );
     expect(output).toBe(
-      '🪂 <b>1:0 в пользу гравитации</b>\n' +
-      `${D3} <b>Player#TAG</b> ${JETT} — умер(ла) от падения (2×)\n` +
+      '🪂 <b>1:0 в пользу гравитации</b>\n\n' +
+      `${D3} <b>Player#TAG</b> ${JETT} — умер(ла) от падения (2×)\n\n` +
       `<a href="https://tracker.gg/valorant/match/f1">${mapToEmojiHtml('Icebox')} Icebox</a>`,
     );
   });
@@ -445,8 +451,8 @@ describe('renderTemplate — #315 minimal trio: renderPlayerName + match link on
       { match_id: 'r1', map: 'Bind', rank: 'Gold 1', agent: 'Sage' },
     );
     expect(output).toBe(
-      '👋 <b>С возвращением</b>\n' +
-      `${G1} <b>Player#TAG</b> ${SAGE} — после 14 дней паузы снова в строю\n` +
+      '👋 <b>С возвращением</b>\n\n' +
+      `${G1} <b>Player#TAG</b> ${SAGE} — после 14 дней паузы снова в строю\n\n` +
       `<a href="https://tracker.gg/valorant/match/r1">${mapToEmojiHtml('Bind')} Bind</a>`,
     );
   });

@@ -523,15 +523,19 @@ describe('startPublisherLoop', () => {
       await runOneTick(stop);
 
       const [, body] = sendMessage.mock.calls[0]!;
+      // Title / blank / body / blank / link — the short events are
+      // blank-line separated since 2026-08-04.
       const lines = (body as string).split('\n');
-      expect(lines).toHaveLength(3);
+      expect(lines).toHaveLength(5);
       expect(lines[0]).toBe('🐀 <b>Ля ты и крыса</b>');
+      expect(lines[1]).toBe('');
       // Killer: rank (match_records.rank_after) left, bold Ник#Тег, agent right.
-      expect(lines[1]).toContain(`${rankToEmojiHtml('Diamond 3')} <b>Killer#KKK</b> ${agentToEmojiHtml('Jett')}`);
+      expect(lines[2]).toContain(`${rankToEmojiHtml('Diamond 3')} <b>Killer#KKK</b> ${agentToEmojiHtml('Jett')}`);
       // Victim: full Ник#Тег via renderPlayerName, rank from roster tier.
-      expect(lines[1]).toContain(`(${rankToEmojiHtml('Silver 2')} <b>Danya#UA1</b> ${agentToEmojiHtml('Sage')})`);
-      // Match link alone on the third line.
-      expect(lines[2]).toBe(`<a href="https://tracker.gg/valorant/match/${MATCH}">${mapToEmojiHtml('Ascent')} Ascent</a>`);
+      expect(lines[2]).toContain(`(${rankToEmojiHtml('Silver 2')} <b>Danya#UA1</b> ${agentToEmojiHtml('Sage')})`);
+      expect(lines[3]).toBe('');
+      // Match link alone on the last line.
+      expect(lines[4]).toBe(`<a href="https://tracker.gg/valorant/match/${MATCH}">${mapToEmojiHtml('Ascent')} Ascent</a>`);
     });
 
     it('fall_damage_death: rank_after renders left of the nick', async () => {
@@ -546,7 +550,7 @@ describe('startPublisherLoop', () => {
 
       const [, body] = sendMessage.mock.calls[0]!;
       expect(body).toContain(`${rankToEmojiHtml('Gold 1')} <b>Faller#FFF</b> ${agentToEmojiHtml('Jett')}`);
-      expect((body as string).split('\n')[2]).toContain('tracker.gg/valorant/match/');
+      expect((body as string).split('\n').at(-1)).toContain('tracker.gg/valorant/match/');
     });
 
     it('teamkill: old event with no roster/match rows still posts (icons omitted, no crash)', async () => {

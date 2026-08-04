@@ -1240,7 +1240,7 @@ describe('buildDigest', () => {
         '💀 <b>Серийный маньяк</b><br><br>' +
           '<tg-emoji emoji-id="5265219666799795636">💎</tg-emoji> <b>Killer#KLL</b> <tg-emoji emoji-id="5265124043647916479">🦸</tg-emoji>' +
           ' · 38 фрагов · ' +
-          '<a href="https://tracker.gg/valorant/match/m-kills"><tg-emoji emoji-id="5267510877233387981">🗺️</tg-emoji> Ascent</a>',
+          '<tg-emoji emoji-id="5267510877233387981">🗺️</tg-emoji> <a href="https://tracker.gg/valorant/match/m-kills">Ascent</a>',
       );
       // The accordion (and with it the per-record context line) is gone.
       expect(html).not.toContain('<details>');

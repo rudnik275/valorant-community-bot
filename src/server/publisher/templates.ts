@@ -104,13 +104,18 @@ function mapSuffix(map: string | undefined): string {
  * the separate line for teamkill; extended to the family for consistency.
  * Empty when there's no match_id to link to.
  */
+/**
+ * Match-link line for the short events. A BLANK line separates it from the
+ * description above (owner, 2026-08-04: these messages are only three lines,
+ * so they read better with air around each one).
+ */
 function minimalMatchLine(match?: TemplateMatch): string {
   if (!match?.match_id) return '';
   const link = renderMatchLink({
     url: `https://tracker.gg/valorant/match/${match.match_id}`,
     ...(match.map ? { mapName: match.map } : {}),
   });
-  return `\n${link}`;
+  return `\n\n${link}`;
 }
 
 /** Build renderPlayerName options for the triggering user in the minimal
@@ -173,7 +178,7 @@ const templates: Partial<Record<EventType, TemplateFn>> = {
     const days = payload['days_paused'] ?? '?';
     const name = minimalPlayerName(user, match);
     const desc = `${name} — после ${esc(String(days))} дней паузы снова в строю`;
-    return `👋 <b>С возвращением</b>\n${desc}${minimalMatchLine(match)}`;
+    return `👋 <b>С возвращением</b>\n\n${desc}${minimalMatchLine(match)}`;
   },
 
   teamkill: (payload, user, match) => {
@@ -204,7 +209,7 @@ const templates: Partial<Record<EventType, TemplateFn>> = {
     const victimStr = victimParts.length > 0 ? ` (${victimParts.join(', ')})` : '';
     const name = minimalPlayerName(user, match);
     const desc = `${name} убил(а) своего${victimStr}${count}`;
-    return `🐀 <b>Ля ты и крыса</b>\n${desc}${minimalMatchLine(match)}`;
+    return `🐀 <b>Ля ты и крыса</b>\n\n${desc}${minimalMatchLine(match)}`;
   },
 
   fall_damage_death: (payload, user, match) => {
@@ -212,7 +217,7 @@ const templates: Partial<Record<EventType, TemplateFn>> = {
     const countStr = n > 1 ? ` (${n}×)` : '';
     const name = minimalPlayerName(user, match);
     const desc = `${name} — умер(ла) от падения${countStr}`;
-    return `🪂 <b>1:0 в пользу гравитации</b>\n${desc}${minimalMatchLine(match)}`;
+    return `🪂 <b>1:0 в пользу гравитации</b>\n\n${desc}${minimalMatchLine(match)}`;
   },
 
   match_comeback: (payload, user, match) => {
