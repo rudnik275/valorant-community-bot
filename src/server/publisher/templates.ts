@@ -94,10 +94,6 @@ function mapIcon(map: string | undefined): string {
   return e ? `${e} ` : '';
 }
 
-/** Weapon custom-emoji icon, falling back to the given unicode marker. */
-function weaponLead(weapon: string | undefined, fallback: string): string {
-  return weaponToEmojiHtml(weapon) || fallback;
-}
 
 /**
  * Agent custom-emoji suffix for a player nick: a leading space + emoji, or ''
@@ -167,17 +163,10 @@ function renderVictim(v: TemplateVictim): string {
  */
 function recordContextLine(eventType: EventType): string | null {
   switch (eventType) {
-    case 'record_kills_match':           return 'рекорд по количеству фрагов за игру';
-    case 'record_deaths_match':          return 'рекорд по количеству смертей за игру';
-    case 'record_headshots_match':       return 'рекорд по количеству попаданий в голову за игру (не убийств)';
-    case 'record_legshots_match':        return 'рекорд по количеству попаданий в ноги за игру (не убийств)';
-    case 'record_damage_dealt_match':    return 'рекорд по нанесённому урону за игру';
-    case 'record_damage_received_match': return 'рекорд по полученному урону за игру';
-    case 'record_mvp_count_week':        return 'рекорд по количеству MVP-матчей за неделю';
     case 'record_survived_last_rounds':  return 'рекорд по количеству раундов в матче, где игрок умирал последним из своей команды';
     case 'record_died_first_rounds':     return 'рекорд по количеству раундов в матче, где игрок умирал первым из своей команды';
-    // record_kills_per_weapon, record_longest_match_minutes — context line
-    // is already inside their template body.
+    // Every other record type's context line now lives in RICH_RECORD_META
+    // (digest/build.ts) — the digest is their only renderer.
     default: return null;
   }
 }
@@ -201,29 +190,22 @@ function prevRecordLine(
   return '';
 }
 
-// Partial by design: only REALTIME event types need a chat template. Weekly
-// types (records, winstreaks, rank-ups, ace/knife) are rendered by the digest
-// from its own model, and `renderTemplate` falls back for anything missing.
+/**
+ * Chat templates, keyed by event type. Partial by design: only REALTIME types
+ * need one. Weekly types (records, winstreaks, rank-ups, ace/knife) are
+ * rendered by the digest from its own model (`digest/rich-render.ts`), so
+ * their templates were deleted rather than left to duplicate that copy.
+ *
+ * ⚠️ Two exceptions, deliberately kept: `record_survived_last_rounds` and
+ * `record_died_first_rounds` (🐴 Троянский конь, #281). Both are weekly, so
+ * nothing calls these templates — but the digest does not render them either:
+ * they are missing from `BRIGHT_EVENT_WEIGHTS` and `RICH_RECORD_META` in
+ * digest/build.ts. The detectors run and the all-time records update (prod has
+ * 30 such events, all parked), yet the group never sees them. These two
+ * templates are therefore the ONLY surviving copy of that wording — deleting
+ * them would erase the text of a feature that just needs wiring up.
+ */
 const templates: Partial<Record<EventType, TemplateFn>> = {
-  peak_rank_up: (payload, user, _match) => {
-    const to = payload['to_tier_name'] ?? '';
-    const rankEmoji = rankToEmojiHtml(to as string);
-    let rankPart = '';
-    if (to) {
-      // Rank → emoji only; tier text dropped (falls back to text when the tier
-      // has no custom emoji). See #301.
-      rankPart = rankEmoji ? ` ${rankEmoji}` : ` ${esc(String(to))}`;
-    }
-    const desc = `${playerTag(user)} — поднялся(лась) до${rankPart}`;
-    return `🎖 <u>Повышение по службе</u>\n${desc}`;
-  },
-
-  winstreak_10plus: (payload, user, _match) => {
-    const streak = payload['streak'] ?? 10;
-    const desc = `${playerTag(user)} — ${esc(String(streak))} побед подряд`;
-    return `🏆 <u>Винстрик недели:</u>\n${desc}`;
-  },
-
   giant_slayer: (payload, user, match) => {
     const own = payload['own'] ?? '';
     const enemy = payload['enemy_avg'] ?? '';
@@ -284,54 +266,6 @@ const templates: Partial<Record<EventType, TemplateFn>> = {
     return `🪂 <b>1:0 в пользу гравитации</b>\n${desc}${minimalMatchLine(match)}`;
   },
 
-  record_damage_dealt_match: (payload, user, match) => {
-    const value = payload['value'];
-    const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
-    const ctx = recordContextLine('record_damage_dealt_match');
-    const valueLine = `${playerTag(user)}${agentLead(match?.agent)} — ${esc(String(value))} dmg${matchLinkInline(match?.match_id)}`;
-    return `🥩 <u>Мясник</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
-  },
-
-  record_damage_received_match: (payload, user, match) => {
-    const value = payload['value'];
-    const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
-    const ctx = recordContextLine('record_damage_received_match');
-    const valueLine = `${playerTag(user)}${agentLead(match?.agent)} — получил(а) ${esc(String(value))} dmg${matchLinkInline(match?.match_id)}`;
-    return `🤕 <u>Груша для битья</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
-  },
-
-  record_kills_match: (payload, user, match) => {
-    const value = payload['value'];
-    const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
-    const ctx = recordContextLine('record_kills_match');
-    const valueLine = `${playerTag(user)}${agentLead(match?.agent)} — ${esc(String(value))} фрагов${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
-    return `💀 <u>Серийный маньяк</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
-  },
-
-  record_deaths_match: (payload, user, match) => {
-    const value = payload['value'];
-    const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
-    const ctx = recordContextLine('record_deaths_match');
-    const valueLine = `${playerTag(user)}${agentLead(match?.agent)} — ${esc(String(value))} смертей${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
-    return `⚰️ <u>Магнит для пуль</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
-  },
-
-  record_headshots_match: (payload, user, match) => {
-    const value = payload['value'];
-    const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
-    const ctx = recordContextLine('record_headshots_match');
-    const valueLine = `${playerTag(user)}${agentLead(match?.agent)} — ${esc(String(value))} попаданий в голову${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
-    return `🤠 <u>Директор дикого запада</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
-  },
-
-  record_legshots_match: (payload, user, match) => {
-    const value = payload['value'];
-    const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
-    const ctx = recordContextLine('record_legshots_match');
-    const valueLine = `${playerTag(user)}${agentLead(match?.agent)} — ${esc(String(value))} попаданий в ноги${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
-    return `♿️ <u>Угадай куда шмальну</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
-  },
-
   record_survived_last_rounds: (payload, user, match) => {
     const value = payload['value'];
     const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
@@ -346,17 +280,6 @@ const templates: Partial<Record<EventType, TemplateFn>> = {
     const ctx = recordContextLine('record_died_first_rounds');
     const valueLine = `${playerTag(user)}${agentLead(match?.agent)} — ${esc(String(value))} первых смертей${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
     return `🐴 <u>Троянский конь</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
-  },
-
-  record_mvp_count_week: (payload, user, _match) => {
-    const value = payload['value'];
-    const prevValue = payload['prev_value'];
-    // Treat 0 prev_value as "no prev record" (legacy behaviour)
-    const prevForLine = (prevValue !== null && prevValue !== undefined && Number(prevValue) > 0) ? prevValue : undefined;
-    const prev = prevRecordLine(prevForLine, payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid, 'MVP');
-    const ctx = recordContextLine('record_mvp_count_week');
-    const valueLine = `${playerTag(user)} — ${esc(String(value))} MVP-матчей`;
-    return `👑 <u>Король MVP за неделю</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
   },
 
   match_comeback: (payload, user, match) => {
@@ -389,38 +312,6 @@ const templates: Partial<Record<EventType, TemplateFn>> = {
       bottom = matchLine(match.match_id);
     }
     return `👏 Мы вами гордимся\n${summary}\n\n${playersBlock}${bottom}`;
-  },
-
-  record_kills_per_weapon: (payload, user, _match) => {
-    const weapon = payload['weapon'] ?? '?';
-    const value = payload['value'];
-    const realMatchId = payload['real_match_id'];
-    const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
-    const ctx = 'самое большое количество убийств за игру из одного оружия';
-    const valueLine = `${playerTag(user)} — ${esc(String(value))} фрагов${matchLinkInline(realMatchId ? String(realMatchId) : undefined)}`;
-    return `${weaponLead(String(weapon), '🔫')} <u>Эксперт по ${esc(String(weapon))}</u>\n${ctxLine(ctx)}\n${valueLine}${prev}`;
-  },
-
-  record_longest_match_minutes: (payload, user, match) => {
-    const minutes = payload['value'];
-    const rounds = payload['rounds'];
-    const result = String(payload['result'] ?? '');
-    const resultEmoji = result === 'win' ? '🏆' : result === 'loss' ? '💀' : result === 'draw' ? '🏳️' : '';
-    const players = Array.isArray(payload['community_players'])
-      ? payload['community_players'] as Array<{ puuid: string; name: string; tag: string; agent?: string }>
-      : [];
-    const playersLine = players
-      .map((p) => p.name ? `<b>${esc(p.name)}#${esc(p.tag ?? '')}</b>${agentLead(p.agent)}` : '')
-      .filter((s) => s)
-      .join(', ');
-    const ctx = 'рекорд по длительности матча';
-    const roundsPart = rounds ? ` (${esc(String(rounds))} раундов)` : '';
-    const resultPart = resultEmoji ? ` ${resultEmoji}` : '';
-    // Per user: nick first, then the data line — single line.
-    // Fallback to playerTag(user) when there are no community_players in payload.
-    const lead = playersLine || `${playerTag(user)}${agentLead(match?.agent)}`;
-    const valueLine = `${lead} - ${esc(String(minutes))} минут${roundsPart}${mapSuffix(match?.map)}${resultPart}${matchLinkInline(match?.match_id)}`;
-    return `⏳ <u>Дело принципа</u>\n${ctxLine(ctx)}\n${valueLine}`;
   },
 
   community_clash: (payload, _user, match) => {
