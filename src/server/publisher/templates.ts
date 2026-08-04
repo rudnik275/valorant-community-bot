@@ -77,17 +77,6 @@ function matchLine(match_id: string): string {
   return `\n\n<a href="https://tracker.gg/valorant/match/${esc(match_id)}">матч</a>`;
 }
 
-/** Inline match-link suffix for digest templates — joined with " | " separator. */
-function matchLinkInline(match_id: string | undefined): string {
-  if (!match_id) return '';
-  return ` | <a href="https://tracker.gg/valorant/match/${esc(match_id)}">матч</a>`;
-}
-
-/** Wraps a context-description line in italic for digest templates. */
-function ctxLine(text: string): string {
-  return `<i>${text}</i>`;
-}
-
 /** Map custom-emoji icon followed by a space, or '' when the map is unknown. */
 function mapIcon(map: string | undefined): string {
   const e = mapToEmojiHtml(map);
@@ -157,53 +146,13 @@ function renderVictim(v: TemplateVictim): string {
 }
 
 /**
- * Context-description for record_* templates — explains what statistic the
- * record measures. Goes between the funny header and the value line.
- * Returns null for non-record types or types that already self-describe.
- */
-function recordContextLine(eventType: EventType): string | null {
-  switch (eventType) {
-    case 'record_survived_last_rounds':  return 'рекорд по количеству раундов в матче, где игрок умирал последним из своей команды';
-    case 'record_died_first_rounds':     return 'рекорд по количеству раундов в матче, где игрок умирал первым из своей команды';
-    // Every other record type's context line now lives in RICH_RECORD_META
-    // (digest/build.ts) — the digest is their only renderer.
-    default: return null;
-  }
-}
-
-/**
- * Render the "prev record" line for digest record_* templates.
- * Currently a no-op — user disabled prev-record info everywhere. Kept so
- * call sites don't need surgery; flip implementation here to re-enable.
- */
-function prevRecordLine(
-  _prevValue: unknown,
-  _prevName: unknown,
-  _prevTag: unknown,
-  _prevPuuid: unknown,
-  _ownPuuid: string | undefined,
-  _unit?: string,
-): string {
-  // Per user: do not show the "прошлый рекорд" line in any record template.
-  // Kept as a no-op so existing call sites don't need surgery; if anything
-  // ever wants to re-introduce previous-record context, change here once.
-  return '';
-}
-
-/**
- * Chat templates, keyed by event type. Partial by design: only REALTIME types
- * need one. Weekly types (records, winstreaks, rank-ups, ace/knife) are
+ * Chat templates, keyed by event type. Partial by design: ONLY realtime types
+ * have one. Every weekly type (records, winstreaks, rank-ups, ace/knife) is
  * rendered by the digest from its own model (`digest/rich-render.ts`), so
- * their templates were deleted rather than left to duplicate that copy.
+ * their templates live there and are not duplicated here.
  *
- * ⚠️ Two exceptions, deliberately kept: `record_survived_last_rounds` and
- * `record_died_first_rounds` (🐴 Троянский конь, #281). Both are weekly, so
- * nothing calls these templates — but the digest does not render them either:
- * they are missing from `BRIGHT_EVENT_WEIGHTS` and `RICH_RECORD_META` in
- * digest/build.ts. The detectors run and the all-time records update (prod has
- * 30 such events, all parked), yet the group never sees them. These two
- * templates are therefore the ONLY surviving copy of that wording — deleting
- * them would erase the text of a feature that just needs wiring up.
+ * `renderTemplate` falls back to a generic line for anything missing, and a
+ * test asserts each realtime type resolves to a real template.
  */
 const templates: Partial<Record<EventType, TemplateFn>> = {
   giant_slayer: (payload, user, match) => {
@@ -264,22 +213,6 @@ const templates: Partial<Record<EventType, TemplateFn>> = {
     const name = minimalPlayerName(user, match);
     const desc = `${name} — умер(ла) от падения${countStr}`;
     return `🪂 <b>1:0 в пользу гравитации</b>\n${desc}${minimalMatchLine(match)}`;
-  },
-
-  record_survived_last_rounds: (payload, user, match) => {
-    const value = payload['value'];
-    const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
-    const ctx = recordContextLine('record_survived_last_rounds');
-    const valueLine = `${playerTag(user)}${agentLead(match?.agent)} — ${esc(String(value))} последних смертей${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
-    return `⚓ <u>Якорь</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
-  },
-
-  record_died_first_rounds: (payload, user, match) => {
-    const value = payload['value'];
-    const prev = prevRecordLine(payload['prev_value'], payload['prev_name'], payload['prev_tag'], payload['prev_puuid'], user.riot_puuid);
-    const ctx = recordContextLine('record_died_first_rounds');
-    const valueLine = `${playerTag(user)}${agentLead(match?.agent)} — ${esc(String(value))} первых смертей${matchLinkInline(match?.match_id ? String(match.match_id) : undefined)}`;
-    return `🐴 <u>Троянский конь</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
   },
 
   match_comeback: (payload, user, match) => {

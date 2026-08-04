@@ -104,6 +104,18 @@ const RICH_RECORD_META: Record<
     context: 'рекорд по количеству MVP-матчей за неделю',
     value: (p) => `${p['value']} MVP-матчей`,
   },
+  record_died_first_rounds: {
+    emoji: '🐴',
+    title: 'Троянский конь',
+    context: 'рекорд по количеству раундов в матче, где игрок умирал первым из своей команды',
+    value: (p) => `${p['value']} первых смертей`,
+  },
+  record_survived_last_rounds: {
+    emoji: '⚓',
+    title: 'Якорь',
+    context: 'рекорд по количеству раундов в матче, где игрок умирал последним из своей команды',
+    value: (p) => `${p['value']} последних смертей`,
+  },
   record_longest_match_minutes: {
     emoji: '⏳',
     title: 'Дело принципа',
@@ -143,9 +155,29 @@ const BRIGHT_EVENT_WEIGHTS: Record<string, number> = {
   record_mvp_count_week: 7,
   record_kills_per_weapon: 7,
   record_longest_match_minutes: 7,
+  record_died_first_rounds: 7,
+  record_survived_last_rounds: 7,
   winstreak_10plus: 4,
   peak_rank_up: 3,
 };
+
+/**
+ * Map an `event_type` to the `all_time_records.record_type` it maintains.
+ *
+ * The convention is a plain prefix strip (`record_kills_match` →
+ * `kills_match`), but two detectors ship an extra `_match` suffix on the
+ * record type while their event type has none. Without this override the
+ * near-miss suppression misses them, and the digest could print «чуть не стал
+ * троянским конём» right next to the actual Троянский конь record.
+ */
+const RECORD_TYPE_OVERRIDES: Record<string, string> = {
+  record_died_first_rounds: 'died_first_rounds_match',
+  record_survived_last_rounds: 'survived_last_rounds_match',
+};
+
+function recordTypeForEvent(eventType: string): string {
+  return RECORD_TYPE_OVERRIDES[eventType] ?? eventType.slice('record_'.length);
+}
 
 function isBrightEvent(eventType: string): boolean {
   return eventType in BRIGHT_EVENT_WEIGHTS;
@@ -710,8 +742,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
     const recordEventPrefix = 'record_';
     for (const sectionKey of sectionsIncluded) {
       if (sectionKey.startsWith(recordEventPrefix)) {
-        // e.g. "record_kills_match" → "kills_match"
-        alreadyBeaten.add(sectionKey.slice(recordEventPrefix.length));
+        alreadyBeaten.add(recordTypeForEvent(sectionKey));
       }
     }
   }
@@ -776,7 +807,8 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
     }
   }
 
-  // Top Maps — top 3 maps by match count
+  // Maps — EVERY map played this window, desc by match count (owner: «топ всех
+  // карт», same shape as the ace/knife boards). maps[0] still drives the cover.
   {
     const maps = await db
       .select({
@@ -786,8 +818,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       .from(matchRecords)
       .where(and(gte(matchRecords.started_at, weekStart), lt(matchRecords.started_at, weekEnd)))
       .groupBy(matchRecords.map)
-      .orderBy(sql`COUNT(*) DESC`)
-      .limit(3);
+      .orderBy(sql`COUNT(*) DESC`);
 
     topMap = maps[0]?.map != null ? String(maps[0].map) : null;
 
@@ -799,7 +830,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
     }
   }
 
-  // Top Agents — top 3 by pick count
+  // Agents — EVERY agent picked this window, desc by pick count.
   {
     const agents = await db
       .select({
@@ -809,8 +840,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       .from(matchRecords)
       .where(and(gte(matchRecords.started_at, weekStart), lt(matchRecords.started_at, weekEnd)))
       .groupBy(matchRecords.agent)
-      .orderBy(sql`COUNT(*) DESC`)
-      .limit(3);
+      .orderBy(sql`COUNT(*) DESC`);
 
     topAgent = agents[0]?.agent != null ? String(agents[0].agent) : null;
 

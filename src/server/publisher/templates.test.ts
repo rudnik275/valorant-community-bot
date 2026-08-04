@@ -105,19 +105,14 @@ describe('renderTemplate — only realtime types have a template', () => {
     // ace / knife_kill / records / winstreaks / rank-ups are rendered by
     // digest/rich-render.ts, so their chat templates were deleted rather than
     // left to duplicate that copy.
-    for (const t of ['ace', 'knife_kill', 'record_kills_match', 'winstreak_10plus', 'peak_rank_up'] as EventType[]) {
+    for (const t of [
+      'ace', 'knife_kill', 'record_kills_match', 'winstreak_10plus', 'peak_rank_up',
+      'record_died_first_rounds', 'record_survived_last_rounds',
+    ] as EventType[]) {
       expect(renderTemplate(t, {}, safeUser), `${t} should fall back`).toContain(FALLBACK);
     }
   });
 
-  it('the two unrendered records still keep their wording (nothing shows them yet)', () => {
-    // record_survived_last_rounds / record_died_first_rounds (🐴 Троянский конь,
-    // #281) are weekly but are ALSO missing from the digest's
-    // BRIGHT_EVENT_WEIGHTS / RICH_RECORD_META, so these templates are the only
-    // surviving copy of their text. Guard them until the digest wires them up.
-    expect(renderTemplate('record_died_first_rounds', { value: 4 }, safeUser)).toContain('Троянский конь');
-    expect(renderTemplate('record_survived_last_rounds', { value: 4 }, safeUser)).not.toContain(FALLBACK);
-  });
 });
 
 describe('renderTemplate — HTML injection prevention', () => {
