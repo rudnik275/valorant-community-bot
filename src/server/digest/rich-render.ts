@@ -261,6 +261,12 @@ function pluralRu(n: number, one: string, few: string, many: string): string {
   return many;
 }
 
+/** Collapse config for the two player boards (aces, knives). */
+const PLAYER_TAIL = {
+  after: PODIUM,
+  summary: (n: number) => `ещё ${n} ${pluralRu(n, 'игрок', 'игрока', 'игроков')}`,
+};
+
 /**
  * One rendered section.
  *
@@ -350,9 +356,11 @@ function buildBlocks(model: RichDigestModel): Block[] {
   }
 
   // 3. Ace / knife leaderboards — the former daily digest, now plain counts.
-  const aceBlock = leaderboardBlock('🎯', 'Эйсы недели', standingsRows(model.aces));
+  // Same podium-plus-accordion treatment as maps/agents: on a busy week these
+  // reach a dozen players and the tail is everyone with a single ace.
+  const aceBlock = leaderboardBlock('🎯', 'Эйсы недели', standingsRows(model.aces), PLAYER_TAIL);
   if (aceBlock) blocks.push(aceBlock);
-  const knifeBlock = leaderboardBlock('🔪', 'Ножи недели', standingsRows(model.knives));
+  const knifeBlock = leaderboardBlock('🔪', 'Ножи недели', standingsRows(model.knives), PLAYER_TAIL);
   if (knifeBlock) blocks.push(knifeBlock);
 
   // 4. Винстрик недели.

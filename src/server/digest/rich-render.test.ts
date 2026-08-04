@@ -301,15 +301,41 @@ describe('renderDigest — collapsed map/agent tail', () => {
     expect(text).toContain('• M7 — 1');
   });
 
-  it('ace and knife boards are never collapsed — they are short by nature', () => {
+  it('ace and knife boards collapse the same way, counting игроков', () => {
     const { html } = renderDigest(
       fullModel({
-        aces: Array.from({ length: 8 }, (_, i) => ({ name: `P${i}`, tag: 'T', count: 8 - i })),
+        aces: Array.from({ length: 8 }, (_, i) => ({ name: `P${i + 1}`, tag: 'T', count: 8 - i })),
       }),
     );
+    expect(html).toContain('🎯 <b>Эйсы недели</b><br>🥇 <b>P1#T</b> — 8<br>🥈 <b>P2#T</b> — 7<br>🥉 <b>P3#T</b> — 6');
+    expect(html).toContain('<summary>ещё 5 игроков</summary>');
+    expect(html).toContain('• <b>P8#T</b> — 1');
+  });
+
+  it('a short ace board is left open — 3 players, no accordion', () => {
+    const { html } = renderDigest(fullModel({ aces: [
+      { name: 'A', tag: 'T', count: 3 },
+      { name: 'B', tag: 'T', count: 2 },
+      { name: 'C', tag: 'T', count: 1 },
+    ], knives: [], topMaps: [], topAgents: [] }));
+    expect(html).not.toContain('<details>');
+  });
+
+  it('the knife board collapses independently of the ace board', () => {
+    const { html } = renderDigest(
+      fullModel({
+        aces: [{ name: 'Solo', tag: 'T', count: 1 }],
+        knives: Array.from({ length: 5 }, (_, i) => ({ name: `K${i + 1}`, tag: 'T', count: 5 - i })),
+        topMaps: [],
+        topAgents: [],
+      }),
+    );
+    // One accordion in the whole digest, and it belongs to the knife board.
+    expect(html.match(/<details>/g)).toHaveLength(1);
+    expect(html).toContain('<summary>ещё 2 игрока</summary>');
     const aceIdx = html.indexOf('🎯 <b>Эйсы недели</b>');
-    const nextBlock = html.indexOf('🔪 <b>Ножи недели</b>');
-    expect(html.slice(aceIdx, nextBlock)).not.toContain('<details>');
+    const knifeIdx = html.indexOf('🔪 <b>Ножи недели</b>');
+    expect(html.slice(aceIdx, knifeIdx)).not.toContain('<details>');
   });
 });
 
