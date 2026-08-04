@@ -230,7 +230,7 @@ describe('buildDigest', () => {
 
       // Bottom sections present
       expect(text).toContain('матчей'); // pulse
-      expect(text).toContain('Jett'); // top agents
+      expect(text).toContain('🎭 <b>Агенты недели</b>'); // agents board (rows are pack icons, not names)
 
       // No Epic Moment section header
       expect(text).not.toContain('Самый яркий момент');
@@ -293,10 +293,10 @@ describe('buildDigest', () => {
       // Owner asked for «топ всех карт» — the 4th map appears too.
       expect(result.text).toContain('Pearl');
       // Podium order, then a bullet for the tail.
-      expect(result.text).toContain('🥇 Ascent — 4');
-      expect(result.text).toContain('🥈 Bind — 3');
-      expect(result.text).toContain('🥉 Haven — 2');
-      expect(result.text).toContain('• Pearl — 1');
+      expect(result.text).toMatch(/🥇 .*Ascent — 4/);
+      expect(result.text).toMatch(/🥈 .*Bind — 3/);
+      expect(result.text).toMatch(/🥉 .*Haven — 2/);
+      expect(result.text).toMatch(/• .*Pearl — 1/);
     });
 
     it('renders top maps with count annotations', async () => {
@@ -307,7 +307,7 @@ describe('buildDigest', () => {
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       expect(result.text).toContain('🗺 <b>Карты недели</b>');
-      expect(result.text).toContain('🥇 Ascent — 3');
+      expect(result.text).toMatch(/🥇 .*Ascent — 3/);
     });
   });
 
@@ -346,7 +346,7 @@ describe('buildDigest', () => {
       const text = result.text!;
       expect(text).toContain('матчей'); // pulse
       expect(text).toContain('Alpha'); // most active
-      expect(text).toContain('Jett'); // top agents
+      expect(text).toContain('🎭 <b>Агенты недели</b>'); // agents board (rows are pack icons, not names)
       expect(text).toContain('Ascent'); // top maps
       expect(text).toContain('Bind'); // top maps (2nd)
     });
@@ -1192,8 +1192,10 @@ describe('buildDigest', () => {
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       const html = result.richHtml!;
-      expect(html).toContain('🗺 <b>Карты недели</b><br>🥇 Ascent — 4<br>🥈 Bind — 2');
-      expect(html).toContain('🎭 <b>Агенты недели</b><br>🥇 Jett — 4<br>🥈 Sage — 2');
+      // Maps: icon + name. Agents: icon alone.
+      expect(html).toContain('🗺 <b>Карты недели</b><br>🥇 <tg-emoji emoji-id="5267510877233387981">🗺️</tg-emoji> Ascent — 4');
+      expect(html).toContain('🎭 <b>Агенты недели</b><br>🥇 <tg-emoji emoji-id="5265124043647916479">🦸</tg-emoji> — 4');
+      expect(html).not.toContain('🦸</tg-emoji> Jett —');
       expect(html).not.toContain('<table');
       expect(html).not.toContain('align="right"');
     });
