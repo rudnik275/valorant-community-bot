@@ -107,30 +107,14 @@ describe('renderTemplate — HTML injection prevention', () => {
 });
 
 describe('renderTemplate — payload-specific behavior', () => {
-  it('ace: shows kill count when round had 6+ kills', () => {
-    const output = renderTemplate('ace', { weapons_per_round: [['Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal']] }, safeUser);
-    expect(output).toContain('6 убийств');
-  });
 
   it('ace: no kill count when round had exactly 5 kills', () => {
     const output = renderTemplate('ace', { weapons_per_round: [['Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal']] }, safeUser);
     expect(output).not.toContain('убийств');
   });
 
-  it('ace: includes map from match param', () => {
-    const output = renderTemplate('ace', {}, safeUser, { map: 'Ascent' });
-    expect(output).toContain(`на карте ${mapToEmojiHtml('Ascent')} Ascent`);
-  });
 
-  it('ace: contains AAAAAAACE heading', () => {
-    const output = renderTemplate('ace', {}, safeUser);
-    expect(output).toContain('AAAAAAACE');
-  });
 
-  it('ace: includes match link when match_id present', () => {
-    const output = renderTemplate('ace', {}, safeUser, { match_id: 'abc123' });
-    expect(output).toContain('tracker.gg/valorant/match/abc123');
-  });
 
   it('rank_promo: Ascendant 1 shows "Повышение по службе" heading + icon only (no tier text)', () => {
     const output = renderTemplate('peak_rank_up', { from_tier_name: 'Diamond 3', to_tier_name: 'Ascendant 1' }, safeUser);
@@ -525,10 +509,6 @@ describe('renderTemplate — agent emoji next to nicks (#301)', () => {
   const JETT = '<tg-emoji emoji-id="5265124043647916479">';
   const SAGE = '<tg-emoji emoji-id="5267462919628560472">';
 
-  it('ace: shows triggering player agent emoji from match.agent', () => {
-    const output = renderTemplate('ace', {}, safeUser, { agent: 'Jett' });
-    expect(output).toContain('<b>Player#TAG</b> ' + JETT);
-  });
 
   it('record_kills_match: shows agent emoji next to nick from match.agent', () => {
     const output = renderTemplate('record_kills_match', { value: 30 }, safeUser, { agent: 'Jett' });

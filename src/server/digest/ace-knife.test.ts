@@ -88,7 +88,7 @@ describe('buildAceKnifeStandings', () => {
     seedEvent(sqlite, { puuid: 'p1', eventType: 'ace', payload: { rounds: [7] }, detectedAt: IN_WINDOW + 1000 });
 
     const r = await buildAceKnifeStandings(db, WEEK_START, WEEK_END, NO_OPT_OUTS);
-    expect(r.aces).toEqual([{ name: 'Alpha', tag: 'AAA', count: 3, geese: 0 }]);
+    expect(r.aces).toEqual([{ name: 'Alpha', tag: 'AAA', count: 3 }]);
     expect(r.knives).toEqual([]);
   });
 
@@ -103,36 +103,35 @@ describe('buildAceKnifeStandings', () => {
     });
 
     const r = await buildAceKnifeStandings(db, WEEK_START, WEEK_END, NO_OPT_OUTS);
-    expect(r.knives).toEqual([{ name: 'Alpha', tag: 'AAA', count: 3, geese: 0 }]);
+    expect(r.knives).toEqual([{ name: 'Alpha', tag: 'AAA', count: 3 }]);
   });
 
-  it('counts 🪿 geese — knife kills whose victim was AFK', async () => {
+  it('ignores victims_afk on legacy rows — AFK kills count the same as any other', async () => {
     seedUser(sqlite, 1, 'p1', 'Alpha', 'AAA');
+    seedUser(sqlite, 2, 'p2', 'Beta', 'BBB');
+    // Historical rows still carry victims_afk; the goose split is retired, so
+    // three knife kills are three knife kills regardless of the flags.
     seedEvent(sqlite, {
       puuid: 'p1',
       eventType: 'knife_kill',
       payload: { count: 3, rounds: [1, 2, 3], victims_afk: [true, false, true] },
       detectedAt: IN_WINDOW,
     });
-
-    const r = await buildAceKnifeStandings(db, WEEK_START, WEEK_END, NO_OPT_OUTS);
-    expect(r.knives).toEqual([{ name: 'Alpha', tag: 'AAA', count: 3, geese: 2 }]);
-  });
-
-  it('never lets a malformed longer victims_afk inflate geese past the kill count', async () => {
-    seedUser(sqlite, 1, 'p1', 'Alpha', 'AAA');
     seedEvent(sqlite, {
-      puuid: 'p1',
+      puuid: 'p2',
       eventType: 'knife_kill',
-      payload: { count: 1, rounds: [1], victims_afk: [true, true, true, true] },
+      payload: { count: 3, rounds: [1, 2, 3] },
       detectedAt: IN_WINDOW,
     });
 
     const r = await buildAceKnifeStandings(db, WEEK_START, WEEK_END, NO_OPT_OUTS);
-    expect(r.knives[0]).toEqual({ name: 'Alpha', tag: 'AAA', count: 1, geese: 1 });
+    expect(r.knives).toEqual([
+      { name: 'Alpha', tag: 'AAA', count: 3 },
+      { name: 'Beta', tag: 'BBB', count: 3 },
+    ]);
   });
 
-  it('sorts desc by count, then by geese, then by nick', async () => {
+  it('sorts desc by count, then by nick', async () => {
     seedUser(sqlite, 1, 'p1', 'Alpha', 'AAA');
     seedUser(sqlite, 2, 'p2', 'Beta', 'BBB');
     seedUser(sqlite, 3, 'p3', 'Gamma', 'GGG');
@@ -191,7 +190,7 @@ describe('buildAceKnifeStandings', () => {
     seedEvent(sqlite, { puuid: 'p2', eventType: 'ace', payload: { rounds: [1] }, detectedAt: IN_WINDOW });
 
     const r = await buildAceKnifeStandings(db, WEEK_START, WEEK_END, new Set([1]));
-    expect(r.aces).toEqual([{ name: 'Beta', tag: 'BBB', count: 1, geese: 0 }]);
+    expect(r.aces).toEqual([{ name: 'Beta', tag: 'BBB', count: 1 }]);
     expect(r.knives).toEqual([]);
   });
 
@@ -223,7 +222,7 @@ describe('buildAceKnifeStandings', () => {
     seedEvent(sqlite, { puuid: 'p1', eventType: 'ace', payload: { rounds: [1] }, detectedAt: IN_WINDOW });
 
     const r = await buildAceKnifeStandings(db, WEEK_START, WEEK_END, NO_OPT_OUTS);
-    expect(r.aces).toEqual([{ name: 'Alpha', tag: 'AAA', count: 1, geese: 0 }]);
+    expect(r.aces).toEqual([{ name: 'Alpha', tag: 'AAA', count: 1 }]);
   });
 
   it('ignores other event types entirely', async () => {

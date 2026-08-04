@@ -59,8 +59,14 @@ weekly digest as plain per-player leaderboards — «кто сколько эй�
 - The single chronological list — per-round rows with `HH:MM`, the 🏆/💀
   round-outcome marker, the round number and the per-round match link — no
   longer exists anywhere. Only counts survive.
-- The 🪿 «распотрошил гуся» distinction survives as a parenthetical goose count
-  on the knife board (`🥇 Ник — 3 (🪿 1)`), not as its own emoji per row.
+- The «заколол баранчика» / «распотрошил гуся» (AFK victim) split is **retired
+  entirely** — a knife kill is a knife kill. The knife detector no longer emits
+  `victims_afk`, and no message anywhere distinguishes the two. The raw Riot
+  flags stay on `match_records.per_round_afk_compact`, so it is re-derivable if
+  the joke is ever wanted back.
+- The `ace` and `knife_kill` chat templates in `publisher/templates.ts` are
+  deleted — both types are weekly now, so neither the publisher loop nor the
+  `/test_runtime_events` replay could ever reach them.
 - Aces are counted per **aced round**; knife kills per **kill** (two knife kills
   in one round count as 2 — the old daily post deduped them to one row).
 

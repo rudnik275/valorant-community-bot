@@ -29,12 +29,12 @@ function fullModel(overrides: Partial<RichDigestModel> = {}): RichDigestModel {
     ],
     winstreaks: [{ name: 'Alpha', tag: 'AAA', streak: 12 }],
     aces: [
-      { name: 'Killer', tag: 'KLL', count: 4, geese: 0 },
-      { name: 'Alpha', tag: 'AAA', count: 2, geese: 0 },
+      { name: 'Killer', tag: 'KLL', count: 4 },
+      { name: 'Alpha', tag: 'AAA', count: 2 },
     ],
     knives: [
-      { name: 'Alpha', tag: 'AAA', count: 3, geese: 1 },
-      { name: 'Beta', tag: 'BBB', count: 1, geese: 0 },
+      { name: 'Alpha', tag: 'AAA', count: 3 },
+      { name: 'Beta', tag: 'BBB', count: 1 },
     ],
     promotions: [{ name: 'Climber', tag: 'UP', rank: 'Platinum 1' }],
     weaponMasters: [
@@ -161,22 +161,24 @@ describe('renderDigest — ace / knife leaderboards', () => {
     expect(html).toContain('🥈 <b>Alpha#AAA</b> — 2');
   });
 
-  it('renders knife counts and appends the 🪿 count only when non-zero', () => {
+  it('renders knife counts with no AFK/goose distinction — a knife kill is a knife kill', () => {
     const { html } = renderDigest(fullModel());
     expect(html).toContain('🔪 <b>Ножи недели</b>');
-    expect(html).toContain('🥇 <b>Alpha#AAA</b> — 3 (🪿 1)');
+    expect(html).toContain('🥇 <b>Alpha#AAA</b> — 3');
     expect(html).toContain('🥈 <b>Beta#BBB</b> — 1');
-    expect(html).not.toContain('<b>Beta#BBB</b> — 1 (🪿');
+    expect(html).not.toContain('🪿');
+    expect(html).not.toContain('гус');
+    expect(html).not.toContain('баранчик');
   });
 
   it('falls back to a bullet past the podium', () => {
     const { html } = renderDigest(
       fullModel({
         aces: [
-          { name: 'A', tag: 'T', count: 4, geese: 0 },
-          { name: 'B', tag: 'T', count: 3, geese: 0 },
-          { name: 'C', tag: 'T', count: 2, geese: 0 },
-          { name: 'D', tag: 'T', count: 1, geese: 0 },
+          { name: 'A', tag: 'T', count: 4 },
+          { name: 'B', tag: 'T', count: 3 },
+          { name: 'C', tag: 'T', count: 2 },
+          { name: 'D', tag: 'T', count: 1 },
         ],
       }),
     );
@@ -316,7 +318,7 @@ describe('renderDigest — escaping', () => {
   it('escapes hostile nicks and record titles', () => {
     const { html } = renderDigest(
       fullModel({
-        aces: [{ name: '<script>', tag: '&evil', count: 1, geese: 0 }],
+        aces: [{ name: '<script>', tag: '&evil', count: 1 }],
         records: [
           {
             emoji: '💀',

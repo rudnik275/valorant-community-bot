@@ -17,9 +17,12 @@
  *             per kill and CAN repeat a round (two knife kills in one round =
  *             2). The old daily post deduped rounds; a leaderboard of "кто
  *             сколько ножей сделал" is more naturally kills.
- *   - 🪿    — subset of a player's knife kills whose victim Riot flagged
- *             `was_afk` that round («распотрошил гуся»). Rendered as a
- *             parenthetical, never as a separate leaderboard.
+ *
+ * A knife kill is a knife kill: the old «заколол баранчика» / «распотрошил
+ * гуся» (AFK victim) split is retired (owner, 2026-08-04) — both count the
+ * same and nothing reads `payload.victims_afk` any more. `match_records.
+ * per_round_afk_compact` still stores the raw Riot AFK flags, so the
+ * distinction is re-derivable if it is ever wanted back.
  *
  * Window / status semantics match the weekly bright-events query in build.ts:
  * events are selected by `detected_at` in [weekStart, weekEnd) and by type
@@ -45,11 +48,6 @@ export interface AceKnifeStanding {
   tag: string;
   /** Aces (aced rounds) or knife kills in the window. Always ≥ 1. */
   count: number;
-  /**
-   * Knife boards only: how many of `count` were kills on an AFK victim (🪿).
-   * Always 0 on the ace board, and 0 on knife rows with no AFK victims.
-   */
-  geese: number;
 }
 
 export interface AceKnifeStandings {
@@ -72,66 +70,42 @@ interface Tally {
   name: string;
   tag: string;
   count: number;
-  geese: number;
 }
 
 /**
- * Parse one event payload into `{ occurrences, geese }`.
+ * Count the occurrences one event payload contributes.
  *
  * `rounds` is the authoritative array for both types (one entry per ace round /
  * per knife kill). Legacy rows that predate it fall back to the scalar counters
  * the detectors also write (`total_aces` / `count`); a row with neither
- * contributes nothing rather than throwing.
+ * contributes 0 rather than throwing.
  */
-function readOccurrences(
-  eventType: 'ace' | 'knife_kill',
-  payloadJson: string,
-): { occurrences: number; geese: number } {
+function readOccurrences(eventType: 'ace' | 'knife_kill', payloadJson: string): number {
   let payload: Record<string, unknown>;
   try {
     payload = JSON.parse(payloadJson) as Record<string, unknown>;
   } catch {
-    return { occurrences: 0, geese: 0 };
+    return 0;
   }
 
   const rounds = Array.isArray(payload['rounds'])
     ? (payload['rounds'] as unknown[]).filter((r) => typeof r === 'number')
     : null;
+  if (rounds !== null) return rounds.length;
 
-  const fallbackKey = eventType === 'ace' ? 'total_aces' : 'count';
-  const fallback = Number(payload[fallbackKey]);
-  const occurrences = rounds !== null
-    ? rounds.length
-    : Number.isFinite(fallback) && fallback > 0
-      ? fallback
-      : 0;
-
-  if (eventType === 'ace' || occurrences === 0) {
-    return { occurrences, geese: 0 };
-  }
-
-  // `victims_afk` is parallel to the RAW `rounds` array (one flag per kill).
-  // Count only as many flags as we counted kills, so a malformed longer array
-  // can never inflate the goose count past the kill count.
-  const afkRaw = Array.isArray(payload['victims_afk']) ? (payload['victims_afk'] as unknown[]) : [];
-  let geese = 0;
-  for (let i = 0; i < Math.min(afkRaw.length, occurrences); i++) {
-    if (afkRaw[i] === true) geese++;
-  }
-  return { occurrences, geese };
+  const fallback = Number(payload[eventType === 'ace' ? 'total_aces' : 'count']);
+  return Number.isFinite(fallback) && fallback > 0 ? fallback : 0;
 }
 
-/** Sort desc by count, then by 🪿 desc, then by name for a stable order. */
+/** Sort desc by count, then by name for a stable order. */
 function toStandings(tallies: Map<string, Tally>): AceKnifeStanding[] {
   return [...tallies.values()]
     .filter((t) => t.count > 0)
     .sort(
       (a, b) =>
-        b.count - a.count ||
-        b.geese - a.geese ||
-        `${a.name}#${a.tag}`.localeCompare(`${b.name}#${b.tag}`),
+        b.count - a.count || `${a.name}#${a.tag}`.localeCompare(`${b.name}#${b.tag}`),
     )
-    .map((t) => ({ name: t.name, tag: t.tag, count: t.count, geese: t.geese }));
+    .map((t) => ({ name: t.name, tag: t.tag, count: t.count }));
 }
 
 /**
@@ -174,21 +148,15 @@ export async function buildAceKnifeStandings(
     if (row.riotName === null) continue;
     if (row.telegramId !== null && optedOutTelegramIds.has(row.telegramId)) continue;
 
-    const { occurrences, geese } = readOccurrences(row.eventType, row.payloadJson);
+    const occurrences = readOccurrences(row.eventType, row.payloadJson);
     if (occurrences === 0) continue;
 
     const bucket = row.eventType === 'ace' ? aceTallies : knifeTallies;
     const existing = bucket.get(row.puuid);
     if (existing) {
       existing.count += occurrences;
-      existing.geese += geese;
     } else {
-      bucket.set(row.puuid, {
-        name: row.riotName,
-        tag: row.riotTag ?? '',
-        count: occurrences,
-        geese,
-      });
+      bucket.set(row.puuid, { name: row.riotName, tag: row.riotTag ?? '', count: occurrences });
     }
   }
 

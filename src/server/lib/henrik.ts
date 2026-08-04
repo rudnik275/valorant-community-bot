@@ -374,8 +374,8 @@ const KillV4Schema = z.object({
  * the AFK signals) and `.passthrough()` keeps the rest (damage_events,
  * economy, ability_casts, stats.{score,kills,...}) on the wire for future
  * features. `was_afk` is the canonical "this player was AFK in this round"
- * boolean — exactly what the knife-kill detector needs to tag a kill as
- * "распотрошил гуся".
+ * boolean. It used to drive the knife «распотрошил гуся» tag (retired
+ * 2026-08-04); it is still persisted as raw per-round AFK signal.
  */
 const RoundStatsV4Schema = z.object({
   player: z.object({ puuid: z.string().optional() }).passthrough().optional(),

@@ -246,8 +246,9 @@ type Block = string[];
 
 /**
  * Render one ace/knife leaderboard block, or null when the board is empty.
- * Line shape: `🥇 <b>Ник#Тег</b> — 4` (+ ` (🪿 1)` when some knife kills hit an
- * AFK victim). Aces never carry a goose count.
+ * Line shape: `🥇 <b>Ник#Тег</b> — 4`. Aces and knives render identically —
+ * the «заколол баранчика» / «распотрошил гуся» (AFK victim) split is retired
+ * (owner, 2026-08-04): a knife kill is a knife kill.
  */
 function standingsBlock(
   emoji: string,
@@ -258,8 +259,7 @@ function standingsBlock(
   const lines = standings.map((s, i) => {
     const marker = MEDALS[i] ?? '•';
     const nick = renderPlayerName({ name: s.name, tag: s.tag, isCommunity: true });
-    const geese = s.geese > 0 ? ` (🪿 ${s.geese})` : '';
-    return `${marker} ${nick} — ${s.count}${geese}`;
+    return `${marker} ${nick} — ${s.count}`;
   });
   return [`${emoji} <b>${title}</b>`, ...lines];
 }

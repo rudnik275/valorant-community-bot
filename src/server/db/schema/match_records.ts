@@ -23,7 +23,8 @@ export const matchRecords = sqliteTable(
     rounds_compact: text('rounds_compact'),
     // Per-match map: { "<round>": ["puuid", ...] } of players Riot flagged
     // `was_afk` for that round. Nullable / empty `{}` when no AFK or pre-feature.
-    // Consumed by knife-kill detector to tag "распотрошил гуся" vs "заколол баранчика".
+    // No longer consumed by anything: the knife goose/lamb split was retired
+    // 2026-08-04. Kept as raw signal for any future AFK-related stat.
     per_round_afk_compact: text('per_round_afk_compact'),
     score: integer('score'),
     headshots: integer('headshots'),

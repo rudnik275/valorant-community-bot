@@ -1024,7 +1024,8 @@ describe('buildDigest', () => {
       seedEvent(sqlite, { puuid: 'p1', matchId: 'a1', eventType: 'ace', payload: { rounds: [3, 11] }, detectedAt: IN_WINDOW });
       seedEvent(sqlite, { puuid: 'p1', matchId: 'a2', eventType: 'ace', payload: { rounds: [7] }, detectedAt: IN_WINDOW + 1000 });
       seedEvent(sqlite, { puuid: 'p2', matchId: 'a3', eventType: 'ace', payload: { rounds: [4] }, detectedAt: IN_WINDOW + 2000 });
-      // Beta: 2 knife kills, one of them on an AFK victim (🪿).
+      // Beta: 2 knife kills. One victim was AFK, but that no longer changes
+      // anything — the goose split is retired.
       seedEvent(sqlite, {
         puuid: 'p2', matchId: 'k1', eventType: 'knife_kill',
         payload: { count: 2, rounds: [5, 6], victims_afk: [true, false] },
@@ -1040,7 +1041,8 @@ describe('buildDigest', () => {
       expect(html).toContain('🥇 <b>Alpha#AAA</b> — 3');
       expect(html).toContain('🥈 <b>Beta#BBB</b> — 1');
       expect(html).toContain('🔪 <b>Ножи недели</b>');
-      expect(html).toContain('🥇 <b>Beta#BBB</b> — 2 (🪿 1)');
+      expect(html).toContain('🥇 <b>Beta#BBB</b> — 2');
+      expect(html).not.toContain('🪿');
 
       // Counts only — no per-round detail survives from the daily digest.
       expect(html).not.toContain('round');

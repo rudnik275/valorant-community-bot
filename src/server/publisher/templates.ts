@@ -201,23 +201,10 @@ function prevRecordLine(
   return '';
 }
 
-const templates: Record<EventType, TemplateFn> = {
-  ace: (_payload, user, match) => {
-    const weaponsPerRound = Array.isArray(_payload['weapons_per_round'])
-      ? _payload['weapons_per_round'] as unknown[][]
-      : [];
-    let maxKills = 5;
-    for (const round of weaponsPerRound) {
-      if (Array.isArray(round) && round.length > maxKills) {
-        maxKills = round.length;
-      }
-    }
-    const killsStr = maxKills > 5 ? ` — ${maxKills} убийств` : '';
-    const desc = `${playerTag(user)}${agentLead(match?.agent)}${killsStr}${mapSuffix(match?.map)}`;
-    const link = match?.match_id ? matchLine(match.match_id) : '';
-    return `🎯 <u>AAAAAAACE!</u>\n\n${desc}${link}`;
-  },
-
+// Partial by design: only REALTIME event types need a chat template. Weekly
+// types (records, winstreaks, rank-ups, ace/knife) are rendered by the digest
+// from its own model, and `renderTemplate` falls back for anything missing.
+const templates: Partial<Record<EventType, TemplateFn>> = {
   peak_rank_up: (payload, user, _match) => {
     const to = payload['to_tier_name'] ?? '';
     const rankEmoji = rankToEmojiHtml(to as string);
@@ -361,14 +348,6 @@ const templates: Record<EventType, TemplateFn> = {
     return `🐴 <u>Троянский конь</u>\n${ctxLine(ctx!)}\n${valueLine}${prev}`;
   },
 
-  knife_kill: (payload, user, match) => {
-    const count = Number(payload['count'] ?? 1);
-    const countStr = count > 1 ? `${count} врагов` : 'врага';
-    const desc = `${playerTag(user)}${agentLead(match?.agent)} — зарезал(а) ${countStr} с ножа${mapSuffix(match?.map)}`;
-    const link = match?.match_id ? matchLine(match.match_id) : '';
-    return `🔪 <u>Заколол баранчика</u>\n\n${desc}${link}`;
-  },
-
   record_mvp_count_week: (payload, user, _match) => {
     const value = payload['value'];
     const prevValue = payload['prev_value'];
@@ -480,6 +459,16 @@ const templates: Record<EventType, TemplateFn> = {
 /**
  * Render a template for the given event_type.
  * Returns a fallback string if event_type is unknown.
+ */
+/**
+ * Render the chat message for one REALTIME event.
+ *
+ * Only realtime event types have a template here. `ace` / `knife_kill` used to
+ * have one (the «Заколол баранчика» post) and the record_* types were rendered
+ * from here into the old legacy digest text — both paths are gone: ace/knife
+ * are weekly counts now (`digest/ace-knife.ts`) and the digest renders from its
+ * own model (`digest/rich-render.ts`). An unknown type falls back to a generic
+ * line rather than throwing.
  */
 export function renderTemplate(
   eventType: EventType,
