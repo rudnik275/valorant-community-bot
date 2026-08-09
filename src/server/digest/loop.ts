@@ -72,18 +72,73 @@ export interface DigestNowKyiv {
    * Used as the UNIQUE key in digest_runs to prevent duplicate digests per cycle.
    */
   weekIso: string;
-  /** Window start: now - 7 days (rolling 7-day window, ms). */
+  /** Window start: the same Kyiv wall-clock time 7 calendar days before weekEnd (167h/168h/169h across DST, ms). */
   weekStart: number;
-  /** Window end: now (publication moment, ms). */
+  /** Window end: the publication moment snapped down to the start of its Kyiv minute (ms). */
   weekEnd: number;
+}
+
+const KYIV_TZ = 'Europe/Kyiv';
+
+/**
+ * Kyiv wall-clock fields of an instant. `hourCycle: 'h23'` and not
+ * `hour12: false` — some ICU builds report midnight as hour "24" under the
+ * latter, which would throw the derived offset off by a whole day.
+ */
+const kyivWallClock = new Intl.DateTimeFormat('en-US', {
+  timeZone: KYIV_TZ,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+});
+
+/** Europe/Kyiv's offset from UTC at `ms`, in ms (+2h EET winter, +3h EEST summer). */
+function kyivOffsetMs(ms: number): number {
+  const parts = kyivWallClock.formatToParts(ms);
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  const wallAsUtc = Date.UTC(
+    get('year'), get('month') - 1, get('day'),
+    get('hour'), get('minute'), get('second'),
+  );
+  // formatToParts truncates to whole seconds, so compare against the truncated
+  // instant — otherwise the sub-second remainder leaks into the offset.
+  return wallAsUtc - Math.floor(ms / 1000) * 1000;
+}
+
+/**
+ * The instant `days` Kyiv CALENDAR days from `ms`, at the same local wall-clock
+ * time. Deliberately not `ms + days * 86400000`: across a DST change a Kyiv day
+ * is 23 or 25 hours long.
+ *
+ * Two passes — shift the wall clock, convert back with the offset in effect at
+ * the source instant, then re-convert if the offset actually in effect at the
+ * target differs. A wall-clock time that does not exist (03:00–03:59 on the
+ * spring-forward Sunday) keeps the first guess; the digest anchors are Fri
+ * 18:45 / 19:00, which never land in the gap.
+ */
+function shiftKyivCalendarDays(ms: number, days: number): number {
+  const offset = kyivOffsetMs(ms);
+  const wall = ms + offset + days * 86400000;
+  const firstGuess = wall - offset;
+  const targetOffset = kyivOffsetMs(firstGuess);
+  if (targetOffset === offset) return firstGuess;
+  const secondGuess = wall - targetOffset;
+  return kyivOffsetMs(secondGuess) === targetOffset ? secondGuess : firstGuess;
 }
 
 /**
  * Compute rolling 7-day window info anchored to the current moment (publication time).
  *
  * New window logic (post-#149):
- *   weekEnd   = now (the publication moment — Friday 19:00 Kyiv)
- *   weekStart = weekEnd - 7 * 86400000 (rolling 7-day window)
+ *   weekEnd   = the publication tick (Friday 19:00 Kyiv), snapped to its minute
+ *   weekStart = the same wall-clock moment 7 Kyiv calendar days earlier
+ *
+ * The window is anchored to the Kyiv wall clock, not to a fixed 7×86_400_000,
+ * because the cron itself is local-time — see the comment at the computation.
  *
  * weekIso = ISO week of the publication day (Friday).
  * ISO 8601: Friday is in the same week as the preceding Monday (weeks start Mon).
@@ -94,9 +149,22 @@ export interface DigestNowKyiv {
 export function getDigestNowKyiv(nowMs?: number): DigestNowKyiv {
   const ms = nowMs ?? Date.now();
 
-  // Rolling 7-day window: end = now, start = now - 7 days
-  const weekEndMs = ms;
-  const weekStartMs = ms - 7 * 86400000;
+  // Snap the window boundaries to the start of the Kyiv minute the tick fired
+  // in. Croner hands us the true Date.now(), so two consecutive ticks differ by
+  // a few ms of scheduling jitter; without the snap consecutive windows miss
+  // (or overlap) by that jitter and an event landing in it is dropped (or
+  // rendered twice). `nowMs` stays the true instant — it is what
+  // `digest_runs.started_at` and the Silent-period gate read.
+  const weekEndMs = Math.floor(ms / 60000) * 60000;
+  // Seven Kyiv CALENDAR days, not 7 × 86_400_000. The cron that fires this is
+  // local-time (`0 19 * * 5`, Europe/Kyiv), so across a DST change consecutive
+  // Fridays are 167h or 169h apart. Subtracting a fixed 7×24h made the spring
+  // window start an hour BEFORE the previous window ended — every event in that
+  // hour rendered in two digests a week apart (the same ace counted twice, the
+  // same promotion announced twice) — and in autumn it left a one-hour hole
+  // that fell out of both. Anchoring to the wall clock makes the window match
+  // the cron's own cadence exactly.
+  const weekStartMs = shiftKyivCalendarDays(weekEndMs, -7);
 
   // Compute ISO week of the publication moment (for UNIQUE dedup key)
   // We need the day-of-week in Kyiv to find the Monday of this ISO week, then Thursday-anchor.

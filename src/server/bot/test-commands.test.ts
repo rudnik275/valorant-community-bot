@@ -186,7 +186,7 @@ describe('/test_runtime_events replay parity (#315)', () => {
 describe('collapseGroupableEvents', () => {
   const baseEv = { payload_json: '{}', detected_at: 0 } as const;
 
-  it('keeps the earliest match_comeback row per match and drops siblings', () => {
+  it('groups every match_comeback row of one match into a single message', () => {
     const events = [
       { ...baseEv, event_type: 'match_comeback', riot_puuid: 'a', match_id: 'm1', detected_at: 100 },
       { ...baseEv, event_type: 'match_comeback', riot_puuid: 'b', match_id: 'm1', detected_at: 110 },
@@ -194,7 +194,21 @@ describe('collapseGroupableEvents', () => {
     ];
     const out = collapseGroupableEvents(events);
     expect(out).toHaveLength(1);
-    expect(out[0]!.riot_puuid).toBe('a');
+    expect(out[0]!.primary.riot_puuid).toBe('a');
+    // Siblings are kept (the message names them), not dropped.
+    expect(out[0]!.members.map((m) => m.riot_puuid)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('groups EVERY realtime type per match, not just match_comeback', () => {
+    for (const eventType of ['giant_slayer', 'teamkill', 'return_after_pause', 'community_clash']) {
+      const events = [
+        { ...baseEv, event_type: eventType, riot_puuid: 'a', match_id: 'm1', detected_at: 100 },
+        { ...baseEv, event_type: eventType, riot_puuid: 'b', match_id: 'm1', detected_at: 110 },
+      ];
+      const out = collapseGroupableEvents(events);
+      expect(out, eventType).toHaveLength(1);
+      expect(out[0]!.members, eventType).toHaveLength(2);
+    }
   });
 
   it('does not collapse match_comeback across different matches', () => {
@@ -205,7 +219,7 @@ describe('collapseGroupableEvents', () => {
     expect(collapseGroupableEvents(events)).toHaveLength(2);
   });
 
-  it('does not collapse non-groupable event types', () => {
+  it('does not collapse weekly event types (they never post to chat)', () => {
     const events = [
       { ...baseEv, event_type: 'ace', riot_puuid: 'a', match_id: 'm1', detected_at: 100 },
       { ...baseEv, event_type: 'ace', riot_puuid: 'b', match_id: 'm1', detected_at: 110 },

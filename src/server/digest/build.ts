@@ -23,7 +23,7 @@
  * includes "play more / come back" calls (memory rule: valorant_no_qol_coercion).
  */
 
-import { and, gte, lt, sql, eq, desc, isNotNull } from 'drizzle-orm';
+import { and, gte, lt, sql, eq, isNotNull } from 'drizzle-orm';
 import { matchRecords } from '../db/schema/match_records.ts';
 import { detectedEvents } from '../db/schema/detected_events.ts';
 import { users } from '../db/schema/users.ts';
@@ -44,6 +44,7 @@ import {
   type RichWinstreak,
   type RichPromotion,
   type RichNearMiss,
+  type RichPlayerRef,
 } from './rich-render.ts';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
@@ -179,6 +180,22 @@ function recordTypeForEvent(eventType: string): string {
   return RECORD_TYPE_OVERRIDES[eventType] ?? eventType.slice('record_'.length);
 }
 
+/**
+ * Every puuid an event's award names, the event's own player first.
+ *
+ * `detected_events` is unique on (match_id, event_type, riot_puuid) and
+ * `weekly_records` is keyed (record_type, week_iso) — both structurally name
+ * ONE player — so a shared award can only travel in the payload.
+ * `weekly-mvp-record.ts` writes every co-king into `payload.puuids`; every
+ * single-holder record, and every event emitted before that field existed, has
+ * none and falls back to the row's own puuid.
+ */
+function awardHolderPuuids(payload: Record<string, unknown>, primary: string): string[] {
+  const listed = payload['puuids'];
+  if (!Array.isArray(listed)) return [primary];
+  return [...new Set([primary, ...listed.map((h) => String(h))])];
+}
+
 function isBrightEvent(eventType: string): boolean {
   return eventType in BRIGHT_EVENT_WEIGHTS;
 }
@@ -188,11 +205,87 @@ function getBrightEventWeight(eventType: string): number {
 }
 
 /**
+ * One candidate for a near-miss: a player's week-best for the metric, the match
+ * it came from, and the nick we need in order to name them. The `users` columns
+ * arrive by LEFT JOIN, so they are null for a puuid with no member row (a
+ * departed member — `match_records.riot_puuid` is ON DELETE SET NULL — or a
+ * player whose matches were scanned before onboarding).
+ */
+interface NearMissCandidate {
+  value: number | null;
+  riot_name: string | null;
+  riot_tag: string | null;
+  telegram_id: number | null;
+  match_id?: string | null;
+  agent?: string | null;
+  map?: string | null;
+}
+
+/**
+ * Pick everyone who shares the week's best among the players we may name.
+ * Rows arrive desc by value; the walk stops at the first value below the best
+ * ELIGIBLE one.
+ *
+ * Two rules the near-miss section was missing entirely:
+ *   - opted-out members are dropped, the way bright events and the ace/knife
+ *     boards drop them. Near-misses were the ONE section that never consulted
+ *     the set, so an opted-out member's week-best was still read out to the
+ *     group — and opt-out is a promise to that member.
+ *   - a puuid with no `users` row is dropped rather than printed: the old
+ *     fallback was `String(row.riot_puuid)`, i.e. a 78-character raw PUUID
+ *     landing in the group chat as a nick.
+ * Skipping them does not take the block down — the next player who genuinely
+ * was close still gets their line, exactly as «Больше всех матчей» walks past
+ * an opted-out leader.
+ *
+ * Everyone tied on the best value is named. `LIMIT 1` handed the block to
+ * whichever equal row the scan reached first and dropped the co-holder
+ * silently — the same class of bug the owner called out on the Эйсы podium
+ * (2026-08-09), fixed there by naming everyone tied. The SQL orders ties by
+ * puuid, so their order is stable between two runs of the same digest.
+ */
+function eligibleNearMissHolders(
+  rows: NearMissCandidate[],
+  optedOutTelegramIds: Set<number>,
+): { value: number; players: RichPlayerRef[] } | null {
+  let best: number | null = null;
+  const players: RichPlayerRef[] = [];
+
+  for (const row of rows) {
+    if (row.value == null) continue;
+    const value = Number(row.value);
+    if (best !== null && value < best) break;
+    // No nick ⇒ nothing to render. No telegram_id ⇒ cannot be opted out.
+    if (row.riot_name == null) continue;
+    if (row.telegram_id != null && optedOutTelegramIds.has(row.telegram_id)) continue;
+
+    best = value;
+    players.push({
+      name: row.riot_name,
+      tag: row.riot_tag ?? '',
+      // The near-miss match rides along: it drives the agent emoji next to the
+      // nick (#301) and the match link (owner, 2026-08-04). No rank-in-match —
+      // the aggregated MAX() row doesn't reliably carry the matching
+      // rank_after. Aggregate metrics (mvp_count_week) select no match columns
+      // at all, so both come out null.
+      agent: row.agent ?? null,
+      matchUrl: row.match_id ? `https://tracker.gg/valorant/match/${String(row.match_id)}` : null,
+      mapName: row.map ?? null,
+    });
+  }
+
+  return best === null ? null : { value: best, players };
+}
+
+/**
  * Compute "Был близок к рекорду" blocks for the digest.
  *
  * For each record type in NEAR_MISS_THRESHOLDS that was NOT beaten this week,
  * checks if the week's maximum for that metric is within threshold of the
  * current all-time record. If so, renders a near-miss line.
+ *
+ * `optedOutTelegramIds` is dropped before the week's best is picked — see
+ * `eligibleNearMissHolders` for why this section needed it and did not have it.
  *
  * This is a pure render computation — no DB writes.
  */
@@ -201,6 +294,7 @@ async function renderNearMisses(
   weekStart: number,
   weekEnd: number,
   alreadyBeaten: Set<string>,
+  optedOutTelegramIds: Set<number>,
 ): Promise<RichNearMiss[]> {
   const rich: RichNearMiss[] = [];
 
@@ -219,38 +313,36 @@ async function renderNearMisses(
     // Special case: mvp_count_week is a derived aggregate (SUM of is_match_mvp per player),
     // not a direct column — handle it with its own query branch.
     if (cfg.source === 'mvp_count_week') {
-      const [mvpRow] = await db
+      const mvpRows = await db
         .select({
-          mvp_count: sql<number>`SUM(${matchRecords.is_match_mvp})`.as('mvp_count'),
-          riot_puuid: matchRecords.riot_puuid,
+          value: sql<number>`SUM(${matchRecords.is_match_mvp})`.as('mvp_count'),
+          riot_name: users.riot_name,
+          riot_tag: users.riot_tag,
+          telegram_id: users.telegram_id,
         })
         .from(matchRecords)
+        .leftJoin(users, eq(users.riot_puuid, matchRecords.riot_puuid))
         .where(and(
           isNotNull(matchRecords.riot_puuid),
           gte(matchRecords.started_at, weekStart),
           lt(matchRecords.started_at, weekEnd),
         ))
         .groupBy(matchRecords.riot_puuid)
-        .orderBy(sql`SUM(${matchRecords.is_match_mvp}) DESC`)
-        .limit(1);
-      if (!mvpRow || mvpRow.mvp_count == null) continue;
-      const weekMax = Number(mvpRow.mvp_count);
+        // Desc by count, then puuid: co-holders all get named, but the order
+        // in which they are named must not wobble between two runs.
+        .orderBy(sql`SUM(${matchRecords.is_match_mvp}) DESC`, matchRecords.riot_puuid);
+
+      const holders = eligibleNearMissHolders(mvpRows, optedOutTelegramIds);
+      if (!holders) continue;
+      const weekMax = holders.value;
       if (cfg.floor != null && weekMax < cfg.floor) continue;
       if (weekMax >= currentRecord) continue;
       if (weekMax < currentRecord - cfg.threshold) continue;
-      const [user] = await db
-        .select({ riot_name: users.riot_name, riot_tag: users.riot_tag })
-        .from(users)
-        .where(eq(users.riot_puuid, mvpRow.riot_puuid))
-        .limit(1);
       // mvp_count_week is an aggregate ⇒ no match, no agent, no rank.
       rich.push({
         emoji: cfg.emoji,
         header: cfg.header,
-        player: {
-          name: user ? user.riot_name : String(mvpRow.riot_puuid),
-          tag: user ? user.riot_tag : '',
-        },
+        players: holders.players,
         value: `${weekMax} ${cfg.unit}`,
       });
       continue;
@@ -274,53 +366,46 @@ async function renderNearMisses(
         ? sql`CAST(${matchRecords.game_length_ms} / 60000.0 AS INTEGER)`
         : sourceColumnMap[cfg.source as keyof typeof sourceColumnMap];
 
-    // Fetch the week's best for this metric (player with max value)
-    const [row] = await db
+    // Every player's week-best for this metric, best first. SQLite's
+    // bare-column rule hands back `match_id`/`agent`/`map` from the row that
+    // produced each player's MAX — that IS the near-miss match, and it drives
+    // the agent emoji next to the nick (#301) and the match link (owner,
+    // 2026-08-04).
+    //
+    // The GROUP BY is the fix, not decoration: this used to be one bare
+    // `MAX()` over the whole table, which returns exactly ONE row, so its
+    // `ORDER BY …, riot_puuid` tie-break never ran at all and a second player
+    // on the same week-best was dropped by the query itself.
+    const rows = await db
       .select({
-        max_value: sql<number>`MAX(${expr})`.as('max_value'),
-        riot_puuid: matchRecords.riot_puuid,
+        value: sql<number>`MAX(${expr})`.as('max_value'),
         match_id: matchRecords.match_id,
-        // SQLite returns the bare columns from the MAX() row, so `agent`/`map`
-        // belong to the near-miss match — they drive the agent emoji next to
-        // the nick (#301) and the match link (owner, 2026-08-04).
         agent: matchRecords.agent,
         map: matchRecords.map,
+        riot_name: users.riot_name,
+        riot_tag: users.riot_tag,
+        telegram_id: users.telegram_id,
       })
       .from(matchRecords)
+      .leftJoin(users, eq(users.riot_puuid, matchRecords.riot_puuid))
       .where(and(gte(matchRecords.started_at, weekStart), lt(matchRecords.started_at, weekEnd)))
-      .orderBy(desc(expr))
-      .limit(1);
+      .groupBy(matchRecords.riot_puuid)
+      .orderBy(sql`MAX(${expr}) DESC`, matchRecords.riot_puuid);
 
-    if (!row || row.max_value === null || row.max_value === undefined) continue;
-    const weekMax = Number(row.max_value);
+    const holders = eligibleNearMissHolders(rows, optedOutTelegramIds);
+    if (!holders) continue;
+    const weekMax = holders.value;
 
     // Double-check: if it's actually >= record it should already be in alreadyBeaten
     if (weekMax >= currentRecord) continue;
     // Check if it's within threshold
     if (weekMax < currentRecord - cfg.threshold) continue;
 
-    // Lookup the player
-    const [user] = await db
-      .select({ riot_name: users.riot_name, riot_tag: users.riot_tag })
-      .from(users)
-      .where(eq(users.riot_puuid, row.riot_puuid))
-      .limit(1);
-
-    // Structured near-miss for the renderer — tied to the near-miss match,
-    // so the agent emoji rides along (no rank-in-match captured for near-miss;
-    // the aggregated MAX() row doesn't reliably carry the matching rank_after).
     rich.push({
       emoji: cfg.emoji,
       header: cfg.header,
-      player: {
-        name: user ? user.riot_name : String(row.riot_puuid),
-        tag: user ? user.riot_tag : '',
-        agent: row.agent ?? null,
-      },
+      players: holders.players,
       value: `${weekMax} ${cfg.unit}`,
-      // A near-miss is a single match too — link it like a real record does.
-      matchUrl: row.match_id ? `https://tracker.gg/valorant/match/${String(row.match_id)}` : null,
-      mapName: row.map ?? null,
     });
   }
 
@@ -333,6 +418,16 @@ export interface BuildDigestDeps {
   weekStart: number;
   /** Window end in ms (exclusive). */
   weekEnd: number;
+  /**
+   * Build WITHOUT touching persistent state — for the owner's `/test_digest`
+   * preview. Building a digest normally computes and records the weekly MVP
+   * record first, which is a WRITE: a preview over an arbitrary window (say 30
+   * days) would stamp that 30-day count onto the current week's record row and
+   * insert a `record_mvp_count_week` event dated now — landing a bogus «👑
+   * Король MVP за неделю» in the group's next real digest, and raising the
+   * all-time bar so a genuine weekly record could never beat it again.
+   */
+  readOnly?: boolean;
 }
 
 export interface BuildDigestResult {
@@ -372,7 +467,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
   const sectionsIncluded: string[] = [];
 
   // ─── Weekly MVP record detector (digest-tick, runs before bright events query) ─
-  {
+  if (!deps.readOnly) {
     // Derive weekIso from weekEnd using the same Thursday-anchor algorithm as loop.ts
     const weekIso = computeWeekIso(weekEnd);
     await computeAndEmitWeeklyMvpRecord(db, weekStart, weekEnd, weekIso);
@@ -471,7 +566,16 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
     type Entry = {
       eventType: EventType;
       payload: Record<string, unknown>;
+      /**
+       * First holder — the single-player face used by the winstreak /
+       * promotion / weapons branches, which can never be shared.
+       */
       user: TemplateUser;
+      /**
+       * Everyone the award names, `user` first. Longer than one entry only for
+       * the aggregate weekly-MVP record, where the crown is shared.
+       */
+      holders: TemplateUser[];
       match?: TemplateMatch;
       /** Player's rank in the attached match (Henrik tier name) — rich accordions (#315). */
       rank?: string;
@@ -482,14 +586,31 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
 
     for (const ev of sorted) {
       const puuid = ev.riot_puuid as string;
-      const user = await getUserByPuuid(puuid);
-      if (!user) continue;
-
-      // peak_rank_up renders even for opted-out players (positive progress)
-      // Other bright events: skip opted-out players
-      if (ev.event_type !== 'peak_rank_up' && optedOut.has(user.telegram_id)) continue;
-
       const payload = safeParseJson(ev.payload_json as string);
+
+      // Everyone this award names, the event's own player first. All but the
+      // aggregate weekly-MVP record have exactly one holder; a tied «👑 Король
+      // MVP» rides its co-kings in `payload.puuids` because neither the event
+      // row nor `weekly_records` can hold more than one, and a genuine
+      // co-leader used to vanish without a trace (owner, 2026-08-09).
+      const holders: TemplateUser[] = [];
+      for (const holderPuuid of awardHolderPuuids(payload, puuid)) {
+        const holder = await getUserByPuuid(holderPuuid);
+        if (!holder) continue;
+        // peak_rank_up renders even for opted-out players (positive progress)
+        // Other bright events: skip opted-out players
+        if (ev.event_type !== 'peak_rank_up' && optedOut.has(holder.telegram_id)) continue;
+        holders.push({
+          riot_name: holder.riot_name,
+          riot_tag: holder.riot_tag,
+          telegram_id: holder.telegram_id,
+          riot_puuid: holderPuuid,
+        });
+      }
+      // Nobody left to name — an opted-out sole holder drops the award, but an
+      // opted-out FIRST holder no longer takes the co-kings down with them.
+      if (holders.length === 0) continue;
+      const user = holders[0]!;
 
       // Only canonical Valorant weapons count for "Эксперт по …" records —
       // skip abilities/utilities/empty/UUID weapon names. The detector now
@@ -529,13 +650,6 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       const agent: string | undefined = matchRow?.agent ?? undefined;
       const rankAfter: string | undefined = matchRow?.rank_after ?? undefined;
 
-      const tplUser: TemplateUser = {
-        riot_name: user.riot_name,
-        riot_tag: user.riot_tag,
-        telegram_id: user.telegram_id,
-        riot_puuid: puuid,
-      };
-
       const tplMatch: TemplateMatch = {};
       if (map) tplMatch.map = map;
       if (ev.match_id) tplMatch.match_id = String(ev.match_id);
@@ -544,7 +658,8 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       const entry: Entry = {
         eventType: ev.event_type as EventType,
         payload,
-        user: tplUser,
+        user,
+        holders,
       };
       if (map || ev.match_id || agent) entry.match = tplMatch;
       if (rankAfter) entry.rank = rankAfter;
@@ -574,26 +689,28 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       group.entries.push(e);
     }
 
-    // Phase 2.5: dedup record_*_match groups. Multiple events for the same
-    // record type can land in one week if the all-time record was beaten
-    // several times in sequence (e.g. 16 → 18 → 24 → 27 kills). We show only
-    // the final (max value) entry, but rewrite its prev_* payload fields to
-    // reference the record state from BEFORE the week — i.e. the prev_* of
-    // the earliest entry in the chain (entries are sorted by detected_at asc).
-    const SINGLE_RECORD_TYPES = new Set<string>([
-      'record_kills_match',
-      'record_deaths_match',
-      'record_headshots_match',
-      'record_legshots_match',
-      'record_damage_dealt_match',
-      'record_damage_received_match',
-      'record_longest_match_minutes',
-      'record_mvp_count_week',
-      'record_kills_per_weapon',
-    ]);
+    // Phase 2.5: dedup record_* groups. Multiple events for the same record
+    // type can land in one week if the all-time record was beaten several times
+    // in sequence (e.g. 16 → 18 → 24 → 27 kills, by one player or by several).
+    // We show only the final (max value) entry, but rewrite its prev_* payload
+    // fields to reference the record state from BEFORE the week — i.e. the
+    // prev_* of the earliest entry in the chain (entries are sorted by
+    // detected_at asc).
+    //
+    // EVERY `record_*` group collapses. This used to be an opt-in allowlist,
+    // which silently failed open: `record_died_first_rounds` /
+    // `record_survived_last_rounds` were added to the digest without being
+    // added to the list, so one week rendered «🐴 Троянский конь» four times
+    // (1 → 3 → 4 → 9 первых смертей) and «⚓ Якорь» twice (owner, 2026-08-09).
+    // Collapsing by rule means a new record type is correct by default, and
+    // opting one OUT is now the conscious act. `record_kills_per_weapon` is
+    // safe here: its groups are keyed per weapon (`kpw:<weapon>`), so the max
+    // is taken within one weapon, not across the armoury.
+    const isCollapsibleRecord = (eventType: string): boolean =>
+      eventType.startsWith('record_');
 
     for (const g of groups) {
-      if (!SINGLE_RECORD_TYPES.has(g.eventType) || g.entries.length < 2) continue;
+      if (!isCollapsibleRecord(g.eventType) || g.entries.length < 2) continue;
       let maxIdx = 0;
       let maxValue = Number(g.entries[0]!.payload['value'] ?? 0);
       for (let i = 1; i < g.entries.length; i++) {
@@ -635,6 +752,30 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
         const cur = Number(e.payload['to_tier_id'] ?? 0);
         const prev = Number(existing.payload['to_tier_id'] ?? 0);
         if (cur >= prev) bestByPuuid.set(puuid, e);
+      }
+      g.entries = order.map((p) => bestByPuuid.get(p)!);
+    }
+
+    // Phase 2.7: dedup winstreak_10plus by player — one line per player, their
+    // longest streak. The detector guards one event per ISO week per player,
+    // but the digest window is a rolling Fri→Fri seven days that straddles two
+    // ISO weeks, so a player on a long run legitimately has two events inside
+    // one window and used to get two «N побед подряд» lines.
+    for (const g of groups) {
+      if (g.eventType !== 'winstreak_10plus' || g.entries.length < 2) continue;
+      const bestByPuuid = new Map<string, Entry>();
+      const order: string[] = [];
+      for (const e of g.entries) {
+        const puuid = e.user.riot_puuid ?? `${e.user.riot_name}#${e.user.riot_tag}`;
+        const existing = bestByPuuid.get(puuid);
+        if (!existing) {
+          order.push(puuid);
+          bestByPuuid.set(puuid, e);
+          continue;
+        }
+        if (Number(e.payload['streak'] ?? 0) > Number(existing.payload['streak'] ?? 0)) {
+          bestByPuuid.set(puuid, e);
+        }
       }
       g.entries = order.map((p) => bestByPuuid.get(p)!);
     }
@@ -695,15 +836,18 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
         richRecords.push({
           emoji: meta.emoji,
           title: meta.title,
-          player: {
-            name: e.user.riot_name,
-            tag: e.user.riot_tag,
+          // Every holder under ONE title. The renderer keys blocks by
+          // emoji+title, so co-kings MUST arrive as several players in one
+          // record — several records would collapse back to a single name.
+          players: e.holders.map((h) => ({
+            name: h.riot_name,
+            tag: h.riot_tag,
             rank: isAggregate ? null : e.rank ?? null,
             agent: isAggregate ? null : e.match?.agent ?? null,
-          },
+            matchUrl,
+            mapName: isAggregate ? null : e.match?.map ?? null,
+          })),
           value: meta.value(e.payload),
-          matchUrl,
-          mapName: isAggregate ? null : e.match?.map ?? null,
           context: meta.context,
         });
       }
@@ -757,7 +901,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
     }
   }
 
-  const richNearMisses = await renderNearMisses(db, weekStart, weekEnd, alreadyBeaten);
+  const richNearMisses = await renderNearMisses(db, weekStart, weekEnd, alreadyBeaten, await getOptOutSet());
   if (richNearMisses.length > 0) {
     sectionsIncluded.push('nearMiss');
   }
@@ -775,7 +919,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
   if (richKnives.length > 0) sectionsIncluded.push('knives');
 
   // ─── ALWAYS-SECTIONS ─────────────────────────────────────────────────────────
-  let richMostActive: { nameHtml: string; count: number } | null = null;
+  let richMostActive: { namesHtml: string[]; count: number } | null = null;
   const richTopMaps: RichDigestModel['topMaps'] = [];
   const richTopAgents: RichDigestModel['topAgents'] = [];
 
@@ -793,12 +937,21 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       .from(matchRecords)
       .where(and(gte(matchRecords.started_at, weekStart), lt(matchRecords.started_at, weekEnd)))
       .groupBy(matchRecords.riot_puuid)
-      .orderBy(sql`COUNT(*) DESC`);
+      // The tie-break keeps the board deterministic — SQLite is free to order
+      // equal COUNT(*) rows however it likes, which made a tie's winner an
+      // artefact of the query plan.
+      .orderBy(sql`COUNT(*) DESC`, matchRecords.riot_puuid);
 
+    // Every player on the winning count shares the title. Walking past the
+    // first eligible row (the old `break`) is the point: a tie used to hand the
+    // crown to one arbitrary player and drop the rest without a trace.
+    const leaders: string[] = [];
+    let leaderCount = 0;
     for (const row of candidates) {
       const puuid = row.riot_puuid as string;
       const cnt = Number(row.cnt);
       if (cnt < 5) break;
+      if (leaders.length > 0 && cnt < leaderCount) break;
 
       const user = await getUserByPuuid(puuid);
       if (!user) continue;
@@ -806,14 +959,17 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
 
       // Canonical nick render (#315 rule 1). Weekly aggregate — no match
       // attached ⇒ just bold Ник#Тег (no rank/agent icons).
-      const name = renderPlayerName({
+      leaders.push(renderPlayerName({
         name: user.riot_name,
         tag: user.riot_tag,
         isCommunity: true,
-      });
-      richMostActive = { nameHtml: name, count: cnt };
+      }));
+      leaderCount = cnt;
+    }
+
+    if (leaders.length > 0) {
+      richMostActive = { namesHtml: leaders, count: leaderCount };
       sectionsIncluded.push('mostActive');
-      break;
     }
   }
 
@@ -828,7 +984,9 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       .from(matchRecords)
       .where(and(gte(matchRecords.started_at, weekStart), lt(matchRecords.started_at, weekEnd)))
       .groupBy(matchRecords.map)
-      .orderBy(sql`COUNT(*) DESC`);
+      // Alphabetical tie-break: equal-count maps otherwise come back in
+      // whatever order the query plan produced, which also decided the cover.
+      .orderBy(sql`COUNT(*) DESC`, matchRecords.map);
 
     topMap = maps[0]?.map != null ? String(maps[0].map) : null;
 
@@ -854,7 +1012,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       .from(matchRecords)
       .where(and(gte(matchRecords.started_at, weekStart), lt(matchRecords.started_at, weekEnd)))
       .groupBy(matchRecords.agent)
-      .orderBy(sql`COUNT(*) DESC`);
+      .orderBy(sql`COUNT(*) DESC`, matchRecords.agent);
 
     topAgent = agents[0]?.agent != null ? String(agents[0].agent) : null;
 

@@ -378,6 +378,41 @@ describe('makeCongratsCallbackHandler', () => {
     expect(answerCallbackQuery).toHaveBeenCalledWith(expect.objectContaining({ text: '✅ Отправлено' }));
   });
 
+  it('a failed send still consumes the preview, so ✅ cannot post it twice', async () => {
+    // The send used to happen first and the preview was only dropped on
+    // success — so a failure left both the preview and the button alive, and
+    // if that failure was a lost response (the message DID land) a second
+    // press posted the congrats twice.
+    const sendData = await seedPreview();
+    bot.api.sendMessage.mockClear();
+    bot.api.sendMessage.mockRejectedValue(new Error('network timeout'));
+
+    const handler = makeCongratsCallbackHandler({
+      db: testDb.db, bot: bot as never, getPrimaryChatId: () => PRIMARY_CHAT_ID,
+    });
+    const answerCallbackQuery = vi.fn().mockResolvedValue(true);
+    const editMessageReplyMarkup = vi.fn().mockResolvedValue(true);
+    const ctx = {
+      from: { id: OWNER_TELEGRAM_ID },
+      callbackQuery: { data: sendData },
+      answerCallbackQuery, editMessageReplyMarkup,
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await handler(ctx as any, async () => {});
+
+    // The keyboard is gone even though the send failed…
+    expect(editMessageReplyMarkup).toHaveBeenCalled();
+    expect(answerCallbackQuery).toHaveBeenCalledWith(expect.objectContaining({
+      text: expect.stringContaining('Ошибка'),
+    }));
+
+    // …and pressing again cannot reach the group.
+    bot.api.sendMessage.mockClear();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await handler(ctx as any, async () => {});
+    expect(bot.api.sendMessage).not.toHaveBeenCalled();
+  });
+
   it('reuse of same preview after send → alert (preview consumed)', async () => {
     const sendData = await seedPreview();
     const handler = makeCongratsCallbackHandler({

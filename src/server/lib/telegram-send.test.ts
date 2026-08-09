@@ -4,6 +4,8 @@ import {
   send,
   sendExempt,
   sendWithRetryFn,
+  classifySendFailure,
+  isAmbiguousSendFailure,
   UnauthorizedChatError,
   _setSleepFnForTest,
   _resetSleepFnForTest,
@@ -87,11 +89,33 @@ describe('telegram-send', () => {
       expect(result).toEqual({ message_id: 42 });
     });
 
-    it('retries once on 5xx and succeeds', async () => {
-      const transient500 = Object.assign(new Error('Internal Server Error'), { error_code: 500 });
+    it('does NOT retry a 5xx — Telegram may have queued the message before it broke', async () => {
+      // A 5xx means Telegram's own backend failed mid-request, so the message
+      // may already be in the chat. Sending it again is how the group ends up
+      // reading the same thing twice (owner, 2026-08-09).
+      const server500 = Object.assign(new Error('Internal Server Error'), { error_code: 500 });
+      const fakeApi = { sendMessage: vi.fn().mockRejectedValue(server500) };
+
+      await expect(send(fakeApi as never, ALLOWED_CHAT, 'hi')).rejects.toThrow('Internal Server Error');
+      expect(fakeApi.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT retry a network error — the answer was lost, not the message', async () => {
+      const networkErr = new Error('network timeout');
+      const fakeApi = { sendMessage: vi.fn().mockRejectedValue(networkErr) };
+
+      await expect(send(fakeApi as never, ALLOWED_CHAT, 'hi')).rejects.toThrow('network timeout');
+      expect(fakeApi.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('still retries a 429 — Telegram answered, and said not yet', async () => {
+      const rateLimited = Object.assign(new Error('Too Many Requests'), {
+        error_code: 429,
+        parameters: { retry_after: 1 },
+      });
       const fakeApi = {
         sendMessage: vi.fn()
-          .mockRejectedValueOnce(transient500)
+          .mockRejectedValueOnce(rateLimited)
           .mockResolvedValueOnce({ message_id: 7 }),
       };
 
@@ -99,21 +123,6 @@ describe('telegram-send', () => {
 
       expect(fakeApi.sendMessage).toHaveBeenCalledTimes(2);
       expect(result).toEqual({ message_id: 7 });
-    });
-
-    it('retries once on network error and succeeds', async () => {
-      // No error_code, message matches /network/i
-      const networkErr = new Error('network timeout');
-      const fakeApi = {
-        sendMessage: vi.fn()
-          .mockRejectedValueOnce(networkErr)
-          .mockResolvedValueOnce({ message_id: 55 }),
-      };
-
-      const result = await send(fakeApi as never, ALLOWED_CHAT, 'hi');
-
-      expect(fakeApi.sendMessage).toHaveBeenCalledTimes(2);
-      expect(result).toEqual({ message_id: 55 });
     });
 
     it('does NOT retry on durable 400 error', async () => {
@@ -210,10 +219,21 @@ describe('telegram-send', () => {
       expect(result).toEqual({ message_id: 50 });
     });
 
-    it('retries once on 5xx with 2s backoff', async () => {
-      const transient500 = Object.assign(new Error('Internal Server Error'), { error_code: 500 });
+    it('does NOT retry a 5xx — the injected sender may already have delivered it', async () => {
+      const server500 = Object.assign(new Error('Internal Server Error'), { error_code: 500 });
+      const fn = vi.fn().mockRejectedValue(server500);
+
+      await expect(sendWithRetryFn(fn, ALLOWED_CHAT, 'msg')).rejects.toThrow('Internal Server Error');
+      expect(fn).toHaveBeenCalledTimes(1);
+    });
+
+    it('still retries a 429 with its retry_after backoff', async () => {
+      const rateLimited = Object.assign(new Error('Too Many Requests'), {
+        error_code: 429,
+        parameters: { retry_after: 1 },
+      });
       const fn = vi.fn()
-        .mockRejectedValueOnce(transient500)
+        .mockRejectedValueOnce(rateLimited)
         .mockResolvedValueOnce({ message_id: 88 });
 
       const result = await sendWithRetryFn(fn, ALLOWED_CHAT, 'msg');
@@ -258,5 +278,56 @@ describe('telegram-send', () => {
       const err = new UnauthorizedChatError(-777777);
       expect(err.message).toBe('Chat -777777 is not in the allowed chat list');
     });
+  });
+});
+
+describe('classifySendFailure — was it delivered?', () => {
+  const withCode = (code: number, msg = 'boom') => Object.assign(new Error(msg), { error_code: code });
+
+  it('calls a 429 rate-limited and carries its retry_after', () => {
+    const err = Object.assign(new Error('Too Many Requests'), {
+      error_code: 429,
+      parameters: { retry_after: 12 },
+    });
+    expect(classifySendFailure(err)).toEqual({ kind: 'rate_limited', retryAfterMs: 12000 });
+  });
+
+  it('defaults a 429 with no retry_after to five seconds', () => {
+    expect(classifySendFailure(withCode(429, 'Too Many Requests')).retryAfterMs).toBe(5000);
+  });
+
+  it('calls a 4xx rejected — Telegram answered and nothing was posted', () => {
+    for (const code of [400, 401, 403, 404]) {
+      expect(classifySendFailure(withCode(code)).kind, String(code)).toBe('rejected');
+    }
+  });
+
+  it('calls a 5xx ambiguous — Telegram may have queued it before it broke', () => {
+    for (const code of [500, 502, 503]) {
+      expect(classifySendFailure(withCode(code)).kind, String(code)).toBe('ambiguous');
+    }
+  });
+
+  it('calls a lost answer ambiguous, whatever the transport called it', () => {
+    const messages = [
+      "Network request for 'sendMessage' failed!",
+      'fetch failed',
+      'The operation was aborted',
+      'socket hang up',
+      'connect ECONNREFUSED 127.0.0.1:443',
+      'getaddrinfo EAI_AGAIN api.telegram.org',
+      'ETIMEDOUT',
+    ];
+    for (const msg of messages) {
+      expect(isAmbiguousSendFailure(new Error(msg)), msg).toBe(true);
+    }
+  });
+
+  it('calls anything thrown before the request left us rejected — nothing was posted', () => {
+    // The allowlist guard and the "sendRichMessage not wired" stub both land
+    // here; treating them as ambiguous would strand items that never went out.
+    expect(classifySendFailure(new UnauthorizedChatError(-1)).kind).toBe('rejected');
+    expect(classifySendFailure(new Error('sendRichMessage not wired')).kind).toBe('rejected');
+    expect(isAmbiguousSendFailure(new Error('sendRichMessage not wired'))).toBe(false);
   });
 });

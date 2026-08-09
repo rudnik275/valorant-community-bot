@@ -49,6 +49,7 @@
 import { Cron } from 'croner';
 import logger from './log.ts';
 import { isPublishingEnabled } from './silent-period.ts';
+import { isAmbiguousSendFailure } from './telegram-send.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
@@ -187,8 +188,10 @@ export interface DigestSpec {
  * no rich content / sender is available). Returns the posted message id.
  *
  * A rich-send throw is swallowed here (logged) so the digest still goes out via
- * the legacy path — the daily post must never be skipped because of the rich
- * path. A legacy-send throw propagates to the caller's no-dup-on-crash boundary.
+ * the legacy path — but ONLY when Telegram definitively refused it. A rich send
+ * whose answer was lost may already be in the chat, so it propagates instead of
+ * being followed by a second copy in plain text. A legacy-send throw propagates
+ * to the caller's no-dup-on-crash boundary.
  */
 async function postDigestText(
   module: string,
@@ -207,6 +210,17 @@ async function postDigestText(
       );
       return message_id;
     } catch (err) {
+      // A rich send we KNOW Telegram refused (a 4xx on the html, or the "not
+      // wired" stub) can safely be re-sent as legacy text. One that merely lost
+      // its answer cannot: the rich message may already be in the chat, and the
+      // fallback would put the same digest there a second time.
+      if (isAmbiguousSendFailure(err)) {
+        logger.error(
+          { module, dedup_key: dedupKey, err },
+          'sendRichMessage got no answer — the digest MAY be posted; not falling back',
+        );
+        throw err;
+      }
       logger.warn(
         { module, dedup_key: dedupKey, err },
         'sendRichMessage failed, falling back to legacy text',
@@ -355,12 +369,15 @@ export function startScheduledDigest(
     getPrimaryChatId: () => number;
   },
 ): () => void {
+  // The callback RETURNS the promise so croner awaits it — `protect: true`
+  // skips an overlapping tick only while the previous one is still running, and
+  // it decides that by awaiting the callback's return value. With the promise
+  // discarded, croner cleared its blocking flag on the next microtask and the
+  // guard was decorative.
   const cronJob = new Cron(
     spec.cron,
     { timezone: 'Europe/Kyiv', protect: true },
-    () => {
-      void runScheduledDigest(spec, deps);
-    },
+    () => runScheduledDigest(spec, deps),
   );
 
   logger.info(

@@ -92,6 +92,28 @@ export interface KillEventCompact {
   victim_team: string;
 }
 
+/**
+ * Tie-break appended to every winner pick below: earliest achievement first.
+ *
+ * The live detectors take a record only on a strict `>` (see `upsertRecord`), so
+ * the FIRST player to reach a value keeps it until somebody genuinely beats it.
+ * A rebuild replays that same stream and has to land on the same person.
+ * Without a secondary key SQLite handed a tied record to whichever row the scan
+ * happened to emit, so two rebuilds of identical data crowned different people
+ * and an unrelated purge silently moved a record nobody had beaten (owner,
+ * 2026-08-09).
+ *
+ * `riot_puuid` separates two players inside the same match (identical
+ * `started_at`) and matches the tie-break the digest boards use; `match_id`
+ * completes the `match_records` primary key, so the ordering is total and can
+ * never fall back on scan order.
+ */
+const EARLIEST_ACHIEVEMENT_FIRST = [
+  matchRecords.started_at,
+  matchRecords.riot_puuid,
+  matchRecords.match_id,
+];
+
 // --------------------------------------------------------------------------
 // Public API
 // --------------------------------------------------------------------------
@@ -110,7 +132,7 @@ async function backfillKillsMatch(db: AnyDb): Promise<void> {
     .select()
     .from(matchRecords)
     .where(isNotNull(matchRecords.riot_puuid))
-    .orderBy(desc(matchRecords.kills))
+    .orderBy(desc(matchRecords.kills), ...EARLIEST_ACHIEVEMENT_FIRST)
     .limit(1);
   if (rows.length === 0) return;
   const top = rows[0]!;
@@ -131,8 +153,8 @@ async function backfillDamageDealtMatch(db: AnyDb): Promise<void> {
   const rows = await db
     .select()
     .from(matchRecords)
-    .where(isNotNull(matchRecords.damage_dealt))
-    .orderBy(desc(matchRecords.damage_dealt))
+    .where(and(isNotNull(matchRecords.riot_puuid), isNotNull(matchRecords.damage_dealt)))
+    .orderBy(desc(matchRecords.damage_dealt), ...EARLIEST_ACHIEVEMENT_FIRST)
     .limit(1);
   if (rows.length === 0) return;
   const top = rows[0]!;
@@ -153,8 +175,8 @@ async function backfillDamageReceivedMatch(db: AnyDb): Promise<void> {
   const rows = await db
     .select()
     .from(matchRecords)
-    .where(isNotNull(matchRecords.damage_received))
-    .orderBy(desc(matchRecords.damage_received))
+    .where(and(isNotNull(matchRecords.riot_puuid), isNotNull(matchRecords.damage_received)))
+    .orderBy(desc(matchRecords.damage_received), ...EARLIEST_ACHIEVEMENT_FIRST)
     .limit(1);
   if (rows.length === 0) return;
   const top = rows[0]!;
@@ -176,7 +198,7 @@ async function backfillDeathsMatch(db: AnyDb): Promise<void> {
     .select()
     .from(matchRecords)
     .where(isNotNull(matchRecords.riot_puuid))
-    .orderBy(desc(matchRecords.deaths))
+    .orderBy(desc(matchRecords.deaths), ...EARLIEST_ACHIEVEMENT_FIRST)
     .limit(1);
   if (rows.length === 0) return;
   const top = rows[0]!;
@@ -198,7 +220,7 @@ async function backfillHeadshotsMatch(db: AnyDb): Promise<void> {
     .select()
     .from(matchRecords)
     .where(and(isNotNull(matchRecords.riot_puuid), isNotNull(matchRecords.headshots)))
-    .orderBy(desc(matchRecords.headshots))
+    .orderBy(desc(matchRecords.headshots), ...EARLIEST_ACHIEVEMENT_FIRST)
     .limit(1);
   if (rows.length === 0) return;
   const top = rows[0]!;
@@ -220,7 +242,7 @@ async function backfillLegshotsMatch(db: AnyDb): Promise<void> {
     .select()
     .from(matchRecords)
     .where(and(isNotNull(matchRecords.riot_puuid), isNotNull(matchRecords.legshots)))
-    .orderBy(desc(matchRecords.legshots))
+    .orderBy(desc(matchRecords.legshots), ...EARLIEST_ACHIEVEMENT_FIRST)
     .limit(1);
   if (rows.length === 0) return;
   const top = rows[0]!;
@@ -237,12 +259,63 @@ async function backfillLegshotsMatch(db: AnyDb): Promise<void> {
   }).onConflictDoNothing();
 }
 
+/**
+ * 🐴 Троянский конь. Wiped by `clearDerivedRecords` like every other type, but
+ * never restored — so after any purge the record restarted from zero and the
+ * group got a fresh «новый рекорд» on 1, then 3, then 4, then 9 первых смертей
+ * over the following week (owner, 2026-08-09).
+ */
+async function backfillDiedFirstRoundsMatch(db: AnyDb): Promise<void> {
+  const rows = await db
+    .select()
+    .from(matchRecords)
+    .where(and(isNotNull(matchRecords.riot_puuid), isNotNull(matchRecords.died_first_rounds)))
+    .orderBy(desc(matchRecords.died_first_rounds), ...EARLIEST_ACHIEVEMENT_FIRST)
+    .limit(1);
+  if (rows.length === 0) return;
+  const top = rows[0]!;
+  if (top.died_first_rounds == null || top.died_first_rounds <= 0) return;
+  await db.insert(allTimeRecords).values({
+    record_type: 'died_first_rounds_match',
+    weapon: '',
+    riot_puuid: top.riot_puuid!,
+    value: top.died_first_rounds,
+    match_id: top.match_id,
+    achieved_at: top.started_at,
+    prev_value: null,
+    prev_puuid: null,
+  }).onConflictDoNothing();
+}
+
+/** ⚓ Якорь — the mirror of died_first_rounds, and wiped by the same rebuild. */
+async function backfillSurvivedLastRoundsMatch(db: AnyDb): Promise<void> {
+  const rows = await db
+    .select()
+    .from(matchRecords)
+    .where(and(isNotNull(matchRecords.riot_puuid), isNotNull(matchRecords.survived_last_rounds)))
+    .orderBy(desc(matchRecords.survived_last_rounds), ...EARLIEST_ACHIEVEMENT_FIRST)
+    .limit(1);
+  if (rows.length === 0) return;
+  const top = rows[0]!;
+  if (top.survived_last_rounds == null || top.survived_last_rounds <= 0) return;
+  await db.insert(allTimeRecords).values({
+    record_type: 'survived_last_rounds_match',
+    weapon: '',
+    riot_puuid: top.riot_puuid!,
+    value: top.survived_last_rounds,
+    match_id: top.match_id,
+    achieved_at: top.started_at,
+    prev_value: null,
+    prev_puuid: null,
+  }).onConflictDoNothing();
+}
+
 async function backfillLongestMatchMinutes(db: AnyDb): Promise<void> {
   const rows = await db
     .select()
     .from(matchRecords)
-    .where(isNotNull(matchRecords.game_length_ms))
-    .orderBy(desc(matchRecords.game_length_ms))
+    .where(and(isNotNull(matchRecords.riot_puuid), isNotNull(matchRecords.game_length_ms)))
+    .orderBy(desc(matchRecords.game_length_ms), ...EARLIEST_ACHIEVEMENT_FIRST)
     .limit(1);
   if (rows.length === 0) return;
   const top = rows[0]!;
@@ -266,7 +339,7 @@ async function backfillLongestMatchRounds(db: AnyDb): Promise<void> {
     .select()
     .from(matchRecords)
     .where(isNotNull(matchRecords.riot_puuid))
-    .orderBy(desc(matchRecords.rounds_played))
+    .orderBy(desc(matchRecords.rounds_played), ...EARLIEST_ACHIEVEMENT_FIRST)
     .limit(1);
   if (rows.length === 0) return;
   const top = rows[0]!;
@@ -305,14 +378,19 @@ async function backfillWeeklyMvpRecords(db: AnyDb): Promise<void> {
   }
 
   for (const [weekIso, puuidMap] of weekMap.entries()) {
-    let leaderPuuid = '';
-    let leaderCount = 0;
-    for (const [puuid, count] of puuidMap.entries()) {
-      if (count > leaderCount) {
-        leaderCount = count;
-        leaderPuuid = puuid;
-      }
-    }
+    // Most MVPs, ties to the smallest puuid — the exact rule the live weekly
+    // tick uses (`ORDER BY SUM(is_match_mvp) DESC, riot_puuid` in
+    // weekly-mvp-record.ts), so a rebuild can never crown a different king than
+    // the tick did. The old `count > leaderCount` scan kept whichever tied
+    // player the Map happened to hold first, and that order came straight from
+    // an unordered SELECT — two rebuilds of the same data disagreed about the
+    // same past week. Bare `<` rather than localeCompare, to compare bytes the
+    // way SQLite's BINARY collation does.
+    const [leader] = [...puuidMap.entries()].sort(
+      (a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0),
+    );
+    if (!leader) continue;
+    const [leaderPuuid, leaderCount] = leader;
     if (leaderCount < 1) continue;
 
     await upsertWeeklyLeader(db, {
@@ -333,7 +411,12 @@ async function backfillKillsPerWeapon(db: AnyDb): Promise<void> {
       kill_events_compact: matchRecords.kill_events_compact,
     })
     .from(matchRecords)
-    .where(isNotNull(matchRecords.riot_puuid));
+    .where(isNotNull(matchRecords.riot_puuid))
+    // upsertRecord replaces only on a strict `>`, so the first row through here
+    // with the top count keeps the weapon. Replay the matches oldest-first,
+    // exactly as the live stream saw them — an unordered scan gave a tied
+    // weapon record to whichever row SQLite listed first.
+    .orderBy(...EARLIEST_ACHIEVEMENT_FIRST);
 
   if (rows.length === 0) return;
 
@@ -380,6 +463,8 @@ export async function rebuildAllRecords(db: AnyDb): Promise<void> {
   await backfillDeathsMatch(db);
   await backfillHeadshotsMatch(db);
   await backfillLegshotsMatch(db);
+  await backfillDiedFirstRoundsMatch(db);
+  await backfillSurvivedLastRoundsMatch(db);
   await backfillLongestMatchMinutes(db);
   await backfillLongestMatchRounds(db);
   await backfillWeeklyMvpRecords(db);

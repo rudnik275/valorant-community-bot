@@ -812,6 +812,66 @@ describe('buildDigest', () => {
     });
   });
 
+  describe('near-miss — opt-out, ties and unknown players', () => {
+    /** Record holder + the all-time bar every case below aims just under. */
+    function seedKillsBar(value = 30) {
+      seedUser(sqlite, 99, 'p-holder', { riotName: 'RecordHolder', riotTag: 'REC' });
+      seedAllTimeRecord(sqlite, { recordType: 'kills_match', value, puuid: 'p-holder', matchId: 'old-match' });
+    }
+
+    it('names every player tied on the week-best, not just one', async () => {
+      // The old query was a bare MAX() over the whole table — one row, so a
+      // co-holder was dropped by the query itself.
+      seedKillsBar();
+      seedUser(sqlite, 1, 'p-aa', { riotName: 'Ann', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'p-zz', { riotName: 'Zed', riotTag: 'ZZZ' });
+      seedMatch(sqlite, { puuid: 'p-aa', matchId: 'nm-a', startedAt: IN_WINDOW, kills: 29 });
+      seedMatch(sqlite, { puuid: 'p-zz', matchId: 'nm-z', startedAt: IN_WINDOW, kills: 29 });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.richHtml!).toContain('<b>Ann#AAA</b>');
+      expect(result.richHtml!).toContain('<b>Zed#ZZZ</b>');
+      // One block, two lines — never two blocks.
+      expect(result.richHtml!.match(/Был\(ла\) близко к рекорду по киллам/g)).toHaveLength(1);
+      // Each line links its OWN match: they got there in different games.
+      expect(result.richHtml!).toContain('nm-a');
+      expect(result.richHtml!).toContain('nm-z');
+    });
+
+    it('skips an opted-out player and falls through to the next one who was close', async () => {
+      // Near-misses were the ONE section that never consulted the opt-out set.
+      seedKillsBar();
+      seedUser(sqlite, 1, 'p-out', { riotName: 'Hidden', riotTag: 'OUT' });
+      seedOptOut(sqlite, 1, 1);
+      seedUser(sqlite, 2, 'p-in', { riotName: 'Shown', riotTag: 'IN' });
+      seedMatch(sqlite, { puuid: 'p-out', matchId: 'nm-out', startedAt: IN_WINDOW, kills: 29 });
+      seedMatch(sqlite, { puuid: 'p-in', matchId: 'nm-in', startedAt: IN_WINDOW, kills: 28 });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.richHtml!).not.toContain('Hidden');
+      expect(result.richHtml!).toContain('<b>Shown#IN</b>');
+      expect(result.richHtml!).toContain('28');
+    });
+
+    it('never prints a raw PUUID for a player with no member row', async () => {
+      // match_records.riot_puuid is ON DELETE SET NULL only for the FK — a
+      // departed member can still leave rows whose puuid has no users row, and
+      // the old fallback printed the 78-character puuid as the nick.
+      seedKillsBar();
+      seedUser(sqlite, 1, 'p-known', { riotName: 'Known', riotTag: 'KN' });
+      sqlite.prepare(
+        `INSERT OR REPLACE INTO match_records
+         (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result, rounds_played, kill_events_compact)
+         VALUES (?, ?, ?, 'Ascent', 'Jett', 29, 5, 2, 'win', 25, '[]')`,
+      ).run('puuid-with-no-user-row', 'nm-ghost', IN_WINDOW);
+      seedMatch(sqlite, { puuid: 'p-known', matchId: 'nm-known', startedAt: IN_WINDOW, kills: 28 });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.richHtml!).not.toContain('puuid-with-no-user-row');
+      expect(result.richHtml!).toContain('<b>Known#KN</b>');
+    });
+  });
+
   describe('near-miss — «Был близок к рекорду»', () => {
     it('renders near-miss block when week max is within threshold of all-time record', async () => {
       // Record holder (historical — not this week's match)
@@ -1147,6 +1207,237 @@ describe('buildDigest', () => {
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       expect(result.richHtml!).toContain('🐴 <b>Троянский конь</b>');
       expect(result.richHtml!).not.toContain('Чуть не стал(а) троянским конём недели');
+    });
+
+    it('collapses a week-long chain of Троянский конь breaks into ONE block', async () => {
+      // The live bug: the record was beaten four times in one week (1 → 3 → 4
+      // → 9) and the digest printed «🐴 Троянский конь» four times, because
+      // this type was missing from the collapse allowlist (owner, 2026-08-09).
+      seedUser(sqlite, 99, 'p-holder', { riotName: 'Holder', riotTag: 'HLD' });
+      seedAllTimeRecord(sqlite, { recordType: 'died_first_rounds_match', value: 0, puuid: 'p-holder' });
+      seedUser(sqlite, 1, 'p1', { riotName: 'Horse', riotTag: 'TRJ' });
+      seedUser(sqlite, 2, 'p2', { riotName: 'Pony', riotTag: 'PNY' });
+
+      const chain = [
+        { puuid: 'p1', matchId: 'ch-1', value: 1, map: 'Summit' },
+        { puuid: 'p2', matchId: 'ch-2', value: 3, map: 'Haven' },
+        { puuid: 'p1', matchId: 'ch-3', value: 4, map: 'Sunset' },
+        { puuid: 'p2', matchId: 'ch-4', value: 9, map: 'Haven' },
+      ];
+      chain.forEach((c, i) => {
+        seedMatch(sqlite, { puuid: c.puuid, matchId: c.matchId, startedAt: IN_WINDOW, map: c.map });
+        seedEvent(sqlite, {
+          puuid: c.puuid, matchId: c.matchId, eventType: 'record_died_first_rounds',
+          payload: { value: c.value }, detectedAt: IN_WINDOW + i,
+        });
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.richHtml!.match(/🐴 <b>Троянский конь<\/b>/g)).toHaveLength(1);
+      // The surviving block is the record as it stands at week's end.
+      expect(result.richHtml!).toContain('9 первых смертей');
+      expect(result.richHtml!).toContain('<b>Pony#PNY</b>');
+      expect(result.richHtml!).not.toContain('4 первых смертей');
+    });
+
+    it('collapses two Якорь breaks by different players to the best one', async () => {
+      seedUser(sqlite, 99, 'p-holder', { riotName: 'Holder', riotTag: 'HLD' });
+      seedAllTimeRecord(sqlite, { recordType: 'survived_last_rounds_match', value: 0, puuid: 'p-holder' });
+      seedUser(sqlite, 1, 'p1', { riotName: 'Anchor', riotTag: 'ANC' });
+      seedUser(sqlite, 2, 'p2', { riotName: 'Chain', riotTag: 'CHN' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'an-1', startedAt: IN_WINDOW, map: 'Summit' });
+      seedMatch(sqlite, { puuid: 'p2', matchId: 'an-2', startedAt: IN_WINDOW, map: 'Lotus' });
+      seedEvent(sqlite, {
+        puuid: 'p1', matchId: 'an-1', eventType: 'record_survived_last_rounds',
+        payload: { value: 5 }, detectedAt: IN_WINDOW,
+      });
+      seedEvent(sqlite, {
+        puuid: 'p2', matchId: 'an-2', eventType: 'record_survived_last_rounds',
+        payload: { value: 6 }, detectedAt: IN_WINDOW + 1,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.richHtml!.match(/⚓ <b>Якорь<\/b>/g)).toHaveLength(1);
+      expect(result.richHtml!).toContain('6 последних смертей');
+      expect(result.richHtml!).toContain('<b>Chain#CHN</b>');
+    });
+  });
+
+  describe('readOnly — the owner preview must not touch prod state', () => {
+    it('writes no weekly MVP record and emits no event', async () => {
+      // `/test_digest 30` builds over an arbitrary window. Without readOnly it
+      // stamped that 30-day MVP count onto the CURRENT week's record row and
+      // inserted a `record_mvp_count_week` event dated now — which then landed
+      // as a bogus «👑 Король MVP за неделю» in the group's next real digest,
+      // and raised the all-time bar so a genuine record could never beat it.
+      seedUser(sqlite, 1, 'p1', { riotName: 'King', riotTag: 'KNG' });
+      for (let i = 0; i < 4; i++) {
+        seedMatch(sqlite, { puuid: 'p1', matchId: `mvp-${i}`, startedAt: IN_WINDOW, isMatchMvp: 1 });
+      }
+
+      await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END, readOnly: true });
+
+      const events = sqlite
+        .prepare(`SELECT id FROM detected_events WHERE event_type = 'record_mvp_count_week'`)
+        .all();
+      const weekly = sqlite.prepare('SELECT record_type FROM weekly_records').all();
+      expect(events).toHaveLength(0);
+      expect(weekly).toHaveLength(0);
+    });
+
+    it('a normal build still records the weekly MVP', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'King', riotTag: 'KNG' });
+      for (let i = 0; i < 4; i++) {
+        seedMatch(sqlite, { puuid: 'p1', matchId: `mvp-${i}`, startedAt: IN_WINDOW, isMatchMvp: 1 });
+      }
+
+      await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+
+      const weekly = sqlite.prepare('SELECT record_type FROM weekly_records').all();
+      expect(weekly.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('no duplicate rows anywhere in the digest', () => {
+    it('collapses EVERY record type, including ones added later', async () => {
+      // The collapse used to be an opt-in allowlist that failed open. This
+      // walks the whole record family so a newly-surfaced type cannot ship
+      // without collapsing — the way 🐴/⚓ did.
+      const cases: Array<{ eventType: string; recordType: string; title: string }> = [
+        { eventType: 'record_kills_match', recordType: 'kills_match', title: '💀 <b>Серийный маньяк</b>' },
+        { eventType: 'record_deaths_match', recordType: 'deaths_match', title: '⚰️ <b>Магнит для пуль</b>' },
+        { eventType: 'record_headshots_match', recordType: 'headshots_match', title: '🤠 <b>Директор дикого запада</b>' },
+        { eventType: 'record_legshots_match', recordType: 'legshots_match', title: '♿️ <b>Угадай куда шмальну</b>' },
+        { eventType: 'record_damage_dealt_match', recordType: 'damage_dealt_match', title: '🥩 <b>Мясник</b>' },
+        { eventType: 'record_damage_received_match', recordType: 'damage_received_match', title: '🤕 <b>Груша для битья</b>' },
+        { eventType: 'record_died_first_rounds', recordType: 'died_first_rounds_match', title: '🐴 <b>Троянский конь</b>' },
+        { eventType: 'record_survived_last_rounds', recordType: 'survived_last_rounds_match', title: '⚓ <b>Якорь</b>' },
+      ];
+
+      seedUser(sqlite, 1, 'p1', { riotName: 'Chain', riotTag: 'CHN' });
+      for (const c of cases) {
+        seedAllTimeRecord(sqlite, { recordType: c.recordType, value: 0, puuid: 'p1' });
+        for (const [i, value] of [10, 20].entries()) {
+          const matchId = `${c.eventType}-${i}`;
+          seedMatch(sqlite, { puuid: 'p1', matchId, startedAt: IN_WINDOW });
+          seedEvent(sqlite, {
+            puuid: 'p1', matchId, eventType: c.eventType,
+            payload: { value }, detectedAt: IN_WINDOW + i,
+          });
+        }
+      }
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      for (const c of cases) {
+        const hits = result.richHtml!.match(new RegExp(c.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'));
+        expect(hits, c.eventType).toHaveLength(1);
+      }
+    });
+
+    it('names both co-kings under ONE 👑 block, not two blocks', async () => {
+      // A shared crown must be extra NAMES inside one award, never a second
+      // award block — that would be the very duplicate the collapse prevents.
+      seedUser(sqlite, 1, 'p-aa', { riotName: 'Ann', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'p-zz', { riotName: 'Zed', riotTag: 'ZZZ' });
+      seedMatch(sqlite, { puuid: 'p-aa', matchId: 'mvp-1', startedAt: IN_WINDOW });
+      seedEvent(sqlite, {
+        puuid: 'p-aa', matchId: 'weekly:mvp:2026-W19', eventType: 'record_mvp_count_week',
+        payload: { value: 7, puuids: ['p-aa', 'p-zz'] }, detectedAt: IN_WINDOW,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.richHtml!.match(/👑 <b>Король MVP за неделю<\/b>/g)).toHaveLength(1);
+      expect(result.richHtml!).toContain('<b>Ann#AAA</b> · 7 MVP-матчей');
+      expect(result.richHtml!).toContain('<b>Zed#ZZZ</b> · 7 MVP-матчей');
+    });
+
+    it('drops an opted-out co-king but keeps the award for the rest', async () => {
+      seedUser(sqlite, 1, 'p-aa', { riotName: 'Ann', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'p-zz', { riotName: 'Zed', riotTag: 'ZZZ' });
+      seedOptOut(sqlite, 2, 1);
+      seedMatch(sqlite, { puuid: 'p-aa', matchId: 'mvp-1', startedAt: IN_WINDOW });
+      seedEvent(sqlite, {
+        puuid: 'p-aa', matchId: 'weekly:mvp:2026-W19', eventType: 'record_mvp_count_week',
+        payload: { value: 7, puuids: ['p-aa', 'p-zz'] }, detectedAt: IN_WINDOW,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.richHtml!).toContain('<b>Ann#AAA</b>');
+      expect(result.richHtml!).not.toContain('Zed#ZZZ');
+    });
+
+    it('an opted-out FIRST holder no longer takes the co-king down too', async () => {
+      seedUser(sqlite, 1, 'p-aa', { riotName: 'Ann', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'p-zz', { riotName: 'Zed', riotTag: 'ZZZ' });
+      seedOptOut(sqlite, 1, 1);
+      seedMatch(sqlite, { puuid: 'p-aa', matchId: 'mvp-1', startedAt: IN_WINDOW });
+      seedEvent(sqlite, {
+        puuid: 'p-aa', matchId: 'weekly:mvp:2026-W19', eventType: 'record_mvp_count_week',
+        payload: { value: 7, puuids: ['p-aa', 'p-zz'] }, detectedAt: IN_WINDOW,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.richHtml!).toContain('👑 <b>Король MVP за неделю</b>');
+      expect(result.richHtml!).toContain('<b>Zed#ZZZ</b>');
+      expect(result.richHtml!).not.toContain('Ann#AAA');
+    });
+
+    it('gives a player one winstreak line even with two events in the window', async () => {
+      // The detector dedups per ISO week; the digest window is a rolling Fri→Fri
+      // seven days that straddles two ISO weeks, so one player on a long run
+      // legitimately has two events — and used to get two lines.
+      seedUser(sqlite, 1, 'p1', { riotName: 'Streaker', riotTag: 'STK' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'ws-1', startedAt: IN_WINDOW });
+      seedEvent(sqlite, {
+        puuid: 'p1', matchId: 'ws-1', eventType: 'winstreak_10plus',
+        payload: { streak: 10 }, detectedAt: IN_WINDOW,
+      });
+      seedEvent(sqlite, {
+        puuid: 'p1', matchId: 'ws-2', eventType: 'winstreak_10plus',
+        payload: { streak: 13 }, detectedAt: IN_WINDOW + 1,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.richHtml!.match(/<b>Streaker#STK<\/b> · \d+ побед подряд/g)).toHaveLength(1);
+      expect(result.richHtml!).toContain('13 побед подряд');
+    });
+
+    it('still lists two different players on a winstreak', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'One', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'p2', { riotName: 'Two', riotTag: 'BBB' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'ws-1', startedAt: IN_WINDOW });
+      seedEvent(sqlite, {
+        puuid: 'p1', matchId: 'ws-1', eventType: 'winstreak_10plus',
+        payload: { streak: 10 }, detectedAt: IN_WINDOW,
+      });
+      seedEvent(sqlite, {
+        puuid: 'p2', matchId: 'ws-2', eventType: 'winstreak_10plus',
+        payload: { streak: 11 }, detectedAt: IN_WINDOW + 1,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.richHtml!).toContain('<b>One#AAA</b> · 10 побед подряд');
+      expect(result.richHtml!).toContain('<b>Two#BBB</b> · 11 побед подряд');
+    });
+
+    it('names both players when «Больше всех матчей» is tied', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Alpha', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'p2', { riotName: 'Beta', riotTag: 'BBB' });
+      seedUser(sqlite, 3, 'p3', { riotName: 'Gamma', riotTag: 'GGG' });
+      for (let i = 0; i < 6; i++) {
+        seedMatch(sqlite, { puuid: 'p1', matchId: `a-${i}`, startedAt: IN_WINDOW });
+        seedMatch(sqlite, { puuid: 'p2', matchId: `b-${i}`, startedAt: IN_WINDOW });
+      }
+      for (let i = 0; i < 5; i++) {
+        seedMatch(sqlite, { puuid: 'p3', matchId: `c-${i}`, startedAt: IN_WINDOW });
+      }
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.richHtml!).toContain('<b>Alpha#AAA</b> · 6 за неделю');
+      expect(result.richHtml!).toContain('<b>Beta#BBB</b> · 6 за неделю');
+      // Only the winning count is crowned — the runner-up stays out.
+      expect(result.richHtml!).not.toContain('<b>Gamma#GGG</b> · 5 за неделю');
+      expect(result.richHtml!.match(/🏆 <b>Больше всех матчей<\/b>/g)).toHaveLength(1);
     });
   });
 

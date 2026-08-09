@@ -73,13 +73,18 @@ export interface RichTemplateContext {
   /** community_clash only: per-team round scores for the "победа X:Y" line. */
   teamScores?: TeamScores;
   /**
-   * giant_slayer only: puuid of the triggering player (the subject of the
-   * event). Used to render a prominent "who this is about" line under the
-   * title, so the message names the giant-slayer instead of leaving them
-   * anonymous among the 10 roster rows. Ignored for the other trio events
-   * (match_comeback = a whole team; community_clash = no single subject).
+   * giant_slayer only: puuids of the players the event fired for, oldest event
+   * first. Used to render a prominent "who this is about" line under the title,
+   * so the message names the giant-slayer(s) instead of leaving them anonymous
+   * among the 10 roster rows.
+   *
+   * A LIST, not one puuid: several community members on the same team can each
+   * beat a stronger enemy in one match, and the publisher folds their events
+   * into a single message rather than posting the same title twice (owner,
+   * 2026-08-09). Ignored for the other trio events (match_comeback = a whole
+   * team; community_clash = no single subject).
    */
-  heroPuuid?: string;
+  heroPuuids?: string[];
 }
 
 /** Titles — emoji + verbatim heading text, bold per the approved format. */
@@ -116,27 +121,34 @@ function agentKd(row: FullRosterRow): string {
 }
 
 /**
- * giant_slayer "who this is about" line, rendered under the title so the
- * message names the subject (the giant-slayer) instead of leaving them
- * anonymous among the 10 roster rows. Returns '' when there's no `heroPuuid`
- * or the hero isn't in the roster (⇒ no line, message still renders).
+ * giant_slayer "who this is about" line(s), rendered under the title so the
+ * message names its subject(s) instead of leaving them anonymous among the 10
+ * roster rows — one line per hero, in the given order. Returns '' when there
+ * are no `heroPuuids` or none of them is in the roster (⇒ no line, message
+ * still renders). Duplicate puuids collapse to one line.
  *
  * Unlike the table rows, the agent emoji IS kept here (there's no second
  * column to carry it) — mirroring the old plain giant_slayer template which
  * led with the player's tag + agent.
  */
-function heroLine(ctx: RichTemplateContext): string {
-  if (!ctx.heroPuuid) return '';
-  const hero = ctx.roster.find((r) => r.riot_puuid === ctx.heroPuuid);
-  if (!hero) return '';
-  const name = renderPlayerName({
-    name: hero.name ?? '',
-    tag: hero.tag ?? '',
-    isCommunity: hero.is_community,
-    ...(hero.tier ? { rank: hero.tier } : {}),
-    ...(hero.agent ? { agent: hero.agent } : {}),
-  });
-  return `<br>${name}`;
+function heroLines(ctx: RichTemplateContext): string {
+  if (!ctx.heroPuuids || ctx.heroPuuids.length === 0) return '';
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const puuid of ctx.heroPuuids) {
+    if (seen.has(puuid)) continue;
+    seen.add(puuid);
+    const hero = ctx.roster.find((r) => r.riot_puuid === puuid);
+    if (!hero) continue;
+    lines.push(renderPlayerName({
+      name: hero.name ?? '',
+      tag: hero.tag ?? '',
+      isCommunity: hero.is_community,
+      ...(hero.tier ? { rank: hero.tier } : {}),
+      ...(hero.agent ? { agent: hero.agent } : {}),
+    }));
+  }
+  return lines.map((l) => `<br>${l}`).join('');
 }
 
 /** One participant row: `<tr><td>renderPlayerName</td><td>[emoji] K/D</td></tr>`. */
@@ -234,10 +246,10 @@ export function renderRichTemplate(
   const teams = groupByTeam(ctx.roster);
   if (teams.length < 2) return null; // need both fives for the table
 
-  // giant_slayer names its subject on a line under the title (#315 lost the
+  // giant_slayer names its subject(s) on lines under the title (#315 lost the
   // "who" the old plain template had — the hero was just one of 10 table rows).
   // The other trio events have no single subject, so no hero line for them.
-  const hero = eventType === 'giant_slayer' ? heroLine(ctx) : '';
+  const hero = eventType === 'giant_slayer' ? heroLines(ctx) : '';
 
   const desc = describe(eventType, ctx);
   const descLine = desc ? `<br><i>${esc(desc)}</i>` : '';
@@ -277,7 +289,7 @@ export async function renderRichEvent(
   db: SqliteDb,
   eventType: EventType,
   payload: Record<string, unknown>,
-  match: { match_id?: string; map?: string; heroPuuid?: string },
+  match: { match_id?: string; map?: string; heroPuuids?: string[] },
 ): Promise<string | null> {
   if (!isTrioRichEvent(eventType)) return null;
   if (!match.match_id) return null;
@@ -288,7 +300,9 @@ export async function renderRichEvent(
     roster,
     ...(match.match_id ? { matchId: match.match_id } : {}),
     ...(match.map ? { map: match.map } : {}),
-    ...(match.heroPuuid ? { heroPuuid: match.heroPuuid } : {}),
+    ...(match.heroPuuids && match.heroPuuids.length > 0
+      ? { heroPuuids: match.heroPuuids }
+      : {}),
   };
 
   if (eventType === 'community_clash') {

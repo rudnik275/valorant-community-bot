@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderTemplate, esc } from './templates.ts';
+import { renderTemplate, renderGroupedTemplate, esc, type EventSubject } from './templates.ts';
 import { isRealtimeEvent } from './types.ts';
 import { mapToEmojiHtml, agentToEmojiHtml } from './valorant-emoji.ts';
 import { rankToEmojiHtml } from './rank-emoji.ts';
@@ -301,7 +301,7 @@ describe('renderTemplate — agent emoji next to nicks (#301)', () => {
     expect(output).toContain('<b>Player#TAG</b> ' + JETT);
   });
 
-  it('community_clash: each player shows their agent emoji from payload', () => {
+  it('community_clash: each player shows Ник#Тег plus their agent emoji', () => {
     const output = renderTemplate(
       'community_clash',
       {
@@ -313,8 +313,28 @@ describe('renderTemplate — agent emoji next to nicks (#301)', () => {
       },
       safeUser,
     );
+    // The tag is what makes two members who share a display name distinguishable
+    // — printing the name alone read as the same player listed twice.
+    expect(output).toContain('<b>Alice#A</b> ' + JETT);
+    expect(output).toContain('<b>Bob#B</b> ' + SAGE);
+  });
+
+  it('community_clash: a player with no tag degrades to the bold nick', () => {
+    const output = renderTemplate(
+      'community_clash',
+      {
+        teams: [
+          { team_id: 'Blue', players: [{ puuid: 'a', name: 'Alice', tag: null, agent: 'Jett' }] },
+          { team_id: 'Red', players: [{ puuid: 'b', name: null, tag: null }] },
+        ],
+        winner_team_id: 'Blue',
+      },
+      safeUser,
+    );
+    // A `Ник#` with a dangling hash would be worse than no tag.
     expect(output).toContain('<b>Alice</b> ' + JETT);
-    expect(output).toContain('<b>Bob</b> ' + SAGE);
+    expect(output).not.toContain('Alice#');
+    expect(output).toContain('<b>b</b>');
   });
 
   it('match_comeback: each community player shows their agent emoji from payload', () => {
@@ -405,4 +425,76 @@ describe('renderTemplate — #315 minimal trio: renderPlayerName + match link on
     );
   });
 
+});
+
+describe('renderGroupedTemplate — one message per match', () => {
+  const subject = (name: string, payload: Record<string, unknown> = {}): EventSubject => ({
+    payload,
+    user: { riot_name: name, riot_tag: 'TAG', telegram_id: 1 },
+    match: { match_id: 'm1', map: 'Bind' },
+  });
+
+  it('renders a single subject exactly as renderTemplate always did', () => {
+    const one = subject('Solo', { days_paused: 14 });
+    expect(renderGroupedTemplate('return_after_pause', [one])).toBe(
+      renderTemplate('return_after_pause', one.payload, one.user, one.match),
+    );
+  });
+
+  it('giant_slayer: one title and one link, a line per player', () => {
+    const html = renderGroupedTemplate('giant_slayer', [
+      subject('Alice', { own: 'Diamond 2', enemy_avg: 'Immortal 1' }),
+      subject('Bob', { own: 'Diamond 1', enemy_avg: 'Immortal 1' }),
+    ]);
+    expect(html.match(/💪 <u>Поводил\(ла\) по губам<\/u>/g)).toHaveLength(1);
+    expect(html).toContain('<b>Alice#TAG</b>');
+    expect(html).toContain('<b>Bob#TAG</b>');
+    expect(html.match(/tracker\.gg/g)).toHaveLength(1);
+  });
+
+  it('teamkill: each killer keeps their own victims on their own line', () => {
+    const html = renderGroupedTemplate('teamkill', [
+      subject('Alice', { victims: [{ name: 'Carol', tag: 'CCC' }] }),
+      subject('Bob', { victims: [{ name: 'Dave', tag: 'DDD' }] }),
+    ]);
+    expect(html.match(/🐀 <b>Ля ты и крыса<\/b>/g)).toHaveLength(1);
+    const lines = html.split('\n');
+    expect(lines.find((l) => l.includes('Alice'))).toContain('Carol');
+    expect(lines.find((l) => l.includes('Bob'))).toContain('Dave');
+    expect(lines.find((l) => l.includes('Alice'))).not.toContain('Dave');
+  });
+
+  it('return_after_pause: keeps each player’s own pause length', () => {
+    const html = renderGroupedTemplate('return_after_pause', [
+      subject('Alice', { days_paused: 14 }),
+      subject('Bob', { days_paused: 90 }),
+    ]);
+    expect(html.match(/👋 <b>С возвращением<\/b>/g)).toHaveLength(1);
+    expect(html).toContain('после 14 дней паузы');
+    expect(html).toContain('после 90 дней паузы');
+  });
+
+  it('match_comeback describes the whole match — the group renders it once', () => {
+    // Every player's copy of this event is identical (the payload already
+    // carries community_players), so extra subjects must not duplicate it.
+    const payload = {
+      deficit_score_player: 3, deficit_score_opponent: 11,
+      final_score_player: 13, final_score_opponent: 11,
+      community_players: [
+        { puuid: 'a1', name: 'Alice', tag: 'AAA' },
+        { puuid: 'a2', name: 'Bob', tag: 'BBB' },
+      ],
+    };
+    const html = renderGroupedTemplate('match_comeback', [
+      subject('Alice', payload),
+      subject('Bob', payload),
+    ]);
+    expect(html.match(/👏 Мы вами гордимся/g)).toHaveLength(1);
+    expect(html.match(/<b>Alice#AAA<\/b>/g)).toHaveLength(1);
+    expect(html.match(/<b>Bob#BBB<\/b>/g)).toHaveLength(1);
+  });
+
+  it('returns an empty string for no subjects', () => {
+    expect(renderGroupedTemplate('teamkill', [])).toBe('');
+  });
 });
