@@ -34,7 +34,7 @@ import { startRetryPendingOnboardLoop } from './cron/retry-pending-onboard.ts';
 import { startReconcileMembershipLoop } from './cron/reconcile-membership.ts';
 import { rebuildAllRecords } from './publisher/records-rebuild.ts';
 import { safeSendMessage } from './lib/safe-telegram.ts';
-import { sendPhotoExempt, InputFile } from './lib/telegram-send.ts';
+import { send, sendPhotoExempt, InputFile } from './lib/telegram-send.ts';
 import { sendRichMessageHtml } from './lib/rich-message.ts';
 import { isPublishingEnabled } from './lib/silent-period.ts';
 
@@ -204,7 +204,12 @@ if (process.env['SCANNER_DISABLED'] !== 'true') {
       };
       startDigestLoop({
         db,
-        sendMessage: (chatId, text, opts) => safeSendMessage(bot!.api, chatId, text, opts as never),
+        // `send`, not `safeSendMessage`: the digest posts once a week and has no
+        // retry layer of its own, so the retry has to live here. The publisher
+        // below is the mirror image — it wraps its sender in `sendWithRetryFn`,
+        // so it takes the guard-only shim and there is exactly one retry layer
+        // on each path.
+        sendMessage: (chatId, text, opts) => send(bot!.api, chatId, text, opts as never),
         // Rich Message send (#309): the weekly digest posts as a rich message,
         // falling back to `sendMessage` (legacy text) on any error. Destination
         // is TELEGRAM_PRIMARY_CHAT_ID (the already-authorised group) — same

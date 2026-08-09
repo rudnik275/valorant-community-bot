@@ -267,6 +267,70 @@ describe('records-rebuild', () => {
     expect(anchor.value).toBe(7);
   });
 
+  describe('weekly MVP — the rebuild must not contest the week the Friday tick owns', () => {
+    // Fri 2026-08-07 19:00 Kyiv = 16:00 UTC. The window ending there opens on
+    // Fri 2026-07-31 19:00 Kyiv.
+    const WINDOW_END = Date.UTC(2026, 7, 7, 16);
+    const WINDOW_ISO = '2026-W32';
+    const SATURDAY_IN_WINDOW = Date.UTC(2026, 7, 1, 18); // Sat 21:00 Kyiv
+    const WEDNESDAY_MIDWEEK = Date.UTC(2026, 7, 5, 6);   // the 06:30 reconcile
+
+    function seedMvp(puuid: string, matchId: string, startedAt: number) {
+      sqlite.exec(`INSERT INTO match_records (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result, rounds_played, is_match_mvp, kill_events_compact) VALUES ('${puuid}', '${matchId}', ${startedAt}, 'Ascent', 'Jett', 10, 5, 2, 'win', 25, 1, '[]')`);
+    }
+
+    it('leaves the still-open week untouched, so Friday can still crown someone', async () => {
+      // upsertWeeklyLeader only ever raises. A rebuild that pre-filled the open
+      // row from a partial week left the tick unable to beat its own bar, and
+      // «👑 Король MVP за неделю» was dropped for that week without a trace.
+      sqlite.exec(`INSERT INTO users (telegram_id, riot_puuid, riot_name, riot_tag) VALUES (1, 'p-solo', 'Solo', 'SLO')`);
+      seedMvp('p-solo', 'm-open-1', SATURDAY_IN_WINDOW);
+      seedMvp('p-solo', 'm-open-2', SATURDAY_IN_WINDOW + 3600000);
+
+      await rebuildAllRecords(db, WEDNESDAY_MIDWEEK);
+
+      const open = sqlite
+        .prepare(`SELECT * FROM weekly_records WHERE record_type='mvp_count_week' AND week_iso='${WINDOW_ISO}'`)
+        .get();
+      expect(open).toBeUndefined();
+    });
+
+    it('files weekend play under the window that reports it, not its ISO week', async () => {
+      // Sat 2026-08-01 is ISO W31, but the digest that announces it is the one
+      // closing Fri 2026-08-07 — W32. Bucketing by ISO week rewrote an
+      // already-published row and manufactured an all-time bar out of a week
+      // the group never had.
+      sqlite.exec(`INSERT INTO users (telegram_id, riot_puuid, riot_name, riot_tag) VALUES (1, 'p-sat', 'Sat', 'SAT')`);
+      seedMvp('p-sat', 'm-sat', SATURDAY_IN_WINDOW);
+
+      // A later "now" so the W32 window is closed and eligible.
+      await rebuildAllRecords(db, WINDOW_END + 86400000);
+
+      const rows = sqlite
+        .prepare(`SELECT week_iso, riot_puuid, value FROM weekly_records WHERE record_type='mvp_count_week'`)
+        .all() as Array<{ week_iso: string; value: number }>;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.week_iso).toBe(WINDOW_ISO);
+      expect(rows[0]!.value).toBe(1);
+    });
+
+    it('reproduces the row the Friday tick wrote for a closed week', async () => {
+      // Same partition, same tie-break (most MVPs, ties to the smallest puuid),
+      // so a rebuild can never disagree with the digest about a published week.
+      sqlite.exec(`INSERT INTO users (telegram_id, riot_puuid, riot_name, riot_tag) VALUES (1, 'p-zzz', 'Zed', 'ZZZ'), (2, 'p-aaa', 'Ann', 'AAA')`);
+      seedMvp('p-zzz', 'm-z', SATURDAY_IN_WINDOW);
+      seedMvp('p-aaa', 'm-a', SATURDAY_IN_WINDOW + 1000);
+
+      await rebuildAllRecords(db, WINDOW_END + 86400000);
+
+      const row = sqlite
+        .prepare(`SELECT riot_puuid, value FROM weekly_records WHERE record_type='mvp_count_week' AND week_iso='${WINDOW_ISO}'`)
+        .get() as { riot_puuid: string; value: number };
+      expect(row.riot_puuid).toBe('p-aaa');
+      expect(row.value).toBe(1);
+    });
+  });
+
   it('an orphaned match with no owner cannot abort the rebuild', async () => {
     // The live chat-member listener deletes the users row directly, and the FK
     // is ON DELETE SET NULL, so the departed player's matches survive with a

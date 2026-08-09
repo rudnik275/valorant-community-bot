@@ -37,6 +37,15 @@ jobs:
       - name: Run tests
         run: bun run test
 
+      # The suite migrates through better-sqlite3; the bot migrates through
+      # bun:sqlite. Whether a generated migration survives depends on the
+      # SQLite build's `legacy_alter_table` default, which differs between the
+      # runner, the container and a developer Mac — so this step forces BOTH
+      # settings against a BLANK database. Without that it passes on a chain
+      # that cannot be migrated at all elsewhere (issue #343).
+      - name: Blank database migrates under the production runtime
+        run: bun run test:migrate-fresh
+
   build-and-push:
     name: Build & Push arm64 image
     runs-on: ubuntu-latest

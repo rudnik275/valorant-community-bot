@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { _resetCache } from './scope.ts';
 import {
   send,
+  safeSendMessage,
   sendExempt,
   sendWithRetryFn,
   classifySendFailure,
@@ -296,6 +297,29 @@ describe('classifySendFailure — was it delivered?', () => {
     expect(classifySendFailure(withCode(429, 'Too Many Requests')).retryAfterMs).toBe(5000);
   });
 
+  it('does not read a stray "429" inside a 4xx message as a rate limit', () => {
+    // `Bad Request: can't parse entities … at byte offset 1429` used to match a
+    // bare `includes('429')` and burn the retry budget on an error no retry can
+    // fix.
+    const parseError = Object.assign(
+      new Error("Bad Request: can't parse entities in message text: unexpected end of tag at byte offset 1429"),
+      { error_code: 400 },
+    );
+    expect(classifySendFailure(parseError).kind).toBe('rejected');
+  });
+
+  it('still recognises a 429 the API only described in words', () => {
+    expect(classifySendFailure(new Error('Too Many Requests: retry after 3')).kind).toBe('rate_limited');
+  });
+
+  it('caps the 429 backoff so a claimed-but-unsent item is not held for minutes', () => {
+    const err = Object.assign(new Error('Too Many Requests'), {
+      error_code: 429,
+      parameters: { retry_after: 3600 },
+    });
+    expect(classifySendFailure(err).retryAfterMs).toBe(30_000);
+  });
+
   it('calls a 4xx rejected — Telegram answered and nothing was posted', () => {
     for (const code of [400, 401, 403, 404]) {
       expect(classifySendFailure(withCode(code)).kind, String(code)).toBe('rejected');
@@ -329,5 +353,42 @@ describe('classifySendFailure — was it delivered?', () => {
     expect(classifySendFailure(new UnauthorizedChatError(-1)).kind).toBe('rejected');
     expect(classifySendFailure(new Error('sendRichMessage not wired')).kind).toBe('rejected');
     expect(isAmbiguousSendFailure(new Error('sendRichMessage not wired'))).toBe(false);
+  });
+});
+
+describe('safeSendMessage — guard only, one attempt', () => {
+  beforeEach(() => {
+    _resetCache();
+    process.env['TELEGRAM_ALLOWED_CHAT_IDS'] = `${ALLOWED_CHAT},-100456`;
+    _setSleepFnForTest(instantSleep);
+  });
+
+  afterEach(() => {
+    _resetCache();
+    delete process.env['TELEGRAM_ALLOWED_CHAT_IDS'];
+    _resetSleepFnForTest();
+  });
+
+  it('does not retry a 429, because its callers own the retry', () => {
+    // The publisher wraps its injected sender in sendWithRetryFn, so a shim
+    // that retried too meant one 429 cost four API attempts and up to 90s of
+    // sleep with the event group already claimed but unsent.
+    const rateLimited = Object.assign(new Error('Too Many Requests'), {
+      error_code: 429,
+      parameters: { retry_after: 1 },
+    });
+    const fakeApi = { sendMessage: vi.fn().mockRejectedValue(rateLimited) };
+
+    return expect(safeSendMessage(fakeApi as never, ALLOWED_CHAT, 'hi'))
+      .rejects.toThrow('Too Many Requests')
+      .then(() => {
+        expect(fakeApi.sendMessage).toHaveBeenCalledTimes(1);
+      });
+  });
+
+  it('still refuses a chat outside the allowlist without calling the API', async () => {
+    const fakeApi = { sendMessage: vi.fn() };
+    await expect(safeSendMessage(fakeApi as never, -999999, 'hi')).rejects.toThrow(UnauthorizedChatError);
+    expect(fakeApi.sendMessage).not.toHaveBeenCalled();
   });
 });
