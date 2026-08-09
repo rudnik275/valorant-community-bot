@@ -301,7 +301,7 @@ describe('renderTemplate — agent emoji next to nicks (#301)', () => {
     expect(output).toContain('<b>Player#TAG</b> ' + JETT);
   });
 
-  it('community_clash: each player shows their agent emoji from payload', () => {
+  it('community_clash: each player shows Ник#Тег plus their agent emoji', () => {
     const output = renderTemplate(
       'community_clash',
       {
@@ -313,8 +313,28 @@ describe('renderTemplate — agent emoji next to nicks (#301)', () => {
       },
       safeUser,
     );
+    // The tag is what makes two members who share a display name distinguishable
+    // — printing the name alone read as the same player listed twice.
+    expect(output).toContain('<b>Alice#A</b> ' + JETT);
+    expect(output).toContain('<b>Bob#B</b> ' + SAGE);
+  });
+
+  it('community_clash: a player with no tag degrades to the bold nick', () => {
+    const output = renderTemplate(
+      'community_clash',
+      {
+        teams: [
+          { team_id: 'Blue', players: [{ puuid: 'a', name: 'Alice', tag: null, agent: 'Jett' }] },
+          { team_id: 'Red', players: [{ puuid: 'b', name: null, tag: null }] },
+        ],
+        winner_team_id: 'Blue',
+      },
+      safeUser,
+    );
+    // A `Ник#` with a dangling hash would be worse than no tag.
     expect(output).toContain('<b>Alice</b> ' + JETT);
-    expect(output).toContain('<b>Bob</b> ' + SAGE);
+    expect(output).not.toContain('Alice#');
+    expect(output).toContain('<b>b</b>');
   });
 
   it('match_comeback: each community player shows their agent emoji from payload', () => {

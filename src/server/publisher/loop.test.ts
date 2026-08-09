@@ -374,33 +374,30 @@ describe('startPublisherLoop', () => {
       expect(row.last_error).toContain('too long');
     });
 
-    it('retries on transient Telegram 5xx error before giving up', async () => {
+    it('does NOT retry a 5xx, and closes the event out so it cannot be posted twice', async () => {
+      // Telegram's backend broke mid-request, so it may have queued the message
+      // before it did. Re-sending is how the group reads the same event twice,
+      // so the row stays closed out — with no message id and the reason on it.
       seedUser(sqlite, 1, 'puuid-1');
       const id1 = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'teamkill' });
 
-      const transient500 = Object.assign(new Error('Internal Server Error'), { error_code: 500 });
-      sendMessage
-        .mockRejectedValueOnce(transient500)
-        .mockResolvedValueOnce({ message_id: 999 });
+      const server500 = Object.assign(new Error('Internal Server Error'), { error_code: 500 });
+      sendMessage.mockRejectedValue(server500);
 
       const { stop } = makeLoop(db, sendMessage, {
         kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
       });
+      await runOneTick(stop);
+      await vi.advanceTimersByTimeAsync(3000);
+      for (let i = 0; i < 20; i++) await Promise.resolve();
 
-      // Step 1: Advance 1s — fires exactly one cron tick.
-      // Tick: sendMessage 1st call (rejects 5xx) → starts the retry sleep(2000).
-      await vi.advanceTimersByTimeAsync(1001);
-      for (let i = 0; i < 10; i++) await Promise.resolve();
-      // Cancel the cron so subsequent advance doesn't fire additional ticks
-      // (which would consume more mock entries and break the call-count check).
-      // The in-flight tick is unaffected — its setTimeout sleep keeps running.
-      stop();
-      // Step 2: Drive the 2s retry sleep to completion → 2nd sendMessage succeeds.
-      await vi.advanceTimersByTimeAsync(2100);
-      for (let i = 0; i < 10; i++) await Promise.resolve();
-
-      expect(sendMessage).toHaveBeenCalledTimes(2);
+      expect(sendMessage).toHaveBeenCalledTimes(1);
       expect(getEventStatus(sqlite, id1)).toBe('posted');
+      const row = sqlite
+        .prepare('SELECT posted_message_id, last_error FROM detected_events WHERE id = ?')
+        .get(id1) as { posted_message_id: number | null; last_error: string | null };
+      expect(row.posted_message_id).toBeNull();
+      expect(row.last_error).toContain('send outcome unknown');
     });
 
     it('leaves event as pending if both 429 retry attempts fail', async () => {
@@ -421,11 +418,17 @@ describe('startPublisherLoop', () => {
       await vi.advanceTimersByTimeAsync(1001);
       for (let i = 0; i < 5; i++) await Promise.resolve();
       await vi.advanceTimersByTimeAsync(1100);
-      for (let i = 0; i < 10; i++) await Promise.resolve();
+      for (let i = 0; i < 30; i++) await Promise.resolve();
       stop();
 
-      // Both attempts failed — event stays pending
+      // Telegram answered — it definitively did not post — so the claim is
+      // released and the next tick may try again.
       expect(getEventStatus(sqlite, id1)).toBe('pending');
+      const row = sqlite
+        .prepare('SELECT failed_attempts, posted_at FROM detected_events WHERE id = ?')
+        .get(id1) as { failed_attempts: number; posted_at: number | null };
+      expect(row.failed_attempts).toBe(1);
+      expect(row.posted_at).toBeNull();
     });
   });
 
@@ -1088,6 +1091,70 @@ describe('startPublisherLoop', () => {
       expect(text).toContain('<b>Bob#BBB</b>');
       expect(getEventStatus(sqlite, id1)).toBe('posted');
       expect(getEventStatus(sqlite, id2)).toBe('posted');
+    });
+
+    it('claims the group BEFORE sending, so a crash cannot repost it', async () => {
+      // The row is marked posted before the send goes out. If the process dies
+      // mid-send the event is lost — and that is the deliberate trade: this
+      // loop ticks every minute, so leaving it pending meant the identical
+      // message went out again 60 seconds later.
+      seedUser(sqlite, 1, 'a1', { riotName: 'Alice', riotTag: 'AAA' });
+      const id = seedPendingEvent(sqlite, {
+        puuid: 'a1', eventType: 'teamkill', matchId: MATCH, payload: {},
+      });
+
+      let statusDuringSend = 'unknown';
+      const observing = vi.fn().mockImplementation(async () => {
+        statusDuringSend = getEventStatus(sqlite, id);
+        return { message_id: 42 };
+      });
+
+      const { stop } = makeLoop(db, observing, {
+        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
+      });
+      await runOneTick(stop);
+
+      expect(statusDuringSend).toBe('posted');
+      expect(getEventStatus(sqlite, id)).toBe('posted');
+    });
+
+    it('stands down when it cannot claim the whole group', async () => {
+      // Another tick (or another process) already took part of this match.
+      // Adding a second message to it is the failure this loop prevents.
+      seedUser(sqlite, 1, 'a1', { riotName: 'Alice', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'a2', { riotName: 'Bob', riotTag: 'BBB' });
+      const id1 = seedPendingEvent(sqlite, {
+        puuid: 'a1', eventType: 'teamkill', matchId: MATCH, payload: {}, detectedAt: 1_000,
+      });
+      const id2 = seedPendingEvent(sqlite, {
+        puuid: 'a2', eventType: 'teamkill', matchId: MATCH, payload: {}, detectedAt: 1_100,
+      });
+
+      // Simulate the racing claim landing between our SELECT and our UPDATE:
+      // getPrimaryChatId runs after the siblings are resolved and just before
+      // the claim, so flipping a row there lands in exactly that window.
+      let flipped = false;
+      const stop = startPublisherLoop({
+        db,
+        sendMessage,
+        getNowKyiv: () => ({ ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 }),
+        getPrimaryChatId: () => {
+          if (!flipped) {
+            flipped = true;
+            sqlite.prepare(`UPDATE detected_events SET status='posted' WHERE id = ?`).run(id2);
+          }
+          return -1001234567890;
+        },
+        intervalCron: '* * * * * *',
+        publishGraceMs: 0,
+      });
+      await runOneTick(stop);
+
+      expect(sendMessage).not.toHaveBeenCalled();
+      // Neither row is released: the rows we DID claim stay closed out on
+      // purpose. Losing a name from one message beats emitting a second one.
+      expect(getEventStatus(sqlite, id2)).toBe('posted');
+      expect(getEventStatus(sqlite, id1)).toBe('posted');
     });
 
     it('leaves the whole group pending when the send fails, so the retry is still one message', async () => {

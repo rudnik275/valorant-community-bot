@@ -31,7 +31,7 @@
  */
 
 import { Cron } from 'croner';
-import { and, eq, inArray, lte } from 'drizzle-orm';
+import { and, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import { detectedEvents } from '../db/schema/detected_events.ts';
 import { users } from '../db/schema/users.ts';
 import { optOuts } from '../db/schema/opt_outs.ts';
@@ -42,7 +42,7 @@ import { renderRichEvent, isTrioRichEvent } from './rich-templates.ts';
 import { isRealtimeEvent, type EventType } from './types.ts';
 import logger from '../lib/log.ts';
 import { isPublishingEnabled } from '../lib/silent-period.ts';
-import { sendWithRetryFn } from '../lib/telegram-send.ts';
+import { sendWithRetryFn, isAmbiguousSendFailure } from '../lib/telegram-send.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
@@ -345,6 +345,30 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
         return;
       }
 
+      // Claim the group BEFORE sending. Marking rows posted afterwards meant a
+      // crash — or a swallowed UPDATE — left them pending, and the next tick
+      // (this loop runs every minute) sent the identical message again. The
+      // conditional `status='pending'` also makes the claim the one place two
+      // overlapping ticks can race, and only one of them can win it.
+      const claim = await db
+        .update(detectedEvents)
+        .set({ status: 'posted', posted_at: nowMs, posted_message_id: null })
+        .where(and(inArray(detectedEvents.id, postableIds), eq(detectedEvents.status, 'pending')));
+
+      if (claim.changes !== postableIds.length) {
+        // Somebody else already claimed part of this group. Whatever they are
+        // doing, adding a second message to it is the failure mode we are
+        // here to prevent — the rows we did claim stay closed out.
+        logger.warn(
+          {
+            module: 'publisher', event_ids: postableIds, event_type: eventType,
+            match_id: matchId, claimed: claim.changes,
+          },
+          'Could not claim the whole group — another tick is handling this match, standing down',
+        );
+        return;
+      }
+
       // ONE message for the whole match: title once, every player named.
       const text = renderGroupedTemplate(eventType, subjects);
 
@@ -356,13 +380,17 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
       // park the event in status='failed' after MAX_FAILED_ATTEMPTS.
       let messageId: number | undefined;
       let lastErr: unknown;
+      // Set when the rich send's outcome is unknown: the roster table may
+      // already be in the chat, so the plain fallback below must NOT run.
+      let richOutcomeUnknown = false;
 
       // #315 "trio" events (giant_slayer / match_comeback / community_clash)
       // render as full-roster rich tables. Try the rich path FIRST; fall back
-      // to the legacy plain template on ANY error (missing dep, incomplete
-      // roster → null, render throw, or a rich send failure). The fallback
-      // keeps dedup/retry semantics identical to the plain path — a rich send
-      // failure just re-attempts as plain text this tick.
+      // to the legacy plain template when the rich attempt definitively left
+      // the chat empty (missing dep, incomplete roster → null, render throw, a
+      // 4xx on the html). A rich send Telegram never ANSWERED is different:
+      // the table may already be in the chat, so falling back would post the
+      // same event twice — see `richOutcomeUnknown`.
       if (isTrioRichEvent(eventType) && deps.sendRichMessage) {
         const richSend = deps.sendRichMessage;
         try {
@@ -384,15 +412,26 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
             messageId = result.message_id;
           }
         } catch (err: unknown) {
-          logger.warn(
-            { module: 'publisher', event_id: eventId, event_type: eventType, err },
-            'Rich send failed — falling back to legacy plain template',
-          );
-          // messageId stays undefined ⇒ the plain path below runs.
+          // A rich send Telegram never answered is not a reason to fall back:
+          // the table may already be in the chat, and posting the plain
+          // template on top of it is the double post this loop exists to
+          // prevent (owner, 2026-08-09). Everything else caught here — a
+          // render throw, a missing dep, a 4xx on the rich html — genuinely
+          // left the chat empty, so the legacy template still goes out.
+          if (isAmbiguousSendFailure(err)) {
+            richOutcomeUnknown = true;
+            lastErr = err;
+          } else {
+            logger.warn(
+              { module: 'publisher', event_id: eventId, event_type: eventType, err },
+              'Rich send failed — falling back to legacy plain template',
+            );
+            // messageId stays undefined ⇒ the plain path below runs.
+          }
         }
       }
 
-      if (messageId === undefined) {
+      if (messageId === undefined && !richOutcomeUnknown) {
         try {
           const result = await sendWithRetryFn(
             deps.sendMessage,
@@ -408,41 +447,68 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
       }
 
       if (lastErr !== undefined) {
-        // Bump failed_attempts. After MAX_FAILED_ATTEMPTS, park as 'failed' so
-        // the queue moves past poison events instead of blocking forever. The
-        // whole group shares the verdict — they are one message, so a retry
-        // that left some rows behind would resurrect the duplicate posts.
-        const MAX_FAILED_ATTEMPTS = 3;
-        const newAttempts = priorAttempts + 1;
         const errMsg = lastErr instanceof Error ? lastErr.message : String(lastErr);
-        if (newAttempts >= MAX_FAILED_ATTEMPTS) {
-          logger.error(
-            { module: 'publisher', event_ids: postableIds, attempts: newAttempts, err: errMsg },
-            'Event marked as failed after max attempts — unblocking queue',
-          );
+        const newAttempts = priorAttempts + 1;
+
+        // Telegram never answered, so the message may already be in the group.
+        // Rolling the claim back reposts it on the next tick, and parking the
+        // rows outside 'posted' is no better — the match-already-posted guard
+        // in step 2d only suppresses siblings against a 'posted' row, so the
+        // next player scanned for this match would post it all over again. So
+        // the group stays closed out as posted with NO message id: an event
+        // that silently goes missing is a far smaller harm than the same one
+        // posted twice, which is exactly what the group complained about
+        // (owner, 2026-08-09). `last_error` records why the id is missing.
+        if (isAmbiguousSendFailure(lastErr)) {
           await patchEvents(postableIds, {
-            status: 'failed',
-            failed_attempts: newAttempts,
-            last_error: errMsg.slice(0, 500),
+            last_error: `send outcome unknown: ${errMsg}`.slice(0, 500),
           });
+          logger.error(
+            {
+              module: 'publisher', event_ids: postableIds, event_type: eventType,
+              match_id: matchId, attempts: newAttempts, err: errMsg,
+            },
+            'Send outcome unknown — leaving the group closed out so it cannot be posted twice',
+          );
+          return;
+        }
+
+        // Telegram refused it, so nothing was posted: release the claim so the
+        // next tick can try again. After MAX_FAILED_ATTEMPTS a row is parked
+        // as 'failed' so the queue moves past poison events instead of
+        // blocking forever. The counter is per ROW — a fresh sibling must not
+        // inherit an older row's strikes and be parked on its first attempt.
+        const MAX_FAILED_ATTEMPTS = 3;
+        await patchEvents(postableIds, {
+          status: 'pending',
+          posted_at: null,
+          failed_attempts: sql`${detectedEvents.failed_attempts} + 1`,
+          last_error: errMsg.slice(0, 500),
+        });
+        const parked = await db
+          .update(detectedEvents)
+          .set({ status: 'failed' })
+          .where(and(
+            inArray(detectedEvents.id, postableIds),
+            gte(detectedEvents.failed_attempts, MAX_FAILED_ATTEMPTS),
+          ));
+        if (parked.changes > 0) {
+          logger.error(
+            { module: 'publisher', event_ids: postableIds, parked: parked.changes, err: errMsg },
+            'Events marked as failed after max attempts — unblocking queue',
+          );
         } else {
           logger.warn(
             { module: 'publisher', event_ids: postableIds, attempts: newAttempts, err: errMsg },
-            'Send failed — leaving as pending, will retry next tick',
+            'Send refused — back to pending, will retry next tick',
           );
-          await patchEvents(postableIds, {
-            failed_attempts: newAttempts,
-            last_error: errMsg.slice(0, 500),
-          });
         }
         return;
       }
 
-      // Success — every event the message covered is posted, sharing its id.
-      const postedAt = Date.now();
+      // Success — the claim already marked them posted; record the message id.
+      const postedAt = nowMs;
       await patchEvents(postableIds, {
-        status: 'posted',
-        posted_at: postedAt,
         posted_message_id: messageId ?? null,
       });
 

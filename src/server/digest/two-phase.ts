@@ -30,6 +30,7 @@ import { eq } from 'drizzle-orm';
 import { Cron } from 'croner';
 import { digestRuns } from '../db/schema/digest_runs.ts';
 import { buildDigest } from './build.ts';
+import { isAmbiguousSendFailure } from '../lib/telegram-send.ts';
 import { getDigestNowKyiv, type DigestNowKyiv } from './loop.ts';
 import { runStoryGeneration } from '../story/run.ts';
 import { isPublishingEnabled } from '../lib/silent-period.ts';
@@ -287,6 +288,16 @@ async function postDigest(
       );
       return { messageId: message_id, path: 'rich' };
     } catch (err) {
+      // Only a rich send Telegram definitively REFUSED may be re-sent as
+      // legacy text. If the answer was merely lost, the rich digest may
+      // already be in the chat and the fallback would post it twice.
+      if (isAmbiguousSendFailure(err)) {
+        logger.error(
+          { module: 'digest_publish', week_iso: weekIso, err },
+          'Publish tick — sendRichMessage got no answer; the digest MAY be posted, not falling back',
+        );
+        throw err;
+      }
       logger.warn(
         { module: 'digest_publish', week_iso: weekIso, err },
         'Publish tick — sendRichMessage failed, falling back to legacy text',
@@ -373,17 +384,37 @@ export function makeWeeklyPublishOverride(sendPhotoReply: SendPhotoReply) {
         return;
       }
       const { messageId } = await postDigest(weekIso, chatId, richHtml, text, deps);
+      const postedAt = Date.now();
+      // UPSERT, not onConflictDoNothing: the digest is already in the chat by
+      // now, so the published-state write is not allowed to silently no-op. A
+      // `digest_runs` row for this week can exist while `posted_at` is still
+      // NULL — the pre-#255 loop inserted a bare lock row before the post, and
+      // with the prepare tick enabled the 18:45 row can land AFTER this tick
+      // has already read "no row". DO NOTHING would then leave the row
+      // unposted: the dedup guard at the top of this override reads
+      // `posted_at`, so it would not fire and the group would get the same
+      // digest a SECOND time — the one outcome the whole week_iso dedup exists
+      // to prevent. `started_at` is deliberately absent from `set` so an
+      // existing row keeps the moment it was actually opened.
       await db
         .insert(digestRuns)
         .values({
           week_iso: weekIso,
           started_at: w.nowMs,
-          posted_at: Date.now(),
+          posted_at: postedAt,
           posted_message_id: messageId,
           posted_text: text,
           rich_html: richHtml,
         })
-        .onConflictDoNothing();
+        .onConflictDoUpdate({
+          target: digestRuns.week_iso,
+          set: {
+            posted_at: postedAt,
+            posted_message_id: messageId,
+            posted_text: text,
+            rich_html: richHtml,
+          },
+        });
       logger.info(
         { module: 'digest_publish', week_iso: weekIso, message_id: messageId },
         'Publish tick — prepare missed, posted fresh digest',

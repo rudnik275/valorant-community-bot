@@ -334,22 +334,31 @@ export function makeCongratsCallbackHandler(deps: CongratsDeps): MiddlewareFn<Co
       return;
     }
 
+    // Consume the preview and retire the keyboard BEFORE sending, so ✅ is a
+    // one-shot button. Doing it afterwards meant a failed send left both alive:
+    // the owner was invited to press again, and if the first send had actually
+    // landed (a lost response, a timeout after delivery) the group got the
+    // congrats twice. Losing a post the owner can simply retype beats posting
+    // it twice — the same "lose rather than repeat" call the digest makes.
+    previewStore.delete(previewId);
+    try {
+      await ctx.editMessageReplyMarkup();
+    } catch {
+      // ignore — message may be too old or already edited
+    }
+
     try {
       // sendExempt: destination is TELEGRAM_PRIMARY_CHAT_ID (the already-authorised
       // group), confirmed by explicit owner action (pressing ✅ in the callback).
       await sendExempt(deps.bot.api, chatId, preview.text, HTML_OPTS);
-      previewStore.delete(previewId);
-      try {
-        await ctx.editMessageReplyMarkup();
-      } catch {
-        // ignore
-      }
       await ctx.answerCallbackQuery({ text: '✅ Отправлено' });
       logger.info({ module: 'congrats', owner_id: fromId, chat_id: chatId }, 'Congrats posted to group');
     } catch (err) {
       logger.error({ module: 'congrats', err }, 'Failed to send congrats to group');
+      // The preview is already gone, so say so — the owner must re-run
+      // /congrats rather than hunt for a button that no longer works.
       await ctx.answerCallbackQuery({
-        text: `Ошибка: ${(err as Error).message?.slice(0, 180) ?? 'unknown'}`,
+        text: `Ошибка: ${(err as Error).message?.slice(0, 140) ?? 'unknown'}. Превью закрыто — запусти /congrats заново (сообщение могло уйти).`,
         show_alert: true,
       });
     }

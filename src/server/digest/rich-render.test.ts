@@ -11,19 +11,18 @@ function fullModel(overrides: Partial<RichDigestModel> = {}): RichDigestModel {
       {
         emoji: '💀',
         title: 'Серийный маньяк',
-        player: { name: 'Killer', tag: 'KLL', rank: 'Diamond 3', agent: 'Jett' },
+        players: [{
+          name: 'Killer', tag: 'KLL', rank: 'Diamond 3', agent: 'Jett',
+          matchUrl: 'https://tracker.gg/valorant/match/m-kills', mapName: 'Ascent',
+        }],
         value: '38 фрагов',
-        matchUrl: 'https://tracker.gg/valorant/match/m-kills',
-        mapName: 'Ascent',
         context: 'рекорд по количеству фрагов за игру',
       },
       {
         emoji: '👑',
         title: 'Король MVP за неделю',
-        player: { name: 'Chief', tag: 'MVP', rank: null, agent: null },
+        players: [{ name: 'Chief', tag: 'MVP', rank: null, agent: null, matchUrl: null, mapName: null }],
         value: '5 MVP-матчей',
-        matchUrl: null,
-        mapName: null,
         context: 'рекорд по количеству MVP-матчей за неделю',
       },
     ],
@@ -55,7 +54,7 @@ function fullModel(overrides: Partial<RichDigestModel> = {}): RichDigestModel {
       {
         emoji: '💀',
         header: 'Был(ла) близко к рекорду по киллам',
-        player: { name: 'NearMisser', tag: 'NM', agent: 'Sova' },
+        players: [{ name: 'NearMisser', tag: 'NM', agent: 'Sova' }],
         value: '29 фрагов',
       },
     ],
@@ -284,10 +283,11 @@ describe('renderDigest — former table sections as flat lines', () => {
         nearMisses: [{
           emoji: '💀',
           header: 'Был(ла) близко к рекорду по киллам',
-          player: { name: 'NearMisser', tag: 'NM', agent: 'Sova' },
+          players: [{
+            name: 'NearMisser', tag: 'NM', agent: 'Sova',
+            matchUrl: 'https://tracker.gg/valorant/match/nm-1', mapName: 'Lotus',
+          }],
           value: '29 фрагов',
-          matchUrl: 'https://tracker.gg/valorant/match/nm-1',
-          mapName: 'Lotus',
         }],
       }),
     );
@@ -493,10 +493,8 @@ describe('renderDigest — no duplicate award blocks', () => {
   const record = (title: string, value: string, name: string) => ({
     emoji: '🐴',
     title,
-    player: { name, tag: 'T' },
+    players: [{ name, tag: 'T', matchUrl: null, mapName: null }],
     value,
-    matchUrl: null,
-    mapName: null,
     context: '',
   });
 
@@ -647,10 +645,8 @@ describe('renderDigest — records', () => {
           {
             emoji: '👑',
             title: 'Король MVP за неделю',
-            player: { name: 'Chief', tag: 'MVP', rank: null, agent: null },
+            players: [{ name: 'Chief', tag: 'MVP', rank: null, agent: null, matchUrl: null, mapName: null }],
             value: '5 MVP-матчей',
-            matchUrl: null,
-            mapName: null,
             context: 'рекорд по количеству MVP-матчей за неделю',
           },
         ],
@@ -720,10 +716,8 @@ describe('renderDigest — escaping', () => {
           {
             emoji: '💀',
             title: '<b>pwn</b>',
-            player: { name: 'A', tag: 'T', rank: null, agent: null },
+            players: [{ name: 'A', tag: 'T', rank: null, agent: null, matchUrl: null, mapName: null }],
             value: '1 & 2',
-            matchUrl: null,
-            mapName: null,
             context: 'ctx',
           },
         ],

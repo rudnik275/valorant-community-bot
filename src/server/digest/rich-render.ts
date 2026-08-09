@@ -43,7 +43,14 @@ import { rankToEmojiHtml } from '../publisher/rank-emoji.ts';
 import { mapToEmojiHtml } from '../publisher/valorant-emoji.ts';
 import type { AceKnifeStanding } from './ace-knife.ts';
 
-/** A community player attached to a specific match (record events). */
+/**
+ * A community player named by an award, with the match they earned it in.
+ *
+ * The match rides on the PLAYER, not on the block, because tied players are
+ * tied on a VALUE, not on a match: two near-misses on 29 фрагов happened in two
+ * different games, and a block-level link would credit one of them with the
+ * other's.
+ */
 export interface RichPlayerRef {
   /** Riot display name (unescaped). */
   name: string;
@@ -53,22 +60,26 @@ export interface RichPlayerRef {
   rank?: string | null;
   /** Agent the player ran that match (e.g. "Jett"), or null when unknown. */
   agent?: string | null;
+  /** Tracker match URL, or null for aggregate awards (Король MVP). */
+  matchUrl?: string | null;
+  /** Map name of that match (drives the map emoji on the link). */
+  mapName?: string | null;
 }
 
-/** One record event rendered as a two-line flat block. */
+/** One record event rendered as a flat block: title, then a line per holder. */
 export interface RichRecord {
   /** Leading unicode emoji for the title line (e.g. "💀"). */
   emoji: string;
   /** Record title (e.g. "Серийный маньяк"). Escaped at render. */
   title: string;
-  /** Player attached to the record. */
-  player: RichPlayerRef;
+  /**
+   * Everyone holding the record. Usually one; several when they are genuinely
+   * tied (co-kings on the same MVP count). Co-holders are extra LINES inside
+   * one block — never extra blocks, which is the one-award-one-block rule.
+   */
+  players: RichPlayerRef[];
   /** Value line text (e.g. "38 фрагов", "4200 dmg"). Escaped at render. */
   value: string;
-  /** Tracker match URL, or null for aggregate records (Король MVP). */
-  matchUrl?: string | null;
-  /** Map name of that match (drives the map emoji on the link). */
-  mapName?: string | null;
   /**
    * Context description (e.g. "рекорд по количеству фрагов за игру").
    * Retained on the model — build.ts still fills it — but NOT rendered in the
@@ -117,14 +128,14 @@ export interface RichNearMiss {
   emoji: string;
   /** Underlined header (verbatim from near-miss-config). Escaped at render. */
   header: string;
-  /** Player attached to the near-miss. */
-  player: RichPlayerRef;
+  /**
+   * Everyone who came that close. Usually one; several when two players tied on
+   * the week's best — dropping the co-holder is the bug the podium fix closed
+   * for the ace board.
+   */
+  players: RichPlayerRef[];
   /** Value + unit line (e.g. "29 фрагов"). Escaped at render. */
   value: string;
-  /** Tracker URL of the match it happened in. null ⇒ link omitted. */
-  matchUrl?: string | null;
-  /** Map of that match (drives the link label). */
-  mapName?: string | null;
 }
 
 /** One map row: pack icon PLUS the name (owner, 2026-08-04). */
@@ -271,6 +282,23 @@ function esc(s: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+/**
+ * `ник · значение · ссылка-на-матч` — one award line, shared by the records and
+ * the near-miss sections so a co-holder renders identically in both.
+ */
+function awardLine(p: RichPlayerRef, value: string): string {
+  const nick = renderPlayerName({
+    name: p.name,
+    tag: p.tag,
+    isCommunity: true,
+    rank: p.rank ?? null,
+    agent: p.agent ?? null,
+  });
+  const parts = [nick, esc(value)];
+  if (p.matchUrl) parts.push(richMatchLink(p.matchUrl, p.mapName ?? null));
+  return parts.join(' · ');
 }
 
 /** Podium markers; 4th place onward gets a bullet. */
@@ -485,30 +513,14 @@ function buildBlocks(model: RichDigestModel): Block[] {
   const recordSlots = new Map<string, RichRecord>();
   for (const r of model.records) recordSlots.set(`${r.emoji}|${r.title}`, r);
   for (const r of recordSlots.values()) {
-    const nick = renderPlayerName({
-      name: r.player.name,
-      tag: r.player.tag,
-      isCommunity: true,
-      rank: r.player.rank ?? null,
-      agent: r.player.agent ?? null,
-    });
-    const parts = [nick, esc(r.value)];
-    if (r.matchUrl) {
-      parts.push(richMatchLink(r.matchUrl, r.mapName ?? null));
-    }
-    push(`${r.emoji} <b>${esc(r.title)}</b>`, parts.join(' · '));
+    if (r.players.length === 0) continue;
+    push(`${r.emoji} <b>${esc(r.title)}</b>`, ...r.players.map((p) => awardLine(p, r.value)));
   }
 
   // 5. Почти рекорды.
   for (const nm of model.nearMisses) {
-    const nick = renderPlayerName({
-      name: nm.player.name,
-      tag: nm.player.tag,
-      isCommunity: true,
-      agent: nm.player.agent ?? null,
-    });
-    const nmLink = nm.matchUrl ? ` · ${richMatchLink(nm.matchUrl, nm.mapName ?? null)}` : '';
-    push(`${nm.emoji} <u>${esc(nm.header)}</u>`, `${nick} · ${esc(nm.value)}${nmLink}`);
+    if (nm.players.length === 0) continue;
+    push(`${nm.emoji} <u>${esc(nm.header)}</u>`, ...nm.players.map((p) => awardLine(p, nm.value)));
   }
 
   // 6. Повышение по службе — one line per player (was a table).

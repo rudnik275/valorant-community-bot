@@ -49,28 +49,39 @@ export async function computeAndEmitWeeklyMvpRecord(
       ),
     )
     .groupBy(matchRecords.riot_puuid)
-    // Deterministic tie-break: on equal MVP counts SQLite was free to hand the
+    // Deterministic order: on equal MVP counts SQLite was free to hand the
     // crown to either player, so the same week could crown different people on
-    // a rebuild. (Co-kings still aren't representable — the record row holds
-    // one puuid — but at least the choice is now stable.)
-    .orderBy(sql`SUM(${matchRecords.is_match_mvp}) DESC`, matchRecords.riot_puuid)
-    .limit(1);
+    // a rebuild. The whole tie group comes back — the first of it is the row
+    // that lands in `weekly_records`, all of them ride in the event payload.
+    .orderBy(sql`SUM(${matchRecords.is_match_mvp}) DESC`, matchRecords.riot_puuid);
 
   if (rows.length === 0) return;
 
-  const leader = rows[0] as { riot_puuid: string; mvp_count: number };
-  const mvpCount = Number(leader.mvp_count ?? 0);
+  const ranked = rows as Array<{ riot_puuid: string; mvp_count: number }>;
+  const mvpCount = Number(ranked[0]!.mvp_count ?? 0);
 
   if (mvpCount < 1) return;
+
+  // Every player on the winning count is a king. `is_match_mvp` is set for ALL
+  // players tied on combat score (scanner/derive.ts), so a shared crown is an
+  // ordinary week — and «👑 Король MVP за неделю» used to name whichever of
+  // them sorted first and drop the rest without a trace (owner, 2026-08-09 —
+  // the same complaint as the Эйсы podium).
+  const kings = ranked
+    .filter((r) => Number(r.mvp_count ?? 0) === mvpCount)
+    .map((r) => r.riot_puuid);
 
   // 2. Look up all-time max BEFORE upsert (to know if this week beats history)
   const prevMax = await getAllTimeMaxWeeklyValue(db, RECORD_TYPE);
 
-  // 3. Upsert the weekly leader
+  // 3. Upsert the weekly leader — `weekly_records` is keyed
+  // (record_type, week_iso) and holds ONE puuid, so it records the first king
+  // of the tie group. That row exists to carry the all-time bar (`value`); the
+  // names the digest prints come from the event payload below.
   const { beatenForWeek } = await upsertWeeklyLeader(db, {
     recordType: RECORD_TYPE,
     weekIso,
-    riotPuuid: leader.riot_puuid,
+    riotPuuid: kings[0]!,
     value: mvpCount,
   });
 
@@ -99,6 +110,11 @@ export async function computeAndEmitWeeklyMvpRecord(
   const syntheticMatchId = `weekly:mvp:${weekIso}`;
   const payload = {
     value: mvpCount,
+    // Every co-king, primary first. The event row names one puuid (unique
+    // index match_id+event_type+puuid) and `weekly_records` one more, so this
+    // list is the ONLY place a shared crown survives — the digest reads it and
+    // renders every name under ONE award title.
+    puuids: kings,
     prev_value: prevMaxValue,
     prev_puuid: prevMax?.puuid ?? null,
     prev_name: prevName,
@@ -109,7 +125,7 @@ export async function computeAndEmitWeeklyMvpRecord(
   try {
     await db.insert(detectedEvents).values({
       event_type: 'record_mvp_count_week',
-      riot_puuid: leader.riot_puuid,
+      riot_puuid: kings[0]!,
       match_id: syntheticMatchId,
       payload_json: JSON.stringify(payload),
       // Inside its OWN window, not on the boundary. buildDigest selects

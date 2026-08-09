@@ -160,6 +160,40 @@ function renderVictim(v: TemplateVictim): string {
  * test asserts each realtime type resolves to a real template.
  */
 /**
+ * One community player as the `community_clash` detector stores them — the
+ * payload carries the tag (the detector reads `riot_name` / `riot_tag` off the
+ * joined `users` row), both nullable in that table.
+ */
+interface ClashPlayer {
+  puuid: string;
+  name: string | null;
+  tag: string | null;
+  agent?: string | null;
+}
+
+/**
+ * One clash roster entry, named like every other nick in the bot: `Ник#Тег`
+ * through `renderPlayerName` (#315). This template printed the bold display
+ * name ALONE, so two members who share a Riot display name came out as the
+ * same line twice and read as a duplicate — while the rich table for the same
+ * event named them in full. No rank icon here: the payload has no per-match
+ * tier (the rich path reads it from `match_rosters`), and `renderPlayerName`
+ * simply omits the icon it wasn't given. A player whose `users.riot_tag` is
+ * NULL degrades to the bold nick, exactly as `renderVictim` does — a `Ник#`
+ * with a dangling hash would be worse than no tag.
+ */
+function renderClashPlayer(p: ClashPlayer): string {
+  if (!p.name) return `<b>${esc(p.puuid)}</b>`;
+  if (!p.tag) return `<b>${esc(p.name)}</b>${agentLead(p.agent)}`;
+  return renderPlayerName({
+    name: p.name,
+    tag: p.tag,
+    isCommunity: true,
+    ...(p.agent ? { agent: p.agent } : {}),
+  });
+}
+
+/**
  * One community player's slice of a match-level event: their own payload, user
  * row and resolved match context (agent / rank / victims are all per-player).
  */
@@ -291,14 +325,12 @@ const templates: Partial<Record<EventType, TemplateFn>> = {
 
   community_clash: (payload, _user, match) => {
     const teams = Array.isArray(payload['teams'])
-      ? payload['teams'] as Array<{ team_id: string; players: Array<{ puuid: string; name: string | null; tag: string | null; agent?: string | null }> }>
+      ? payload['teams'] as Array<{ team_id: string; players: ClashPlayer[] }>
       : [];
     const winnerTeamId = payload['winner_team_id'] as string | null | undefined;
 
-    const renderTeam = (idx: number, players: Array<{ puuid: string; name: string | null; tag: string | null; agent?: string | null }>) => {
-      const namesList = players
-        .map((p) => p.name ? `<b>${esc(p.name)}</b>${agentLead(p.agent)}` : `<b>${esc(p.puuid)}</b>`)
-        .join(', ');
+    const renderTeam = (idx: number, players: ClashPlayer[]) => {
+      const namesList = players.map(renderClashPlayer).join(', ');
       return `Команда ${idx + 1}: ${namesList}`;
     };
 

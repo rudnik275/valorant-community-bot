@@ -812,6 +812,66 @@ describe('buildDigest', () => {
     });
   });
 
+  describe('near-miss — opt-out, ties and unknown players', () => {
+    /** Record holder + the all-time bar every case below aims just under. */
+    function seedKillsBar(value = 30) {
+      seedUser(sqlite, 99, 'p-holder', { riotName: 'RecordHolder', riotTag: 'REC' });
+      seedAllTimeRecord(sqlite, { recordType: 'kills_match', value, puuid: 'p-holder', matchId: 'old-match' });
+    }
+
+    it('names every player tied on the week-best, not just one', async () => {
+      // The old query was a bare MAX() over the whole table — one row, so a
+      // co-holder was dropped by the query itself.
+      seedKillsBar();
+      seedUser(sqlite, 1, 'p-aa', { riotName: 'Ann', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'p-zz', { riotName: 'Zed', riotTag: 'ZZZ' });
+      seedMatch(sqlite, { puuid: 'p-aa', matchId: 'nm-a', startedAt: IN_WINDOW, kills: 29 });
+      seedMatch(sqlite, { puuid: 'p-zz', matchId: 'nm-z', startedAt: IN_WINDOW, kills: 29 });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.richHtml!).toContain('<b>Ann#AAA</b>');
+      expect(result.richHtml!).toContain('<b>Zed#ZZZ</b>');
+      // One block, two lines — never two blocks.
+      expect(result.richHtml!.match(/Был\(ла\) близко к рекорду по киллам/g)).toHaveLength(1);
+      // Each line links its OWN match: they got there in different games.
+      expect(result.richHtml!).toContain('nm-a');
+      expect(result.richHtml!).toContain('nm-z');
+    });
+
+    it('skips an opted-out player and falls through to the next one who was close', async () => {
+      // Near-misses were the ONE section that never consulted the opt-out set.
+      seedKillsBar();
+      seedUser(sqlite, 1, 'p-out', { riotName: 'Hidden', riotTag: 'OUT' });
+      seedOptOut(sqlite, 1, 1);
+      seedUser(sqlite, 2, 'p-in', { riotName: 'Shown', riotTag: 'IN' });
+      seedMatch(sqlite, { puuid: 'p-out', matchId: 'nm-out', startedAt: IN_WINDOW, kills: 29 });
+      seedMatch(sqlite, { puuid: 'p-in', matchId: 'nm-in', startedAt: IN_WINDOW, kills: 28 });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.richHtml!).not.toContain('Hidden');
+      expect(result.richHtml!).toContain('<b>Shown#IN</b>');
+      expect(result.richHtml!).toContain('28');
+    });
+
+    it('never prints a raw PUUID for a player with no member row', async () => {
+      // match_records.riot_puuid is ON DELETE SET NULL only for the FK — a
+      // departed member can still leave rows whose puuid has no users row, and
+      // the old fallback printed the 78-character puuid as the nick.
+      seedKillsBar();
+      seedUser(sqlite, 1, 'p-known', { riotName: 'Known', riotTag: 'KN' });
+      sqlite.prepare(
+        `INSERT OR REPLACE INTO match_records
+         (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result, rounds_played, kill_events_compact)
+         VALUES (?, ?, ?, 'Ascent', 'Jett', 29, 5, 2, 'win', 25, '[]')`,
+      ).run('puuid-with-no-user-row', 'nm-ghost', IN_WINDOW);
+      seedMatch(sqlite, { puuid: 'p-known', matchId: 'nm-known', startedAt: IN_WINDOW, kills: 28 });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.richHtml!).not.toContain('puuid-with-no-user-row');
+      expect(result.richHtml!).toContain('<b>Known#KN</b>');
+    });
+  });
+
   describe('near-miss — «Был близок к рекорду»', () => {
     it('renders near-miss block when week max is within threshold of all-time record', async () => {
       // Record holder (historical — not this week's match)
@@ -1272,6 +1332,54 @@ describe('buildDigest', () => {
         const hits = result.richHtml!.match(new RegExp(c.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'));
         expect(hits, c.eventType).toHaveLength(1);
       }
+    });
+
+    it('names both co-kings under ONE 👑 block, not two blocks', async () => {
+      // A shared crown must be extra NAMES inside one award, never a second
+      // award block — that would be the very duplicate the collapse prevents.
+      seedUser(sqlite, 1, 'p-aa', { riotName: 'Ann', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'p-zz', { riotName: 'Zed', riotTag: 'ZZZ' });
+      seedMatch(sqlite, { puuid: 'p-aa', matchId: 'mvp-1', startedAt: IN_WINDOW });
+      seedEvent(sqlite, {
+        puuid: 'p-aa', matchId: 'weekly:mvp:2026-W19', eventType: 'record_mvp_count_week',
+        payload: { value: 7, puuids: ['p-aa', 'p-zz'] }, detectedAt: IN_WINDOW,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.richHtml!.match(/👑 <b>Король MVP за неделю<\/b>/g)).toHaveLength(1);
+      expect(result.richHtml!).toContain('<b>Ann#AAA</b> · 7 MVP-матчей');
+      expect(result.richHtml!).toContain('<b>Zed#ZZZ</b> · 7 MVP-матчей');
+    });
+
+    it('drops an opted-out co-king but keeps the award for the rest', async () => {
+      seedUser(sqlite, 1, 'p-aa', { riotName: 'Ann', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'p-zz', { riotName: 'Zed', riotTag: 'ZZZ' });
+      seedOptOut(sqlite, 2, 1);
+      seedMatch(sqlite, { puuid: 'p-aa', matchId: 'mvp-1', startedAt: IN_WINDOW });
+      seedEvent(sqlite, {
+        puuid: 'p-aa', matchId: 'weekly:mvp:2026-W19', eventType: 'record_mvp_count_week',
+        payload: { value: 7, puuids: ['p-aa', 'p-zz'] }, detectedAt: IN_WINDOW,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.richHtml!).toContain('<b>Ann#AAA</b>');
+      expect(result.richHtml!).not.toContain('Zed#ZZZ');
+    });
+
+    it('an opted-out FIRST holder no longer takes the co-king down too', async () => {
+      seedUser(sqlite, 1, 'p-aa', { riotName: 'Ann', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'p-zz', { riotName: 'Zed', riotTag: 'ZZZ' });
+      seedOptOut(sqlite, 1, 1);
+      seedMatch(sqlite, { puuid: 'p-aa', matchId: 'mvp-1', startedAt: IN_WINDOW });
+      seedEvent(sqlite, {
+        puuid: 'p-aa', matchId: 'weekly:mvp:2026-W19', eventType: 'record_mvp_count_week',
+        payload: { value: 7, puuids: ['p-aa', 'p-zz'] }, detectedAt: IN_WINDOW,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.richHtml!).toContain('👑 <b>Король MVP за неделю</b>');
+      expect(result.richHtml!).toContain('<b>Zed#ZZZ</b>');
+      expect(result.richHtml!).not.toContain('Ann#AAA');
     });
 
     it('gives a player one winstreak line even with two events in the window', async () => {

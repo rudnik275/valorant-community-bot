@@ -216,6 +216,40 @@ describe('computeAndEmitWeeklyMvpRecord', () => {
     expect(event!.detected_at).toBeLessThan(WEEK_END);
   });
 
+  it('carries every co-king in the payload when the crown is shared', async () => {
+    // `is_match_mvp` is set for ALL players tied on combat score, so a shared
+    // crown is an ordinary week. `weekly_records` is keyed (record_type,
+    // week_iso) and the event row names one puuid, so the payload is the only
+    // place the tie can survive.
+    seedUser(sqlite, 1, 'p-zz');
+    seedUser(sqlite, 2, 'p-aa');
+    seedMatch(sqlite, { puuid: 'p-zz', matchId: 'm1', startedAt: IN_WINDOW, isMvp: 1 });
+    seedMatch(sqlite, { puuid: 'p-aa', matchId: 'm2', startedAt: IN_WINDOW, isMvp: 1 });
+
+    await computeAndEmitWeeklyMvpRecord(db, WEEK_START, WEEK_END, WEEK_ISO);
+
+    const [event] = getDetectedEvents(sqlite) as Array<{ payload_json: string; riot_puuid: string }>;
+    const payload = JSON.parse(event!.payload_json) as { value: number; puuids: string[] };
+    expect(payload.value).toBe(1);
+    expect(payload.puuids).toEqual(['p-aa', 'p-zz']);
+    // The row itself still names the first king — the deterministic one.
+    expect(event!.riot_puuid).toBe('p-aa');
+  });
+
+  it('lists a sole king alone', async () => {
+    seedUser(sqlite, 1, 'p1');
+    seedUser(sqlite, 2, 'p2');
+    seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW, isMvp: 1 });
+    seedMatch(sqlite, { puuid: 'p1', matchId: 'm2', startedAt: IN_WINDOW, isMvp: 1 });
+    seedMatch(sqlite, { puuid: 'p2', matchId: 'm3', startedAt: IN_WINDOW, isMvp: 1 });
+
+    await computeAndEmitWeeklyMvpRecord(db, WEEK_START, WEEK_END, WEEK_ISO);
+
+    const [event] = getDetectedEvents(sqlite) as Array<{ payload_json: string }>;
+    const payload = JSON.parse(event!.payload_json) as { puuids: string[] };
+    expect(payload.puuids).toEqual(['p1']);
+  });
+
   it('ignores matches outside window', async () => {
     seedUser(sqlite, 1, 'p1');
     const OUT_OF_WINDOW = WEEK_START - 86400000;
