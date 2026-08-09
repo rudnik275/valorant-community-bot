@@ -108,6 +108,9 @@ function sleep(ms: number): Promise<void> {
  */
 export type SendFailureKind = 'rejected' | 'rate_limited' | 'ambiguous';
 
+/** Ceiling on a 429 backoff — see `classifySendFailure`. */
+const MAX_RETRY_AFTER_MS = 30_000;
+
 export interface SendFailure {
   kind: SendFailureKind;
   /** Backoff before the retry. Only meaningful for 'rate_limited'. */
@@ -120,13 +123,23 @@ export function classifySendFailure(err: unknown): SendFailure {
     : undefined;
   const errMsg = err instanceof Error ? err.message : String(err);
 
-  // 429 arrives as a GrammyError, or — from an injected sender that only
-  // stringifies the API answer — as a message carrying the code.
-  if (errCode === 429 || (errMsg ?? '').includes('429')) {
+  // 429 arrives as a GrammyError carrying `error_code`. The text fallback is
+  // for a sender that only stringifies the API answer, and it matches the
+  // answer's own wording rather than the bare digits: a plain `includes('429')`
+  // read `Bad Request: can't parse entities … at byte offset 1429` as a rate
+  // limit and burned the retry budget on an error no retry can fix.
+  const looksRateLimited = errCode === 429
+    || /too many requests/i.test(errMsg)
+    || /\bretry[_ ]after\b/i.test(errMsg);
+  if (looksRateLimited) {
     const retryAfterSec = (err && typeof err === 'object' && 'parameters' in err)
       ? ((err as { parameters?: { retry_after?: number } }).parameters?.retry_after ?? 5)
       : 5;
-    return { kind: 'rate_limited', retryAfterMs: retryAfterSec * 1000 };
+    // Cap the wait: the caller is blocked for the whole backoff, and for the
+    // publisher that is time spent with an event group claimed but unsent, so a
+    // pathological `retry_after` would widen the window in which a crash loses
+    // it. Past the cap the next tick re-attempts anyway.
+    return { kind: 'rate_limited', retryAfterMs: Math.min(retryAfterSec * 1000, MAX_RETRY_AFTER_MS) };
   }
 
   if (typeof errCode === 'number' && errCode >= 500 && errCode < 600) {
@@ -380,19 +393,20 @@ export async function sendWithRetryFn(
 }
 
 // ---------------------------------------------------------------------------
-// Legacy shim — keeps `safeSendMessage` semantics for existing callers
+// Guard-only send — for callers that own their own retry
 // ---------------------------------------------------------------------------
 
 /**
- * @deprecated Prefer `send` from `telegram-send.ts` directly.
- * Thin shim kept so callers that import `safeSendMessage` from the old path
- * (`./safe-telegram`) continue to work without churn. Behaviour identical:
- * allowlist-guarded, no retry (the publisher loop now uses `send` which adds
- * retry; callers that only want the guard without retry can call this).
+ * Allowlist guard and nothing else: ONE attempt, no backoff, the API error
+ * thrown straight through.
  *
- * NOTE: This shim does NOT add retry — it just guards. The publisher should
- * use the `send` export which includes retry. Existing `safeSendMessage` call
- * sites in index.ts pass through the guard; the publisher loop calls `send`.
+ * This is what a caller that already has a retry layer must use. The publisher
+ * wraps its injected sender in `sendWithRetryFn` (it has to — the retry has to
+ * sit inside the claim/rollback logic that decides whether an event may be
+ * re-attempted), and this shim used to delegate to `send`, which retries too.
+ * So one 429 was retried by both layers: four API attempts and up to 90 s of
+ * sleep in a single tick, all while the event group was claimed but unsent.
+ * The doc-comment even asserted the opposite of what the code did.
  */
 export async function safeSendMessage(
   api: Api,
@@ -400,5 +414,12 @@ export async function safeSendMessage(
   text: string,
   opts?: SendOpts,
 ): ReturnType<Api['sendMessage']> {
-  return send(api, chatId, text, opts);
+  if (!isAllowedChat(chatId)) {
+    logger.warn(
+      { event: 'telegram_send_block', chat_id: chatId },
+      'Blocked outbound API call to unauthorized chat',
+    );
+    throw new UnauthorizedChatError(chatId);
+  }
+  return api.sendMessage(chatId, text, opts);
 }

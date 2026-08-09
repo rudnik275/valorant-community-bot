@@ -5,7 +5,9 @@
  * All functions take an injected `db` parameter — no module-level singleton.
  *
  * clearDerivedRecords(db): DELETE FROM all_time_records + weekly_records.
- * rebuildAllRecords(db):  clearDerivedRecords then run all backfill steps.
+ * rebuildAllRecords(db, nowMs?): clearDerivedRecords then run all backfill steps.
+ *   `nowMs` decides which digest window is still open — see
+ *   backfillWeeklyMvpRecords. Defaults to Date.now(); injected by tests.
  *
  * Idempotent. After a clean rebuild, prev_value/prev_puuid reset to null — acceptable.
  */
@@ -13,47 +15,16 @@
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
 
-import { desc, isNotNull, and } from 'drizzle-orm';
+import { asc, desc, isNotNull, and } from 'drizzle-orm';
 import { matchRecords } from '../db/schema/match_records.ts';
 import { allTimeRecords } from '../db/schema/all_time_records.ts';
 import { weeklyRecords } from '../db/schema/weekly_records.ts';
 import { upsertWeeklyLeader, upsertRecord } from './record-tracker.ts';
+import { computeWeekIso, digestWeekEndFor } from '../lib/kyiv-week.ts';
 
 // --------------------------------------------------------------------------
 // Helpers (copied from backfill-records.ts)
 // --------------------------------------------------------------------------
-
-/**
- * Compute ISO week string for a given timestamp (Kyiv timezone, Thursday-anchor).
- */
-export function computeWeekIso(ms: number): string {
-  const fmtDate = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Kyiv',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  });
-  const parts = fmtDate.formatToParts(ms);
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '00';
-
-  const fmtWeekday = new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Kyiv', weekday: 'short' });
-  const weekdayStr = fmtWeekday.format(ms);
-  const weekdayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-  const weekday = weekdayMap[weekdayStr] ?? 0;
-
-  const todayMidnightMs = Date.parse(`${get('year')}-${get('month')}-${get('day')}T00:00:00+03:00`);
-  const daysFromMonday = weekday === 0 ? 6 : weekday - 1;
-  const mondayMs = todayMidnightMs - daysFromMonday * 86400000;
-
-  const thursdayMs = mondayMs + 3 * 86400000;
-  const thursdayDate = new Date(thursdayMs);
-  const thurYear = thursdayDate.getUTCFullYear();
-  const jan4 = Date.UTC(thurYear, 0, 4);
-  const jan4Weekday = new Date(jan4).getUTCDay();
-  const jan4Monday = jan4 - (jan4Weekday === 0 ? 6 : jan4Weekday - 1) * 86400000;
-  const weekNumber = Math.floor((thursdayMs - jan4Monday) / (7 * 86400000)) + 1;
-  return `${thurYear}-W${String(weekNumber).padStart(2, '0')}`;
-}
 
 // Weapons to exclude from kills_per_weapon backfill
 export const BACKFILL_EXCLUDED = new Set([
@@ -356,7 +327,7 @@ async function backfillLongestMatchRounds(db: AnyDb): Promise<void> {
   }).onConflictDoNothing();
 }
 
-async function backfillWeeklyMvpRecords(db: AnyDb): Promise<void> {
+async function backfillWeeklyMvpRecords(db: AnyDb, nowMs: number): Promise<void> {
   const allRows = await db
     .select({
       riot_puuid: matchRecords.riot_puuid,
@@ -364,15 +335,44 @@ async function backfillWeeklyMvpRecords(db: AnyDb): Promise<void> {
       is_match_mvp: matchRecords.is_match_mvp,
     })
     .from(matchRecords)
-    .where(isNotNull(matchRecords.riot_puuid));
+    .where(isNotNull(matchRecords.riot_puuid))
+    // Oldest first, so the Fri→Fri window below advances with a single cursor
+    // instead of re-deriving the Kyiv wall clock for every one of the group's
+    // thousands of rows.
+    .orderBy(asc(matchRecords.started_at));
 
   if (allRows.length === 0) return;
 
+  // The window the digest has NOT closed yet — the Friday tick owns it. It is
+  // the tick that writes `weekly_records` for the running week, and
+  // `upsertWeeklyLeader` only ever raises, so a rebuild that pre-fills that row
+  // from a partial week leaves the tick unable to beat its own bar: it returns
+  // at `!beatenForWeek` and «👑 Король MVP за неделю» is dropped for that week
+  // without a trace. This rebuild fires from the 06:30 reconcile whenever a
+  // member actually leaves, so any midweek departure could silence Friday's
+  // crown (owner, 2026-08-09).
+  const openWeekEnd = digestWeekEndFor(nowMs);
+
   const weekMap = new Map<string, Map<string, number>>();
+  // A match counts towards the digest window it was PLAYED IN — Fri 19:00 Kyiv
+  // → Fri 19:00 Kyiv — not towards its ISO Mon–Sun calendar week. Bucketing by
+  // `computeWeekIso(started_at)` moved every Friday-evening and weekend match
+  // into the neighbouring row, so the rebuild and the tick summed different
+  // matches under the same key: past weeks were rewritten with counts no digest
+  // ever announced, and `getAllTimeMaxWeeklyValue` — the bar every future crown
+  // has to clear — was raised to values no Fri→Fri window ever produced.
+  let windowEnd = -Infinity;
+  let windowIso = '';
   for (const row of allRows) {
-    const weekIso = computeWeekIso(row.started_at);
-    if (!weekMap.has(weekIso)) weekMap.set(weekIso, new Map());
-    const puuidMap = weekMap.get(weekIso)!;
+    if (row.started_at >= windowEnd) {
+      windowEnd = digestWeekEndFor(row.started_at);
+      windowIso = computeWeekIso(windowEnd);
+    }
+    // Sorted ascending: once a row lands in the open window, so does every row
+    // after it.
+    if (windowEnd >= openWeekEnd) break;
+    if (!weekMap.has(windowIso)) weekMap.set(windowIso, new Map());
+    const puuidMap = weekMap.get(windowIso)!;
     const prev = puuidMap.get(row.riot_puuid!) ?? 0;
     puuidMap.set(row.riot_puuid!, prev + (row.is_match_mvp ?? 0));
   }
@@ -455,7 +455,7 @@ async function backfillKillsPerWeapon(db: AnyDb): Promise<void> {
  * Clear derived records and rebuild all record types from surviving match_records.
  * This re-attributes records to the best remaining member after a purge.
  */
-export async function rebuildAllRecords(db: AnyDb): Promise<void> {
+export async function rebuildAllRecords(db: AnyDb, nowMs: number = Date.now()): Promise<void> {
   await clearDerivedRecords(db);
   await backfillKillsMatch(db);
   await backfillDamageDealtMatch(db);
@@ -467,6 +467,6 @@ export async function rebuildAllRecords(db: AnyDb): Promise<void> {
   await backfillSurvivedLastRoundsMatch(db);
   await backfillLongestMatchMinutes(db);
   await backfillLongestMatchRounds(db);
-  await backfillWeeklyMvpRecords(db);
+  await backfillWeeklyMvpRecords(db, nowMs);
   await backfillKillsPerWeapon(db);
 }

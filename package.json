@@ -10,6 +10,7 @@
     "build:web": "vite build",
     "typecheck": "tsc --noEmit -p tsconfig.server.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
+    "test:migrate-fresh": "bun scripts/check-fresh-migrate.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio"

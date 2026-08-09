@@ -417,8 +417,14 @@ describe('startPublisherLoop', () => {
 
       await vi.advanceTimersByTimeAsync(1001);
       for (let i = 0; i < 5; i++) await Promise.resolve();
-      await vi.advanceTimersByTimeAsync(1100);
-      for (let i = 0; i < 30; i++) await Promise.resolve();
+      // Drive the retry backoff to completion. The tick is claimed ('posted')
+      // for the whole send, so poll until it releases rather than guessing a
+      // fixed number of microtasks — under load a fixed count raced the second
+      // attempt and read the claim instead of the verdict.
+      for (let i = 0; i < 50 && getEventStatus(sqlite, id1) !== 'pending'; i++) {
+        await vi.advanceTimersByTimeAsync(100);
+        for (let j = 0; j < 5; j++) await Promise.resolve();
+      }
       stop();
 
       // Telegram answered — it definitively did not post — so the claim is

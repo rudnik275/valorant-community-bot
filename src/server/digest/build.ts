@@ -30,6 +30,7 @@ import { users } from '../db/schema/users.ts';
 import { optOuts } from '../db/schema/opt_outs.ts';
 import { allTimeRecords } from '../db/schema/all_time_records.ts';
 import { computeAndEmitWeeklyMvpRecord } from './weekly-mvp-record.ts';
+import { computeWeekIso } from '../lib/kyiv-week.ts';
 import { NEAR_MISS_THRESHOLDS } from './near-miss-config.ts';
 import type { TemplateUser, TemplateMatch } from '../publisher/templates.ts';
 import { renderPlayerName } from '../publisher/player-render.ts';
@@ -468,7 +469,9 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
 
   // ─── Weekly MVP record detector (digest-tick, runs before bright events query) ─
   if (!deps.readOnly) {
-    // Derive weekIso from weekEnd using the same Thursday-anchor algorithm as loop.ts
+    // The window's own name: the ISO week of its closing Friday. `lib/kyiv-week.ts`
+    // is the single source for it — `records-rebuild.ts` keys the same window the
+    // same way, which is what stops a rebuild from contesting this row.
     const weekIso = computeWeekIso(weekEnd);
     await computeAndEmitWeeklyMvpRecord(db, weekStart, weekEnd, weekIso);
   }
@@ -1053,41 +1056,6 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
   return { text, richHtml, sectionsIncluded, topMap, topAgent };
 }
 
-/**
- * Compute ISO week string (e.g. "2026-W19") for the given timestamp,
- * using the same Thursday-anchor algorithm as loop.ts getDigestNowKyiv().
- */
-function computeWeekIso(ms: number): string {
-  const fmtDate = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Kyiv',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  });
-  const parts = fmtDate.formatToParts(ms);
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '00';
-
-  const fmtWeekday = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Europe/Kyiv',
-    weekday: 'short',
-  });
-  const weekdayStr = fmtWeekday.format(ms);
-  const weekdayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-  const weekday = weekdayMap[weekdayStr] ?? 0;
-
-  const todayMidnightMs = Date.parse(`${get('year')}-${get('month')}-${get('day')}T00:00:00+03:00`);
-  const daysFromMonday = weekday === 0 ? 6 : weekday - 1;
-  const mondayMs = todayMidnightMs - daysFromMonday * 86400000;
-
-  const thursdayMs = mondayMs + 3 * 86400000;
-  const thursdayDate = new Date(thursdayMs);
-  const thurYear = thursdayDate.getUTCFullYear();
-  const jan4 = Date.UTC(thurYear, 0, 4);
-  const jan4Weekday = new Date(jan4).getUTCDay();
-  const jan4Monday = jan4 - (jan4Weekday === 0 ? 6 : jan4Weekday - 1) * 86400000;
-  const weekNumber = Math.floor((thursdayMs - jan4Monday) / (7 * 86400000)) + 1;
-  return `${thurYear}-W${String(weekNumber).padStart(2, '0')}`;
-}
 
 function safeParseJson(raw: string): Record<string, unknown> {
   try {

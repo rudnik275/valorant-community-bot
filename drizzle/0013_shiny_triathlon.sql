@@ -12,7 +12,7 @@ CREATE TABLE `__new_detected_events` (
 	`failed_attempts` integer DEFAULT 0 NOT NULL,
 	`last_error` text,
 	FOREIGN KEY (`riot_puuid`) REFERENCES `users`(`riot_puuid`) ON UPDATE no action ON DELETE no action,
-	CONSTRAINT "status_check" CHECK("__new_detected_events"."status" IN ('pending','posted','digest-only','silent','opted-out','failed'))
+	CONSTRAINT "status_check" CHECK("status" IN ('pending','posted','digest-only','silent','opted-out','failed'))
 );
 --> statement-breakpoint
 INSERT INTO `__new_detected_events`("id", "event_type", "riot_puuid", "match_id", "payload_json", "detected_at", "status", "posted_at", "posted_message_id") SELECT "id", "event_type", "riot_puuid", "match_id", "payload_json", "detected_at", "status", "posted_at", "posted_message_id" FROM `detected_events`;--> statement-breakpoint
