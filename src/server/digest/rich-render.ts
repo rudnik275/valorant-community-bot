@@ -184,11 +184,13 @@ export interface RichDigestModel {
   /** Near-miss blocks. Empty ⇒ «Почти рекорды» omitted. */
   nearMisses: RichNearMiss[];
   /**
-   * Most-active player: `{ nameHtml, count }`, or null when omitted (<5).
-   * `nameHtml` is a TRUSTED fragment (already `<b>…</b>`-wrapped + escaped by
-   * build.ts) — rendered verbatim; do NOT re-escape.
+   * Most-active player(s) of the week, or null when omitted (<5 matches).
+   * `namesHtml` holds EVERY player on the winning match count — a tie used to
+   * silently drop all but one arbitrary SQL row. They share one `count` by
+   * definition. Each entry is a TRUSTED fragment (already `<b>…</b>`-wrapped +
+   * escaped by build.ts) — rendered verbatim; do NOT re-escape.
    */
-  mostActive: { nameHtml: string; count: number } | null;
+  mostActive: { namesHtml: string[]; count: number } | null;
   /**
    * EVERY map played this window, sorted desc by match count (owner asked for
    * «топ всех карт», not a top-3). Empty ⇒ section omitted.
@@ -278,6 +280,13 @@ const MEDALS = ['🥇', '🥈', '🥉'];
 const PODIUM = 3;
 
 /**
+ * Ceiling on visible rows when a tie group straddles the podium edge. A board
+ * whose whole tie group still fits under this renders open (everyone tied is
+ * shown); past it the tie group folds away wholesale instead.
+ */
+const MAX_VISIBLE = PODIUM + 5;
+
+/**
  * Russian plural for a count: 1 карта / 2 карты / 5 карт.
  * (11-14 take the genitive-plural form despite ending in 1-4.)
  */
@@ -344,20 +353,72 @@ function leaderboardBlock(
   collapse?: { after: number; summary: (hidden: number) => string },
 ): Block | null {
   if (rows.length === 0) return null;
-  const rendered = rows.map((r, i) => `${MEDALS[i] ?? '•'} ${r.labelHtml} — ${r.count}`);
+  const places = placesFor(rows);
+  const rendered = rows.map(
+    (r, i) => `${MEDALS[places[i]! - 1] ?? '•'} ${r.labelHtml} — ${r.count}`,
+  );
 
-  // Podium stays open, the tail folds away. The `> after + 1` bound means the
-  // tail is always ≥ 2 rows, so an accordion is never empty and never hides a
-  // single line (which would cost more than it saves). A board that fits in
+  // Podium stays open, the tail folds away. The `tail.length > 1` bound means
+  // the tail is always ≥ 2 rows, so an accordion is never empty and never hides
+  // a single line (which would cost more than it saves). A board that fits in
   // the podium renders wholly open.
-  if (collapse && rendered.length > collapse.after + 1) {
-    const tail = rendered.slice(collapse.after);
+  const cut = collapse ? tieSafeCut(rows.map((r) => r.count), collapse.after) : rows.length;
+  if (collapse && cut < rendered.length && rendered.length - cut > 1) {
+    const tail = rendered.slice(cut);
     return {
-      ...section([`${emoji} <b>${title}</b>`], rendered.slice(0, collapse.after)),
+      ...section([`${emoji} <b>${title}</b>`], rendered.slice(0, cut)),
       more: { summary: collapse.summary(tail.length), lines: tail },
     };
   }
   return section([`${emoji} <b>${title}</b>`], rendered);
+}
+
+/**
+ * Competition ranking ("1224") over a desc-sorted board: equal counts share a
+ * place and the next distinct count skips the places they consumed. Returns the
+ * 1-based place of each row.
+ *
+ * Positional medals (`MEDALS[i]`) handed 🥉 to whichever of six players tied on
+ * one ace happened to sort third and buried the other five in the accordion —
+ * the placement was an artefact of the sort, not of the week (owner, 2026-08-09).
+ */
+function placesFor(rows: Array<{ count: number }>): number[] {
+  const places: number[] = [];
+  let place = 1;
+  rows.forEach((r, i) => {
+    if (i > 0 && r.count !== rows[i - 1]!.count) place = i + 1;
+    places.push(place);
+  });
+  return places;
+}
+
+/**
+ * Where to cut a desc-sorted board into visible rows + collapsed tail so the
+ * cut NEVER falls inside a tie group — showing three of six players tied on one
+ * ace is the bug this exists to prevent.
+ *
+ * Cuts are only legal at a count change. Preferred: the first legal cut at or
+ * after `after` (the tie group straddling the podium edge stays fully visible),
+ * as long as that keeps the board under {@link MAX_VISIBLE}. Otherwise the
+ * straddling group folds away wholesale — the last legal cut at or before
+ * `after`. When neither exists the board renders open: a cut inside a tie group
+ * is never worth it, and hiding every row would leave the section empty.
+ */
+function tieSafeCut(counts: number[], after: number): number {
+  const boundaries: number[] = [];
+  for (let i = 1; i < counts.length; i++) {
+    if (counts[i] !== counts[i - 1]) boundaries.push(i);
+  }
+  // No boundary past `after` ⇒ the last group runs to the end; the whole board
+  // is then one legal "cut" at its length (i.e. render everything open).
+  const forward = boundaries.find((b) => b >= after) ?? counts.length;
+  if (forward <= MAX_VISIBLE) return forward;
+  // Too many to show. Fold the straddling group away if we can cut before it;
+  // otherwise fall back to `forward` — an over-long open board still beats
+  // rendering every row open, which is what returning `counts.length` here
+  // would do whenever a big tie group sits in the middle of the table.
+  const backward = [...boundaries].reverse().find((b) => b <= after);
+  return backward ?? forward;
 }
 
 /** Ace/knife board rows: the label is the player's rendered nick. */
@@ -390,11 +451,12 @@ function buildBlocks(model: RichDigestModel): Block[] {
   // 1. Pulse line — a standalone line, no body, so no blank after it.
   blocks.push({ lines: [`📊 За неделю мы сыграли <b>${model.totalMatches}</b> матчей`] });
 
-  // 2. Больше всех матчей.
-  if (model.mostActive) {
+  // 2. Больше всех матчей — one line per player, so a tie shows everyone.
+  if (model.mostActive && model.mostActive.namesHtml.length > 0) {
+    const { namesHtml, count } = model.mostActive;
     push(
       '🏆 <b>Больше всех матчей</b>',
-      `${model.mostActive.nameHtml} · ${model.mostActive.count} за неделю`,
+      ...namesHtml.map((nameHtml) => `${nameHtml} · ${count} за неделю`),
     );
   }
 
@@ -412,7 +474,17 @@ function buildBlocks(model: RichDigestModel): Block[] {
   }
 
   // 4. Records — two flat lines each: title, then `ник · значение · ссылка`.
-  for (const r of model.records) {
+  // One block per award, never more: build.ts already collapses a week-long
+  // chain of record breaks to its best entry, and this map is the last line of
+  // defence so a record type that slips past that (as 🐴/⚓ did — four «Троянский
+  // конь» blocks in one digest, owner 2026-08-09) still cannot render twice.
+  // The LAST entry of a duplicated award wins, keeping its position: entries
+  // arrive in detected_at order, so within a chain of record breaks the last one
+  // is the standing record. Keeping the first would have shown «1 первых
+  // смертей» while hiding the real 9.
+  const recordSlots = new Map<string, RichRecord>();
+  for (const r of model.records) recordSlots.set(`${r.emoji}|${r.title}`, r);
+  for (const r of recordSlots.values()) {
     const nick = renderPlayerName({
       name: r.player.name,
       tag: r.player.tag,

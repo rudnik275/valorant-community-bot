@@ -113,8 +113,8 @@ describe('renderRichTemplate — table structure & content', () => {
     expect(renderRichTemplate('community_clash', ctx())!).toContain('⚔️ <b>Френдлифаер</b>');
   });
 
-  it('giant_slayer names its subject on a line under the title (heroPuuid)', () => {
-    const html = renderRichTemplate('giant_slayer', ctx({ heroPuuid: 'b1' }))!;
+  it('giant_slayer names its subject on a line under the title (heroPuuids)', () => {
+    const html = renderRichTemplate('giant_slayer', ctx({ heroPuuids: ['b1'] }))!;
     // The hero (Alice, community → bold) is named right after the title,
     // before the description line.
     const titleEnd = html.indexOf('</b>') + '</b>'.length;
@@ -126,21 +126,46 @@ describe('renderRichTemplate — table structure & content', () => {
     expect(html).toContain('</b><br>');
   });
 
-  it('giant_slayer without heroPuuid renders no hero line (graceful)', () => {
+  it('giant_slayer without heroPuuids renders no hero line (graceful)', () => {
     const html = renderRichTemplate('giant_slayer', ctx())!;
     // No hero line: the title flows straight into the description line.
     expect(html).toContain('Поводил(ла) по губам</b><br><i>');
   });
 
+  it('giant_slayer names EVERY hero when a match triggered it for several', () => {
+    // Two friends on the same team both beat a stronger enemy — one message
+    // names both instead of the group getting the same post twice (owner,
+    // 2026-08-09). b1/b2 are the two community players on Blue.
+    const html = renderRichTemplate('giant_slayer', ctx({ heroPuuids: ['b1', 'b2'] }))!;
+    const header = html.slice(0, html.indexOf('<table>'));
+    expect(header).toContain('Alice#AAA');
+    expect(header).toContain('Bob#BBB');
+    // Still exactly one title and one description.
+    expect(html.match(/💪 <b>Поводил\(ла\) по губам<\/b>/g)).toHaveLength(1);
+    expect(html.match(/<i>Выиграл\(а\) против превосходящего врага\.<\/i>/g)).toHaveLength(1);
+  });
+
+  it('giant_slayer collapses a repeated puuid to one hero line', () => {
+    const html = renderRichTemplate('giant_slayer', ctx({ heroPuuids: ['b1', 'b1'] }))!;
+    const header = html.slice(0, html.indexOf('<table>'));
+    expect(header.match(/Alice#AAA/g)).toHaveLength(1);
+  });
+
+  it('giant_slayer skips heroes missing from the roster but keeps the rest', () => {
+    const html = renderRichTemplate('giant_slayer', ctx({ heroPuuids: ['ghost', 'b1'] }))!;
+    const header = html.slice(0, html.indexOf('<table>'));
+    expect(header).toContain('Alice#AAA');
+  });
+
   it('giant_slayer with an unknown heroPuuid renders no hero line', () => {
-    const html = renderRichTemplate('giant_slayer', ctx({ heroPuuid: 'not-in-roster' }))!;
+    const html = renderRichTemplate('giant_slayer', ctx({ heroPuuids: ['not-in-roster'] }))!;
     expect(html).toContain('Поводил(ла) по губам</b><br><i>');
   });
 
-  it('match_comeback / community_clash ignore heroPuuid (no single subject)', () => {
-    const comeback = renderRichTemplate('match_comeback', ctx({ heroPuuid: 'b1' }))!;
+  it('match_comeback / community_clash ignore heroPuuids (no single subject)', () => {
+    const comeback = renderRichTemplate('match_comeback', ctx({ heroPuuids: ['b1'] }))!;
     expect(comeback).toContain('Мы вами гордимся</b><br><i>');
-    const clash = renderRichTemplate('community_clash', ctx({ heroPuuid: 'b1', winnerTeamId: 'Blue' }))!;
+    const clash = renderRichTemplate('community_clash', ctx({ heroPuuids: ['b1'], winnerTeamId: 'Blue' }))!;
     expect(clash).toContain('Френдлифаер</b><br><i>');
   });
 

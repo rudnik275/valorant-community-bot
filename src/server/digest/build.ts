@@ -231,7 +231,9 @@ async function renderNearMisses(
           lt(matchRecords.started_at, weekEnd),
         ))
         .groupBy(matchRecords.riot_puuid)
-        .orderBy(sql`SUM(${matchRecords.is_match_mvp}) DESC`)
+        // Deterministic tie-break — with a bare DESC the "best" of two equal
+        // players was whichever the query plan emitted first.
+        .orderBy(sql`SUM(${matchRecords.is_match_mvp}) DESC`, matchRecords.riot_puuid)
         .limit(1);
       if (!mvpRow || mvpRow.mvp_count == null) continue;
       const weekMax = Number(mvpRow.mvp_count);
@@ -288,7 +290,9 @@ async function renderNearMisses(
       })
       .from(matchRecords)
       .where(and(gte(matchRecords.started_at, weekStart), lt(matchRecords.started_at, weekEnd)))
-      .orderBy(desc(expr))
+      // Deterministic tie-break — two players on the same week-best otherwise
+      // swapped places between runs of the same digest.
+      .orderBy(desc(expr), matchRecords.riot_puuid)
       .limit(1);
 
     if (!row || row.max_value === null || row.max_value === undefined) continue;
@@ -333,6 +337,16 @@ export interface BuildDigestDeps {
   weekStart: number;
   /** Window end in ms (exclusive). */
   weekEnd: number;
+  /**
+   * Build WITHOUT touching persistent state — for the owner's `/test_digest`
+   * preview. Building a digest normally computes and records the weekly MVP
+   * record first, which is a WRITE: a preview over an arbitrary window (say 30
+   * days) would stamp that 30-day count onto the current week's record row and
+   * insert a `record_mvp_count_week` event dated now — landing a bogus «👑
+   * Король MVP за неделю» in the group's next real digest, and raising the
+   * all-time bar so a genuine weekly record could never beat it again.
+   */
+  readOnly?: boolean;
 }
 
 export interface BuildDigestResult {
@@ -372,7 +386,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
   const sectionsIncluded: string[] = [];
 
   // ─── Weekly MVP record detector (digest-tick, runs before bright events query) ─
-  {
+  if (!deps.readOnly) {
     // Derive weekIso from weekEnd using the same Thursday-anchor algorithm as loop.ts
     const weekIso = computeWeekIso(weekEnd);
     await computeAndEmitWeeklyMvpRecord(db, weekStart, weekEnd, weekIso);
@@ -574,26 +588,28 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       group.entries.push(e);
     }
 
-    // Phase 2.5: dedup record_*_match groups. Multiple events for the same
-    // record type can land in one week if the all-time record was beaten
-    // several times in sequence (e.g. 16 → 18 → 24 → 27 kills). We show only
-    // the final (max value) entry, but rewrite its prev_* payload fields to
-    // reference the record state from BEFORE the week — i.e. the prev_* of
-    // the earliest entry in the chain (entries are sorted by detected_at asc).
-    const SINGLE_RECORD_TYPES = new Set<string>([
-      'record_kills_match',
-      'record_deaths_match',
-      'record_headshots_match',
-      'record_legshots_match',
-      'record_damage_dealt_match',
-      'record_damage_received_match',
-      'record_longest_match_minutes',
-      'record_mvp_count_week',
-      'record_kills_per_weapon',
-    ]);
+    // Phase 2.5: dedup record_* groups. Multiple events for the same record
+    // type can land in one week if the all-time record was beaten several times
+    // in sequence (e.g. 16 → 18 → 24 → 27 kills, by one player or by several).
+    // We show only the final (max value) entry, but rewrite its prev_* payload
+    // fields to reference the record state from BEFORE the week — i.e. the
+    // prev_* of the earliest entry in the chain (entries are sorted by
+    // detected_at asc).
+    //
+    // EVERY `record_*` group collapses. This used to be an opt-in allowlist,
+    // which silently failed open: `record_died_first_rounds` /
+    // `record_survived_last_rounds` were added to the digest without being
+    // added to the list, so one week rendered «🐴 Троянский конь» four times
+    // (1 → 3 → 4 → 9 первых смертей) and «⚓ Якорь» twice (owner, 2026-08-09).
+    // Collapsing by rule means a new record type is correct by default, and
+    // opting one OUT is now the conscious act. `record_kills_per_weapon` is
+    // safe here: its groups are keyed per weapon (`kpw:<weapon>`), so the max
+    // is taken within one weapon, not across the armoury.
+    const isCollapsibleRecord = (eventType: string): boolean =>
+      eventType.startsWith('record_');
 
     for (const g of groups) {
-      if (!SINGLE_RECORD_TYPES.has(g.eventType) || g.entries.length < 2) continue;
+      if (!isCollapsibleRecord(g.eventType) || g.entries.length < 2) continue;
       let maxIdx = 0;
       let maxValue = Number(g.entries[0]!.payload['value'] ?? 0);
       for (let i = 1; i < g.entries.length; i++) {
@@ -635,6 +651,30 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
         const cur = Number(e.payload['to_tier_id'] ?? 0);
         const prev = Number(existing.payload['to_tier_id'] ?? 0);
         if (cur >= prev) bestByPuuid.set(puuid, e);
+      }
+      g.entries = order.map((p) => bestByPuuid.get(p)!);
+    }
+
+    // Phase 2.7: dedup winstreak_10plus by player — one line per player, their
+    // longest streak. The detector guards one event per ISO week per player,
+    // but the digest window is a rolling Fri→Fri seven days that straddles two
+    // ISO weeks, so a player on a long run legitimately has two events inside
+    // one window and used to get two «N побед подряд» lines.
+    for (const g of groups) {
+      if (g.eventType !== 'winstreak_10plus' || g.entries.length < 2) continue;
+      const bestByPuuid = new Map<string, Entry>();
+      const order: string[] = [];
+      for (const e of g.entries) {
+        const puuid = e.user.riot_puuid ?? `${e.user.riot_name}#${e.user.riot_tag}`;
+        const existing = bestByPuuid.get(puuid);
+        if (!existing) {
+          order.push(puuid);
+          bestByPuuid.set(puuid, e);
+          continue;
+        }
+        if (Number(e.payload['streak'] ?? 0) > Number(existing.payload['streak'] ?? 0)) {
+          bestByPuuid.set(puuid, e);
+        }
       }
       g.entries = order.map((p) => bestByPuuid.get(p)!);
     }
@@ -775,7 +815,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
   if (richKnives.length > 0) sectionsIncluded.push('knives');
 
   // ─── ALWAYS-SECTIONS ─────────────────────────────────────────────────────────
-  let richMostActive: { nameHtml: string; count: number } | null = null;
+  let richMostActive: { namesHtml: string[]; count: number } | null = null;
   const richTopMaps: RichDigestModel['topMaps'] = [];
   const richTopAgents: RichDigestModel['topAgents'] = [];
 
@@ -793,12 +833,21 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       .from(matchRecords)
       .where(and(gte(matchRecords.started_at, weekStart), lt(matchRecords.started_at, weekEnd)))
       .groupBy(matchRecords.riot_puuid)
-      .orderBy(sql`COUNT(*) DESC`);
+      // The tie-break keeps the board deterministic — SQLite is free to order
+      // equal COUNT(*) rows however it likes, which made a tie's winner an
+      // artefact of the query plan.
+      .orderBy(sql`COUNT(*) DESC`, matchRecords.riot_puuid);
 
+    // Every player on the winning count shares the title. Walking past the
+    // first eligible row (the old `break`) is the point: a tie used to hand the
+    // crown to one arbitrary player and drop the rest without a trace.
+    const leaders: string[] = [];
+    let leaderCount = 0;
     for (const row of candidates) {
       const puuid = row.riot_puuid as string;
       const cnt = Number(row.cnt);
       if (cnt < 5) break;
+      if (leaders.length > 0 && cnt < leaderCount) break;
 
       const user = await getUserByPuuid(puuid);
       if (!user) continue;
@@ -806,14 +855,17 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
 
       // Canonical nick render (#315 rule 1). Weekly aggregate — no match
       // attached ⇒ just bold Ник#Тег (no rank/agent icons).
-      const name = renderPlayerName({
+      leaders.push(renderPlayerName({
         name: user.riot_name,
         tag: user.riot_tag,
         isCommunity: true,
-      });
-      richMostActive = { nameHtml: name, count: cnt };
+      }));
+      leaderCount = cnt;
+    }
+
+    if (leaders.length > 0) {
+      richMostActive = { namesHtml: leaders, count: leaderCount };
       sectionsIncluded.push('mostActive');
-      break;
     }
   }
 
@@ -828,7 +880,9 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       .from(matchRecords)
       .where(and(gte(matchRecords.started_at, weekStart), lt(matchRecords.started_at, weekEnd)))
       .groupBy(matchRecords.map)
-      .orderBy(sql`COUNT(*) DESC`);
+      // Alphabetical tie-break: equal-count maps otherwise come back in
+      // whatever order the query plan produced, which also decided the cover.
+      .orderBy(sql`COUNT(*) DESC`, matchRecords.map);
 
     topMap = maps[0]?.map != null ? String(maps[0].map) : null;
 
@@ -854,7 +908,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
       .from(matchRecords)
       .where(and(gte(matchRecords.started_at, weekStart), lt(matchRecords.started_at, weekEnd)))
       .groupBy(matchRecords.agent)
-      .orderBy(sql`COUNT(*) DESC`);
+      .orderBy(sql`COUNT(*) DESC`, matchRecords.agent);
 
     topAgent = agents[0]?.agent != null ? String(agents[0].agent) : null;
 

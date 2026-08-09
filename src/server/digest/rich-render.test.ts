@@ -59,7 +59,7 @@ function fullModel(overrides: Partial<RichDigestModel> = {}): RichDigestModel {
         value: '29 фрагов',
       },
     ],
-    mostActive: { nameHtml: '<b>Alpha#AAA</b>', count: 7 },
+    mostActive: { namesHtml: ['<b>Alpha#AAA</b>'], count: 7 },
     topMaps: [
       { emojiHtml: '<tg-emoji emoji-id="5267510877233387981">🗺️</tg-emoji>', map: 'Ascent', count: 12 },
       { emojiHtml: '', map: 'UnknownMap', count: 3 },
@@ -405,6 +405,149 @@ describe('renderDigest — collapsed map/agent tail', () => {
     const aceIdx = html.indexOf('🎯 <b>Эйсы недели</b>');
     const knifeIdx = html.indexOf('🔪 <b>Ножи недели</b>');
     expect(html.slice(aceIdx, knifeIdx)).not.toContain('<details>');
+  });
+});
+
+describe('renderDigest — ties on a board', () => {
+  const aces = (counts: number[]) =>
+    counts.map((count, i) => ({ name: `P${i + 1}`, tag: 'T', count }));
+  const board = (counts: number[]) =>
+    renderDigest(fullModel({ aces: aces(counts), knives: [], topMaps: [], topAgents: [] })).html;
+
+  it('gives every player on the same count the same medal', () => {
+    // The live week: one player on 2 aces, seven tied on 1. Positional medals
+    // handed 🥉 to whoever sorted third and hid the other five behind «ещё 5
+    // игроков» — the placement was an artefact of the sort (owner, 2026-08-09).
+    const html = board([2, 1, 1, 1, 1, 1, 1, 1]);
+    expect(html).toContain('🥇 <b>P1#T</b> — 2');
+    for (let i = 2; i <= 8; i++) {
+      expect(html, `player ${i}`).toContain(`🥈 <b>P${i}#T</b> — 1`);
+    }
+    // Nobody tied is hidden, and nobody gets a place the tie didn't earn.
+    expect(html).not.toContain('<details>');
+    expect(html).not.toContain('🥉');
+  });
+
+  it('skips the places a tie consumes (competition ranking)', () => {
+    const html = board([5, 3, 3, 1]);
+    expect(html).toContain('🥇 <b>P1#T</b> — 5');
+    expect(html).toContain('🥈 <b>P2#T</b> — 3');
+    expect(html).toContain('🥈 <b>P3#T</b> — 3');
+    // Two silvers consumed 2nd and 3rd ⇒ the next player is 4th, not 🥉.
+    expect(html).toContain('• <b>P4#T</b> — 1');
+    expect(html).not.toContain('🥉');
+  });
+
+  it('never splits a tie group across the accordion boundary', () => {
+    // Three players tied on 2 straddle the podium edge: all three stay visible
+    // rather than two showing and one hiding.
+    const html = board([5, 2, 2, 2, 1, 1]);
+    const visible = html.slice(0, html.indexOf('<details>'));
+    expect(visible).toContain('🥈 <b>P2#T</b> — 2');
+    expect(visible).toContain('🥈 <b>P3#T</b> — 2');
+    expect(visible).toContain('🥈 <b>P4#T</b> — 2');
+    expect(html).toContain('<summary>ещё 2 игрока</summary>');
+  });
+
+  it('folds a straddling tie group away wholesale when it is too big to show', () => {
+    // Nine players on one ace each: showing all of them would bury the digest,
+    // so they collapse together — never three of the nine.
+    const html = board([5, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+    expect(html).toContain('🥇 <b>P1#T</b> — 5');
+    expect(html).toContain('<summary>ещё 9 игроков</summary>');
+    const visible = html.slice(0, html.indexOf('<details>'));
+    expect(visible).not.toContain('— 1');
+  });
+
+  it('still collapses when the oversized tie group starts at the very top', () => {
+    // No legal cut at or before the podium edge, so the board falls forward to
+    // the end of the tie group rather than rendering all eleven rows open.
+    const html = board([3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2]);
+    expect(html).toContain('<summary>ещё 2 игрока</summary>');
+    const visible = html.slice(0, html.indexOf('<details>'));
+    expect(visible.match(/— 3/g)).toHaveLength(9);
+  });
+
+  it('renders a board that is one single tie group fully open', () => {
+    // Nothing can be cut without splitting the tie, and hiding everyone would
+    // leave an empty section — so all rows stay visible.
+    const html = board([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+    expect(html).not.toContain('<details>');
+    expect(html.match(/🥇/g)).toHaveLength(12);
+  });
+
+  it('leaves a board with no ties exactly as it was', () => {
+    const html = board([8, 7, 6, 5, 4, 3]);
+    expect(html).toContain('🥇 <b>P1#T</b> — 8<br>🥈 <b>P2#T</b> — 7<br>🥉 <b>P3#T</b> — 6');
+    expect(html).toContain('<summary>ещё 3 игрока</summary>');
+  });
+
+  it('renders a board where everyone is tied fully open', () => {
+    const html = board([1, 1, 1, 1]);
+    expect(html).not.toContain('<details>');
+    expect(html.match(/🥇/g)).toHaveLength(4);
+  });
+});
+
+describe('renderDigest — no duplicate award blocks', () => {
+  const record = (title: string, value: string, name: string) => ({
+    emoji: '🐴',
+    title,
+    player: { name, tag: 'T' },
+    value,
+    matchUrl: null,
+    mapName: null,
+    context: '',
+  });
+
+  it('renders one block per award even if the model carries several', () => {
+    // build.ts collapses a week's chain of record breaks, but «🐴 Троянский
+    // конь» still rendered four times when a record type slipped past that
+    // (owner, 2026-08-09). The renderer refuses to repeat an award.
+    const { html, text } = renderDigest(
+      fullModel({
+        records: [
+          record('Троянский конь', '1 первых смертей', 'A'),
+          record('Троянский конь', '9 первых смертей', 'B'),
+          record('Троянский конь', '4 первых смертей', 'C'),
+        ],
+      }),
+    );
+    expect(html.match(/🐴 <b>Троянский конь<\/b>/g)).toHaveLength(1);
+    expect(text.match(/🐴 <b>Троянский конь<\/b>/g)).toHaveLength(1);
+    // The LAST entry wins: records arrive in detected_at order, so the final
+    // break is the standing record. Keeping the first would show the weakest.
+    expect(html).toContain('4 первых смертей');
+    expect(html).not.toContain('1 первых смертей');
+  });
+
+  it('still renders distinct awards side by side', () => {
+    const { html } = renderDigest(
+      fullModel({
+        records: [
+          record('Троянский конь', '9 первых смертей', 'A'),
+          { ...record('Якорь', '6 последних смертей', 'B'), emoji: '⚓' },
+        ],
+      }),
+    );
+    expect(html).toContain('🐴 <b>Троянский конь</b>');
+    expect(html).toContain('⚓ <b>Якорь</b>');
+  });
+});
+
+describe('renderDigest — «Больше всех матчей» ties', () => {
+  it('names every player on the winning match count', () => {
+    const { html } = renderDigest(
+      fullModel({ mostActive: { namesHtml: ['<b>Alpha#AAA</b>', '<b>Beta#BBB</b>'], count: 52 } }),
+    );
+    expect(html).toContain('<b>Alpha#AAA</b> · 52 за неделю');
+    expect(html).toContain('<b>Beta#BBB</b> · 52 за неделю');
+    expect(html.match(/🏆 <b>Больше всех матчей<\/b>/g)).toHaveLength(1);
+  });
+
+  it('omits the section when nobody qualifies', () => {
+    const { html } = renderDigest(fullModel({ mostActive: { namesHtml: [], count: 0 } }));
+    expect(html).not.toContain('Больше всех матчей');
   });
 });
 

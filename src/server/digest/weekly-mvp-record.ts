@@ -49,7 +49,11 @@ export async function computeAndEmitWeeklyMvpRecord(
       ),
     )
     .groupBy(matchRecords.riot_puuid)
-    .orderBy(sql`SUM(${matchRecords.is_match_mvp}) DESC`)
+    // Deterministic tie-break: on equal MVP counts SQLite was free to hand the
+    // crown to either player, so the same week could crown different people on
+    // a rebuild. (Co-kings still aren't representable — the record row holds
+    // one puuid — but at least the choice is now stable.)
+    .orderBy(sql`SUM(${matchRecords.is_match_mvp}) DESC`, matchRecords.riot_puuid)
     .limit(1);
 
   if (rows.length === 0) return;
@@ -108,7 +112,11 @@ export async function computeAndEmitWeeklyMvpRecord(
       riot_puuid: leader.riot_puuid,
       match_id: syntheticMatchId,
       payload_json: JSON.stringify(payload),
-      detected_at: weekEndMs,
+      // Inside its OWN window, not on the boundary. buildDigest selects
+      // `detected_at < weekEnd` (exclusive), so stamping `weekEndMs` excluded
+      // the award from the very digest that computed it — whether it ever
+      // showed up came down to how the next week's window rounded.
+      detected_at: weekEndMs - 1,
       status: 'digest-only',
     }).onConflictDoNothing();
   } catch {

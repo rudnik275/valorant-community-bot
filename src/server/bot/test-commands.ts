@@ -23,7 +23,12 @@ import { detectedEvents } from '../db/schema/detected_events.ts';
 import { users } from '../db/schema/users.ts';
 import { matchRosters } from '../db/schema/match_rosters.ts';
 import { buildDigest } from '../digest/build.ts';
-import { renderTemplate, type TemplateMatch, type TemplateUser } from '../publisher/templates.ts';
+import {
+  renderGroupedTemplate,
+  type EventSubject,
+  type TemplateMatch,
+  type TemplateUser,
+} from '../publisher/templates.ts';
 import { resolveTemplateMatch } from '../publisher/match-info.ts';
 import { renderRichEvent, isTrioRichEvent } from '../publisher/rich-templates.ts';
 import { isRealtimeEvent, type EventType } from '../publisher/types.ts';
@@ -106,7 +111,7 @@ export function makeTestDigestHandler(deps: TestCommandsDeps): MiddlewareFn<Cont
     );
 
     try {
-      const result = await buildDigest({ db: deps.db, weekStart, weekEnd });
+      const result = await buildDigest({ db: deps.db, weekStart, weekEnd, readOnly: true });
 
       const header = `<i>--- Preview: дайджест за последние ${days} дн. ---</i>`;
       // sendExempt: destination is the owner's own DM, verified by isOwner() above.
@@ -174,7 +179,7 @@ export function makeTestDigestImageHandler(deps: TestCommandsDeps): MiddlewareFn
         return;
       }
 
-      const result = await buildDigest({ db: deps.db, weekStart, weekEnd });
+      const result = await buildDigest({ db: deps.db, weekStart, weekEnd, readOnly: true });
       if (result.text === null) {
         await sendExempt(
           deps.bot.api,
@@ -257,11 +262,8 @@ export function makeTestRuntimeEventsHandler(deps: TestCommandsDeps): Middleware
         isRealtimeEvent(ev.event_type as EventType),
       );
 
-      // Legacy match_comeback rows were per-player — before the grouping fix,
-      // 5 community winners in one match meant 5 separate rows. The publisher
-      // now emits one row per match with community_players in the payload, but
-      // the historical rows still live in detected_events. Collapse them here
-      // so the preview matches what the chat would see today.
+      // One post per (match, event type) — same rule the publisher applies, so
+      // the preview shows the same number of messages the chat would get.
       const collapsed = collapseGroupableEvents(realtimeOnly);
 
       const header = `<i>--- Preview: realtime-события за последние ${days} дн. (${collapsed.length} шт.) ---</i>`;
@@ -278,78 +280,97 @@ export function makeTestRuntimeEventsHandler(deps: TestCommandsDeps): Middleware
         return;
       }
 
-      for (const ev of collapsed) {
-        const puuid = ev.riot_puuid as string;
-        const [userRow] = await deps.db
-          .select()
-          .from(users)
-          .where(eq(users.riot_puuid, puuid))
-          .limit(1);
-        if (!userRow) continue;
-
-        let payload: Record<string, unknown> = {};
-        try {
-          payload = JSON.parse(ev.payload_json as string) as Record<string, unknown>;
-        } catch {
-          payload = {};
-        }
-
+      for (const group of collapsed) {
+        const ev = group.primary;
+        const eventType = ev.event_type as EventType;
         const matchId = ev.match_id ? String(ev.match_id) : '';
 
-        // SAME resolver as the production publisher loop (replay parity,
-        // #315): map / match_id / triggering player's agent + per-match rank /
-        // teamkill victims from the roster all flow identically, so this
-        // preview renders exactly what the group chat would see.
-        const tplMatch: TemplateMatch | undefined = await resolveTemplateMatch(
-          deps.db,
-          ev.event_type as EventType,
-          matchId,
-          puuid,
-          payload,
-        );
+        // Resolve every player of the group into a subject, exactly as the
+        // publisher loop does — one message names all of them.
+        const subjects: EventSubject[] = [];
+        const heroPuuids: string[] = [];
+        let primaryPayload: Record<string, unknown> = {};
+        let primaryMatch: TemplateMatch | undefined;
 
-        // Augment legacy match_comeback rows (saved before the grouping fix)
-        // with community_players, so the rendered preview lists every winning
-        // community member instead of the single triggering user.
-        if (
-          ev.event_type === 'match_comeback' &&
-          matchId &&
-          !Array.isArray(payload['community_players'])
-        ) {
-          const players = await fetchWinningTeamCommunity(deps.db, matchId, puuid);
-          if (players.length > 0) payload['community_players'] = players;
+        for (const member of group.members) {
+          const puuid = member.riot_puuid;
+          const [userRow] = await deps.db
+            .select()
+            .from(users)
+            .where(eq(users.riot_puuid, puuid))
+            .limit(1);
+          if (!userRow) continue;
+
+          let payload: Record<string, unknown> = {};
+          try {
+            payload = JSON.parse(member.payload_json) as Record<string, unknown>;
+          } catch {
+            payload = {};
+          }
+
+          // SAME resolver as the production publisher loop (replay parity,
+          // #315): map / match_id / this player's agent + per-match rank /
+          // teamkill victims from the roster all flow identically, so this
+          // preview renders exactly what the group chat would see.
+          const memberMatch: TemplateMatch | undefined = await resolveTemplateMatch(
+            deps.db,
+            eventType,
+            member.match_id ? String(member.match_id) : '',
+            puuid,
+            payload,
+          );
+
+          // Augment legacy match_comeback rows (saved before the grouping fix)
+          // with community_players, so the rendered preview lists every winning
+          // community member instead of the single triggering user.
+          if (
+            eventType === 'match_comeback' &&
+            matchId &&
+            !Array.isArray(payload['community_players'])
+          ) {
+            const players = await fetchWinningTeamCommunity(deps.db, matchId, puuid);
+            if (players.length > 0) payload['community_players'] = players;
+          }
+
+          const tplUser: TemplateUser = {
+            riot_name: (userRow.riot_name as string) ?? '',
+            riot_tag: (userRow.riot_tag as string) ?? '',
+            telegram_id: userRow.telegram_id as number,
+            riot_puuid: puuid,
+          };
+
+          subjects.push({
+            payload,
+            user: tplUser,
+            ...(memberMatch ? { match: memberMatch } : {}),
+          });
+          heroPuuids.push(puuid);
+          if (subjects.length === 1) {
+            primaryPayload = payload;
+            primaryMatch = memberMatch;
+          }
         }
 
-        const tplUser: TemplateUser = {
-          riot_name: (userRow.riot_name as string) ?? '',
-          riot_tag: (userRow.riot_tag as string) ?? '',
-          telegram_id: userRow.telegram_id as number,
-          riot_puuid: puuid,
-        };
+        if (subjects.length === 0) continue;
 
-        const text = renderTemplate(
-          ev.event_type as EventType,
-          payload,
-          tplUser,
-          tplMatch,
-        );
+        const text = renderGroupedTemplate(eventType, subjects);
 
         // #315 "trio" events preview as full-roster rich tables where the data
         // is complete; fall back to the legacy plain text on null/any error so
         // the preview never breaks (mirrors the publisher loop's rich path).
         let richHtml: string | null = null;
-        if (isTrioRichEvent(ev.event_type as EventType)) {
+        if (isTrioRichEvent(eventType)) {
           try {
-            richHtml = await renderRichEvent(deps.db, ev.event_type as EventType, payload, {
-              ...(tplMatch?.match_id ? { match_id: tplMatch.match_id } : {}),
-              ...(tplMatch?.map ? { map: tplMatch.map } : {}),
-              // Replay parity (#315): giant_slayer names its subject under the
-              // title in production too. `puuid` is the triggering player.
-              ...(puuid ? { heroPuuid: puuid } : {}),
+            richHtml = await renderRichEvent(deps.db, eventType, primaryPayload, {
+              ...(primaryMatch?.match_id ? { match_id: primaryMatch.match_id } : {}),
+              ...(primaryMatch?.map ? { map: primaryMatch.map } : {}),
+              // Replay parity (#315): giant_slayer names its subjects under the
+              // title in production too.
+              ...(heroPuuids.length > 0 ? { heroPuuids } : {}),
             });
           } catch (err) {
             logger.warn(
-              { module: 'test_commands', event_type: ev.event_type, err },
+              { module: 'test_commands', event_type: eventType, err },
               'Rich preview render failed — falling back to plain text',
             );
           }
@@ -396,11 +417,6 @@ export function makeTestRuntimeEventsHandler(deps: TestCommandsDeps): Middleware
   };
 }
 
-/** Event types that group all community members of one match into a single
- *  chat message. New detector runs emit one row per match for these types;
- *  legacy data may still have N rows. The preview keeps only the earliest. */
-const GROUPABLE_PER_MATCH: ReadonlySet<EventType> = new Set(['match_comeback']);
-
 interface PreviewEvent {
   event_type: string;
   riot_puuid: string;
@@ -409,21 +425,41 @@ interface PreviewEvent {
   detected_at: number;
 }
 
+/** All events of one (match, event type) — the unit the chat sees as ONE post. */
+export interface PreviewGroup {
+  /** Earliest event of the group; drives the match-level payload. */
+  primary: PreviewEvent;
+  /** Every event in the group, oldest first (`members[0] === primary`). */
+  members: PreviewEvent[];
+}
+
 /**
- * For groupable-per-match event types, keep only the earliest row per match.
- * Non-groupable types pass through untouched. Input must already be sorted by
- * detected_at ascending so "first seen" == "earliest".
+ * Group the window's events the way the publisher does: one group per (match,
+ * event type), so the preview shows exactly as many messages as the chat would.
+ *
+ * EVERY realtime type groups — the publisher guarantees per-match uniqueness
+ * for all of them (see publisher/loop.ts), not just `match_comeback` as this
+ * used to assume. Rows with no match id stand alone. Input must already be
+ * sorted by detected_at ascending so `members` comes out oldest-first.
  */
-export function collapseGroupableEvents(events: PreviewEvent[]): PreviewEvent[] {
-  const seen = new Set<string>();
-  const out: PreviewEvent[] = [];
+export function collapseGroupableEvents(events: PreviewEvent[]): PreviewGroup[] {
+  const byKey = new Map<string, PreviewGroup>();
+  const out: PreviewGroup[] = [];
   for (const ev of events) {
-    if (GROUPABLE_PER_MATCH.has(ev.event_type as EventType) && ev.match_id) {
-      const key = `${ev.event_type}|${ev.match_id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
+    const groups = ev.match_id && isRealtimeEvent(ev.event_type as EventType);
+    if (!groups) {
+      out.push({ primary: ev, members: [ev] });
+      continue;
     }
-    out.push(ev);
+    const key = `${ev.event_type}|${ev.match_id}`;
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.members.push(ev);
+      continue;
+    }
+    const group: PreviewGroup = { primary: ev, members: [ev] };
+    byKey.set(key, group);
+    out.push(group);
   }
   return out;
 }

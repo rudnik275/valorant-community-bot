@@ -140,6 +140,8 @@ describe('e2e: publisher loop', () => {
       getNowKyiv: () => ({ ...AFTER_NOON, today_start_ms: Date.now() - 86400000 }),
       getPrimaryChatId: () => -1009998887776,
       intervalCron: '* * * * * *',
+      // Publish on the next tick — the grace window is exercised in loop.test.ts.
+      publishGraceMs: 0,
     });
 
     await runOneTick(stop);
@@ -175,6 +177,8 @@ describe('e2e: publisher loop', () => {
       getNowKyiv: () => ({ ...AFTER_NOON, today_start_ms: Date.now() - 86400000 }),
       getPrimaryChatId: () => -1009998887777,
       intervalCron: '* * * * * *',
+      // Publish on the next tick — the grace window is exercised in loop.test.ts.
+      publishGraceMs: 0,
     });
     await runOneTick(stop1);
 
@@ -188,6 +192,8 @@ describe('e2e: publisher loop', () => {
       getNowKyiv: () => ({ ...AFTER_NOON, today_start_ms: Date.now() - 86400000 }),
       getPrimaryChatId: () => -1009998887777,
       intervalCron: '* * * * * *',
+      // Publish on the next tick — the grace window is exercised in loop.test.ts.
+      publishGraceMs: 0,
     });
     await runOneTick(stop2);
 
@@ -206,6 +212,8 @@ describe('e2e: publisher loop', () => {
       getNowKyiv: () => ({ ...AFTER_NOON, today_start_ms: Date.now() - 86400000 }),
       getPrimaryChatId: () => -1009998887778,
       intervalCron: '* * * * * *',
+      // Publish on the next tick — the grace window is exercised in loop.test.ts.
+      publishGraceMs: 0,
     });
 
     await runOneTick(stop);
@@ -247,6 +255,7 @@ describe('e2e: publisher loop', () => {
         getNowKyiv: () => ({ ...AFTER_NOON, today_start_ms: now - 7 * 86400000 }),
         getPrimaryChatId: () => -1009998887779,
         intervalCron: '* * * * * *',
+        publishGraceMs: 0,
       } as Parameters<typeof startPublisherLoop>[0]);
 
       await runOneTick(stop);

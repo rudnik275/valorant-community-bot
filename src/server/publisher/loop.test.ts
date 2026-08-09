@@ -83,6 +83,8 @@ function makeLoop(
   opts: {
     primaryChatId?: number;
     kyivTime?: KyivTime;
+    /** Defaults to 0 — most tests want an event published on the next tick. */
+    publishGraceMs?: number;
   } = {},
 ) {
   const getNowKyiv = vi.fn().mockReturnValue(opts.kyivTime ?? { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 });
@@ -97,6 +99,7 @@ function makeLoop(
       getNowKyiv: () => getNowKyiv(),
       getPrimaryChatId: () => getPrimaryChatId(),
       intervalCron: '* * * * * *', // every second for tests — but we call runTick manually via cron
+      publishGraceMs: opts.publishGraceMs ?? 0,
     }),
   };
 }
@@ -296,6 +299,7 @@ describe('startPublisherLoop', () => {
         getNowKyiv: () => getNowKyiv(),
         getPrimaryChatId: () => -1001234567890,
         intervalCron: '* * * * * *',
+        publishGraceMs: 0,
       });
 
       // Start the cron tick (at t=1001ms)
@@ -656,6 +660,7 @@ describe('startPublisherLoop', () => {
         getNowKyiv: () => ({ ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 }),
         getPrimaryChatId: () => -1001234567890,
         intervalCron: '* * * * * *',
+        publishGraceMs: 0,
       });
     }
 
@@ -751,6 +756,362 @@ describe('startPublisherLoop', () => {
 
       expect(sendMessage).toHaveBeenCalledTimes(1);
       expect(getEventStatus(sqlite, id)).toBe('posted');
+    });
+  });
+
+  // ── Per-match uniqueness: one message per (match, event type) ────────────
+  //
+  // Each community player is scanned separately, so a match with several of
+  // them produces several detected_events rows. The group must still see ONE
+  // message: «💪 Поводил(ла) по губам» and «👏 Мы вами гордимся» both posted
+  // twice for a single match (owner, 2026-08-09).
+  describe('per-match uniqueness', () => {
+    const MATCH = 'match-dupes';
+
+    function seedMatchRecord(puuid: string, matchId = MATCH, map = 'Ascent') {
+      sqlite.prepare(
+        `INSERT INTO match_records
+           (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result,
+            rounds_played, fall_damage_kills, kill_events_compact)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(puuid, matchId, 1_000, map, 'Jett', 20, 10, 5, 'win', 24, 0, '[]');
+    }
+
+    function seedFullRoster(matchId = MATCH) {
+      const rows = [
+        ['a1', 'Blue', 'Alice', 'AAA', 'Jett'],
+        ['a2', 'Blue', 'Bob', 'BBB', 'Sova'],
+        ['a3', 'Blue', 'C', 'CCC', 'Omen'],
+        ['a4', 'Blue', 'D', 'DDD', 'Sage'],
+        ['a5', 'Blue', 'E', 'EEE', 'Reyna'],
+        ['b1', 'Red', 'F', 'FFF', 'Jett'],
+        ['b2', 'Red', 'G', 'GGG', 'Sova'],
+        ['b3', 'Red', 'H', 'HHH', 'Omen'],
+        ['b4', 'Red', 'I', 'III', 'Sage'],
+        ['b5', 'Red', 'J', 'JJJ', 'Reyna'],
+      ];
+      for (const [puuid, team, name, tag, agent] of rows) {
+        sqlite.prepare(
+          `INSERT INTO match_rosters (match_id, riot_puuid, team, name, tag, agent, tier, kills, deaths)
+           VALUES (?, ?, ?, ?, ?, ?, 'Diamond 2', 20, 14)`,
+        ).run(matchId, puuid, team, name, tag, agent);
+      }
+    }
+
+    function seedPostedEvent(opts: { puuid: string; eventType: string; matchId: string }): number {
+      const result = sqlite.prepare(
+        `INSERT INTO detected_events (event_type, riot_puuid, match_id, payload_json, detected_at, status, posted_message_id)
+         VALUES (?, ?, ?, '{}', ?, 'posted', 777)`,
+      ).run(opts.eventType, opts.puuid, opts.matchId, Date.now() - 60_000);
+      return result.lastInsertRowid as number;
+    }
+
+    function getPostedMessageId(eventId: number): number | null {
+      const row = sqlite
+        .prepare('SELECT posted_message_id FROM detected_events WHERE id = ?')
+        .get(eventId) as { posted_message_id: number | null } | undefined;
+      return row?.posted_message_id ?? null;
+    }
+
+    function makeRichLoop(sendRichMessage: ReturnType<typeof vi.fn>) {
+      return startPublisherLoop({
+        db,
+        sendMessage,
+        sendRichMessage,
+        getNowKyiv: () => ({ ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 }),
+        getPrimaryChatId: () => -1001234567890,
+        intervalCron: '* * * * * *',
+        publishGraceMs: 0,
+      });
+    }
+
+    it('posts ONE giant_slayer message naming both community players', async () => {
+      seedUser(sqlite, 1, 'a1', { riotName: 'Alice', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'a2', { riotName: 'Bob', riotTag: 'BBB' });
+      seedMatchRecord('a1');
+      seedMatchRecord('a2');
+      seedFullRoster();
+      const id1 = seedPendingEvent(sqlite, {
+        puuid: 'a1', eventType: 'giant_slayer', matchId: MATCH,
+        payload: { own: 'Diamond 2', enemy_avg: 'Immortal 1' }, detectedAt: 1_000,
+      });
+      const id2 = seedPendingEvent(sqlite, {
+        puuid: 'a2', eventType: 'giant_slayer', matchId: MATCH,
+        payload: { own: 'Diamond 2', enemy_avg: 'Immortal 1' }, detectedAt: 1_100,
+      });
+
+      const sendRich = vi.fn().mockResolvedValue({ message_id: 99 });
+      const stop = makeRichLoop(sendRich);
+      await runOneTick(stop);
+
+      expect(sendRich).toHaveBeenCalledTimes(1);
+      const html = sendRich.mock.calls[0]![1] as string;
+      // One title, both heroes named under it. Assert against the HEADER — the
+      // part above the roster table — because the table lists all ten players
+      // anyway, so a whole-message `toContain` would pass without the fix.
+      expect(html.match(/💪 <b>Поводил\(ла\) по губам<\/b>/g)).toHaveLength(1);
+      const header = html.slice(0, html.indexOf('<table>'));
+      expect(header).toContain('<b>Alice#AAA</b>');
+      expect(header).toContain('<b>Bob#BBB</b>');
+      // Both rows close out together, on the same message.
+      expect(getEventStatus(sqlite, id1)).toBe('posted');
+      expect(getEventStatus(sqlite, id2)).toBe('posted');
+      expect(getPostedMessageId(id1)).toBe(99);
+      expect(getPostedMessageId(id2)).toBe(99);
+    });
+
+    it('never posts a second message on a later tick for the same match', async () => {
+      seedUser(sqlite, 1, 'a1', { riotName: 'Alice', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'a2', { riotName: 'Bob', riotTag: 'BBB' });
+      seedMatchRecord('a1');
+      seedMatchRecord('a2');
+      seedFullRoster();
+      seedPendingEvent(sqlite, {
+        puuid: 'a1', eventType: 'giant_slayer', matchId: MATCH, payload: {}, detectedAt: 1_000,
+      });
+      seedPendingEvent(sqlite, {
+        puuid: 'a2', eventType: 'giant_slayer', matchId: MATCH, payload: {}, detectedAt: 1_100,
+      });
+
+      const sendRich = vi.fn().mockResolvedValue({ message_id: 99 });
+      const stop = makeRichLoop(sendRich);
+      // Three ticks: whatever the queue does, the chat gets one post.
+      await vi.advanceTimersByTimeAsync(3001);
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+      stop();
+
+      expect(sendRich).toHaveBeenCalledTimes(1);
+      expect(sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('suppresses a straggler whose scan landed after the match was posted', async () => {
+      // The late-scan case: player B's event is detected a tick after A's
+      // message went out. Repeating the post is exactly the reported spam.
+      seedUser(sqlite, 1, 'a1', { riotName: 'Alice', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'a2', { riotName: 'Bob', riotTag: 'BBB' });
+      seedMatchRecord('a2');
+      seedFullRoster();
+      seedPostedEvent({ puuid: 'a1', eventType: 'giant_slayer', matchId: MATCH });
+      const straggler = seedPendingEvent(sqlite, {
+        puuid: 'a2', eventType: 'giant_slayer', matchId: MATCH, payload: {},
+      });
+
+      const sendRich = vi.fn().mockResolvedValue({ message_id: 99 });
+      const stop = makeRichLoop(sendRich);
+      await runOneTick(stop);
+
+      expect(sendRich).not.toHaveBeenCalled();
+      expect(sendMessage).not.toHaveBeenCalled();
+      expect(getEventStatus(sqlite, straggler)).toBe('silent');
+    });
+
+    it('posts ONE match_comeback message for a whole team of community players', async () => {
+      seedUser(sqlite, 1, 'a1', { riotName: 'Alice', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'a2', { riotName: 'Bob', riotTag: 'BBB' });
+      seedUser(sqlite, 3, 'a3', { riotName: 'Carol', riotTag: 'CCC' });
+      seedMatchRecord('a1');
+      seedMatchRecord('a2');
+      seedMatchRecord('a3');
+      seedFullRoster();
+      const payload = {
+        deficit_score_player: 3, deficit_score_opponent: 11,
+        final_score_player: 13, final_score_opponent: 11,
+      };
+      const ids = ['a1', 'a2', 'a3'].map((puuid, i) =>
+        seedPendingEvent(sqlite, {
+          puuid, eventType: 'match_comeback', matchId: MATCH, payload, detectedAt: 1_000 + i,
+        }),
+      );
+
+      const sendRich = vi.fn().mockResolvedValue({ message_id: 55 });
+      const stop = makeRichLoop(sendRich);
+      await runOneTick(stop);
+
+      expect(sendRich).toHaveBeenCalledTimes(1);
+      expect((sendRich.mock.calls[0]![1] as string).match(/👏 <b>Мы вами гордимся<\/b>/g)).toHaveLength(1);
+      for (const id of ids) expect(getEventStatus(sqlite, id)).toBe('posted');
+    });
+
+    it('groups the plain-text path too — one teamkill message, one line per killer', async () => {
+      seedUser(sqlite, 1, 'a1', { riotName: 'Alice', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'a2', { riotName: 'Bob', riotTag: 'BBB' });
+      const id1 = seedPendingEvent(sqlite, {
+        puuid: 'a1', eventType: 'teamkill', matchId: MATCH,
+        payload: { victims: [{ name: 'Carol', tag: 'CCC' }] }, detectedAt: 1_000,
+      });
+      const id2 = seedPendingEvent(sqlite, {
+        puuid: 'a2', eventType: 'teamkill', matchId: MATCH,
+        payload: { victims: [{ name: 'Dave', tag: 'DDD' }] }, detectedAt: 1_100,
+      });
+
+      const { stop } = makeLoop(db, sendMessage, {
+        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
+      });
+      await runOneTick(stop);
+
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      const text = sendMessage.mock.calls[0]![1] as string;
+      expect(text.match(/🐀 <b>Ля ты и крыса<\/b>/g)).toHaveLength(1);
+      expect(text).toContain('<b>Alice#AAA</b>');
+      expect(text).toContain('<b>Bob#BBB</b>');
+      expect(text).toContain('Carol');
+      expect(text).toContain('Dave');
+      expect(getEventStatus(sqlite, id1)).toBe('posted');
+      expect(getEventStatus(sqlite, id2)).toBe('posted');
+    });
+
+    it('drops an opted-out player from the group but still posts for the rest', async () => {
+      seedUser(sqlite, 1, 'a1', { riotName: 'Alice', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'a2', { riotName: 'Bob', riotTag: 'BBB' });
+      seedOptOut(sqlite, 2, 1);
+      const id1 = seedPendingEvent(sqlite, {
+        puuid: 'a1', eventType: 'teamkill', matchId: MATCH, payload: {}, detectedAt: 1_000,
+      });
+      const id2 = seedPendingEvent(sqlite, {
+        puuid: 'a2', eventType: 'teamkill', matchId: MATCH, payload: {}, detectedAt: 1_100,
+      });
+
+      const { stop } = makeLoop(db, sendMessage, {
+        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
+      });
+      await runOneTick(stop);
+
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      const text = sendMessage.mock.calls[0]![1] as string;
+      expect(text).toContain('<b>Alice#AAA</b>');
+      expect(text).not.toContain('<b>Bob#BBB</b>');
+      expect(getEventStatus(sqlite, id1)).toBe('posted');
+      expect(getEventStatus(sqlite, id2)).toBe('opted-out');
+    });
+
+    it('posts nothing when every player in the group opted out', async () => {
+      seedUser(sqlite, 1, 'a1');
+      seedUser(sqlite, 2, 'a2');
+      seedOptOut(sqlite, 1, 1);
+      seedOptOut(sqlite, 2, 1);
+      const id1 = seedPendingEvent(sqlite, {
+        puuid: 'a1', eventType: 'teamkill', matchId: MATCH, payload: {}, detectedAt: 1_000,
+      });
+      const id2 = seedPendingEvent(sqlite, {
+        puuid: 'a2', eventType: 'teamkill', matchId: MATCH, payload: {}, detectedAt: 1_100,
+      });
+
+      const { stop } = makeLoop(db, sendMessage, {
+        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
+      });
+      await runOneTick(stop);
+
+      expect(sendMessage).not.toHaveBeenCalled();
+      expect(getEventStatus(sqlite, id1)).toBe('opted-out');
+      expect(getEventStatus(sqlite, id2)).toBe('opted-out');
+    });
+
+    it('keeps different matches apart — one message each, not one merged', async () => {
+      seedUser(sqlite, 1, 'a1', { riotName: 'Alice', riotTag: 'AAA' });
+      const id1 = seedPendingEvent(sqlite, {
+        puuid: 'a1', eventType: 'teamkill', matchId: 'match-one', payload: {}, detectedAt: 1_000,
+      });
+      const id2 = seedPendingEvent(sqlite, {
+        puuid: 'a1', eventType: 'teamkill', matchId: 'match-two', payload: {}, detectedAt: 1_100,
+      });
+
+      const { stop } = makeLoop(db, sendMessage, {
+        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
+      });
+      await vi.advanceTimersByTimeAsync(2001);
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+      stop();
+
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+      expect(getEventStatus(sqlite, id1)).toBe('posted');
+      expect(getEventStatus(sqlite, id2)).toBe('posted');
+    });
+
+    it('keeps different event types of one match apart', async () => {
+      seedUser(sqlite, 1, 'a1', { riotName: 'Alice', riotTag: 'AAA' });
+      const id1 = seedPendingEvent(sqlite, {
+        puuid: 'a1', eventType: 'teamkill', matchId: MATCH, payload: {}, detectedAt: 1_000,
+      });
+      const id2 = seedPendingEvent(sqlite, {
+        puuid: 'a1', eventType: 'return_after_pause', matchId: MATCH,
+        payload: { days_paused: 30 }, detectedAt: 1_100,
+      });
+
+      const { stop } = makeLoop(db, sendMessage, {
+        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
+      });
+      await vi.advanceTimersByTimeAsync(2001);
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+      stop();
+
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+      expect(getEventStatus(sqlite, id1)).toBe('posted');
+      expect(getEventStatus(sqlite, id2)).toBe('posted');
+    });
+
+    it('waits out the grace period before publishing, then includes the sibling scanned later', async () => {
+      // The scanner walks users one at a time, so a match's events land spread
+      // across a whole sweep. Without the wait the first player is posted alone
+      // and everyone scanned afterwards is suppressed as a duplicate — no double
+      // post, but their names never reach the chat.
+      const GRACE = 60_000;
+      seedUser(sqlite, 1, 'a1', { riotName: 'Alice', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'a2', { riotName: 'Bob', riotTag: 'BBB' });
+      const id1 = seedPendingEvent(sqlite, {
+        puuid: 'a1', eventType: 'teamkill', matchId: MATCH, payload: {}, detectedAt: Date.now(),
+      });
+
+      const { stop } = makeLoop(db, sendMessage, {
+        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
+        publishGraceMs: GRACE,
+      });
+
+      // Alice's event is too young — nothing goes out yet.
+      await vi.advanceTimersByTimeAsync(2001);
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      expect(sendMessage).not.toHaveBeenCalled();
+      expect(getEventStatus(sqlite, id1)).toBe('pending');
+
+      // Bob's scan lands mid-grace.
+      const id2 = seedPendingEvent(sqlite, {
+        puuid: 'a2', eventType: 'teamkill', matchId: MATCH, payload: {}, detectedAt: Date.now(),
+      });
+
+      await vi.advanceTimersByTimeAsync(GRACE + 2001);
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+      stop();
+
+      // One message, and it names both — Bob is not lost.
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      const text = sendMessage.mock.calls[0]![1] as string;
+      expect(text).toContain('<b>Alice#AAA</b>');
+      expect(text).toContain('<b>Bob#BBB</b>');
+      expect(getEventStatus(sqlite, id1)).toBe('posted');
+      expect(getEventStatus(sqlite, id2)).toBe('posted');
+    });
+
+    it('leaves the whole group pending when the send fails, so the retry is still one message', async () => {
+      seedUser(sqlite, 1, 'a1', { riotName: 'Alice', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'a2', { riotName: 'Bob', riotTag: 'BBB' });
+      const id1 = seedPendingEvent(sqlite, {
+        puuid: 'a1', eventType: 'teamkill', matchId: MATCH, payload: {}, detectedAt: 1_000,
+      });
+      const id2 = seedPendingEvent(sqlite, {
+        puuid: 'a2', eventType: 'teamkill', matchId: MATCH, payload: {}, detectedAt: 1_100,
+      });
+
+      const failing = vi.fn().mockRejectedValue(new Error('chat not found'));
+      const { stop } = makeLoop(db, failing, {
+        kyivTime: { ...AFTER_NOON_KYIV, today_start_ms: Date.now() - 86400000 },
+      });
+      await runOneTick(stop);
+
+      expect(getEventStatus(sqlite, id1)).toBe('pending');
+      expect(getEventStatus(sqlite, id2)).toBe('pending');
+      const attempts = sqlite
+        .prepare('SELECT failed_attempts FROM detected_events ORDER BY id')
+        .all() as Array<{ failed_attempts: number }>;
+      expect(attempts.map((a) => a.failed_attempts)).toEqual([1, 1]);
     });
   });
 });

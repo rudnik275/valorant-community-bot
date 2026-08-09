@@ -203,6 +203,19 @@ describe('computeAndEmitWeeklyMvpRecord', () => {
     expect(getDetectedEvents(sqlite)).toHaveLength(1);
   });
 
+  it('stamps the event INSIDE its own window so the digest that computed it can see it', async () => {
+    // buildDigest selects `detected_at < weekEnd`, so stamping weekEnd exactly
+    // excluded the 👑 award from the very digest that produced it.
+    seedUser(sqlite, 1, 'p1');
+    seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW, isMvp: 1 });
+
+    await computeAndEmitWeeklyMvpRecord(db, WEEK_START, WEEK_END, WEEK_ISO);
+
+    const [event] = getDetectedEvents(sqlite) as Array<{ detected_at: number }>;
+    expect(event!.detected_at).toBeGreaterThanOrEqual(WEEK_START);
+    expect(event!.detected_at).toBeLessThan(WEEK_END);
+  });
+
   it('ignores matches outside window', async () => {
     seedUser(sqlite, 1, 'p1');
     const OUT_OF_WINDOW = WEEK_START - 86400000;
