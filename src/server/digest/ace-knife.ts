@@ -2,11 +2,13 @@
  * ace-knife.ts — Weekly ace / knife LEADERBOARDS («кто сколько эйсов сделал,
  * кто сколько ножей сделал»).
  *
- * Replaces the whole `digest-daily` module (owner, 2026-08-04). Aces and knife
- * kills used to be batched into a 23:00 daily post that listed every single
- * occurrence — one row per round, with the round number, 🏆/💀 outcome and a
- * match link. That detail is GONE on purpose: the weekly digest now shows only
- * a per-player count, sorted desc.
+ * Introduced 2026-08-04, when the 23:00 daily post was dropped in favour of
+ * these leaderboards. Since 2026-08-18 the daily post is BACK (owner wants
+ * both): `digest-daily/build.ts` lists every occurrence day by day — one row
+ * per round with the round number, 🏆/💀 outcome and a match link — while the
+ * weekly digest keeps only the per-player counts, sorted desc. Both read the
+ * same detected_events rows; neither consumes or re-statuses them, so they
+ * never conflict.
  *
  * Counting rules:
  *   - Ace   — one per ACED ROUND. The detector emits one event per match with a

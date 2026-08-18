@@ -1,9 +1,9 @@
 /**
- * scheduled-digest.ts — the scaffold behind the scheduled digest. It was
- * extracted (#255) to de-duplicate the weekly and daily loops; since the daily
- * digest was removed on 2026-08-04 the only remaining adapter is
- * `digest/loop.ts`. The generic `DigestSpec` seam is kept — it is what makes
- * the idempotency contract below testable in isolation:
+ * scheduled-digest.ts — the scaffold behind the scheduled digests. It was
+ * extracted (#255) to de-duplicate the weekly and daily loops; today's
+ * adapters are `digest/loop.ts` (weekly) and `digest-daily/loop.ts` (daily,
+ * removed 2026-08-04 and restored 2026-08-18). The generic `DigestSpec` seam
+ * is what makes the idempotency contract below testable in isolation:
  *
  *   - cron registration (Croner, Europe/Kyiv, `protect: true`)
  *   - the idempotency contract (dedup-key lookup + run-row recording)

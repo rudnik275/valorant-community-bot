@@ -92,13 +92,14 @@ export type EventCategory = 'realtime' | 'weekly';
 /**
  * Source of truth: each EventType belongs to exactly ONE category.
  * - Realtime events fire immediately via the publisher loop and NEVER appear in a digest.
- * - Weekly events appear ONLY in the Friday weekly digest (records, winstreaks,
- *   rank-ups, ace/knife leaderboards) and NEVER fire as realtime notifications.
+ * - Weekly events go into digests (records, winstreaks, rank-ups, ace/knife
+ *   leaderboards) and NEVER fire as realtime notifications.
  *
- * There is no 'daily' category any more. `ace` / `knife_kill` used to be batched
- * into a 23:00 daily post; the owner moved them into the weekly digest as plain
- * per-player COUNTS («кто сколько эйсов сделал, кто сколько ножей сделал»), so
- * the whole `digest-daily` module is gone. See `digest/ace-knife.ts`.
+ * There is no 'daily' CATEGORY: the category decides only the insert status
+ * (weekly ⇒ 'digest-only', out of the realtime queue). `ace` / `knife_kill`
+ * are weekly — they feed the Friday leaderboards («кто сколько эйсов сделал»,
+ * see `digest/ace-knife.ts`) AND the restored 23:00 daily post
+ * (`digest-daily/build.ts`), which both read the same rows by type + window.
  */
 export const EVENT_CATEGORY: Record<EventType, EventCategory> = {
   giant_slayer: 'realtime',
