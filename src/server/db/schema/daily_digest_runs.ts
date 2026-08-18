@@ -1,12 +1,12 @@
 /**
- * daily_digest_runs — HISTORICAL. The 23:00 daily ace/knife digest was removed
- * on 2026-08-04 when `ace` / `knife_kill` moved into the weekly digest as
- * per-player counts (see `digest/ace-knife.ts`). Nothing writes this table any
- * more.
+ * daily_digest_runs — bookkeeping for the 23:00 daily ace/knife digest
+ * (`digest-daily/loop.ts`): one row per Kyiv date, UNIQUE on run_date.
  *
- * The table itself is deliberately KEPT: it holds the record of what was
- * actually posted each day, and deleting this schema file would make
- * `drizzle-kit generate` emit a DROP TABLE on the next migration diff.
+ * History: the daily digest was removed on 2026-08-04 when `ace` /
+ * `knife_kill` moved into the weekly digest as per-player counts (see
+ * `digest/ace-knife.ts`), and restored on 2026-08-18 — the owner wants both
+ * the daily post and the weekly leaderboards. Rows between those dates are
+ * simply absent.
  */
 import { sqliteTable, integer, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 

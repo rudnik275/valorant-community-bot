@@ -29,6 +29,7 @@ import { startPublisherLoop } from './publisher/loop.ts';
 // request — see the commented-out call below. Re-enable by uncommenting
 // both the import and the call.
 import { startDigestLoop /*, startPrepareLoop */ } from './digest/loop.ts';
+import { startDailyDigestLoop } from './digest-daily/loop.ts';
 import { startRestrictGraceLoop } from './cron/restrict-grace.ts';
 import { startRetryPendingOnboardLoop } from './cron/retry-pending-onboard.ts';
 import { startReconcileMembershipLoop } from './cron/reconcile-membership.ts';
@@ -229,6 +230,20 @@ if (process.env['SCANNER_DISABLED'] !== 'true') {
       //   getPrimaryChatId: () => primaryChatId,
       //   getOpenAIKey,
       // });
+      // Daily ace/knife post (23:00 Kyiv) — restored 2026-08-18: the owner
+      // wants BOTH the per-occurrence daily post AND the weekly leaderboards.
+      // They read the same detected_events rows and never conflict: the weekly
+      // ace/knife query selects by type + window only, not by status.
+      startDailyDigestLoop({
+        db,
+        sendMessage: (chatId, text, opts) => safeSendMessage(bot!.api, chatId, text, opts as never),
+        // Rich Message send (#315): the daily digest posts as a rich message
+        // (Эйсы/Ножи tables), falling back to `sendMessage` (legacy text) on any
+        // error. Destination is TELEGRAM_PRIMARY_CHAT_ID (the already-authorised
+        // group) — same exempt risk-model as the digest text send.
+        sendRichMessage: (chatId, html) => sendRichMessageHtml(bot!.api, chatId, html),
+        getPrimaryChatId: () => primaryChatId,
+      });
     } else {
       logger.warn({ module: 'publisher' }, 'TELEGRAM_PRIMARY_CHAT_ID not set — publisher disabled');
     }
