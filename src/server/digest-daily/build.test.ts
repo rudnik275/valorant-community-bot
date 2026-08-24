@@ -503,8 +503,8 @@ describe('buildDailyAceDigest', () => {
       const html = result.richHtml!;
       expect(html).toContain('<h2>🍿 Эйсы и ножи за предыдущие 24 часа</h2>');
       expect(html).toContain('<h3>🎯 Эйсы</h3>');
-      expect(html).toContain('<table striped><tr><th>Игрок</th><th>Раунд</th><th>Матч</th></tr>');
-      expect(html).toContain('<td>🏆 3</td>');
+      expect(html).not.toContain('<table');
+      expect(html).toContain('(3🏆)');
       // Match link icon points at the tracker URL.
       expect(html).toContain('href="https://tracker.gg/valorant/match/m1"');
     });
@@ -524,7 +524,7 @@ describe('buildDailyAceDigest', () => {
       });
       // rank icon present (Diamond 3 tg-emoji) inside the rendered player fragment.
       expect(expectedPlayer).toContain('💎');
-      expect(result.richHtml!).toContain(`<td>${expectedPlayer}</td>`);
+      expect(result.richHtml!).toContain(expectedPlayer);
     });
 
     it('omits the rank icon when rank_after is NULL (not a blocker)', async () => {
@@ -540,7 +540,7 @@ describe('buildDailyAceDigest', () => {
         rank: null,
         agent: 'Jett',
       });
-      expect(result.richHtml!).toContain(`<td>${expectedPlayer}</td>`);
+      expect(result.richHtml!).toContain(expectedPlayer);
       expect(expectedPlayer).not.toContain('💎');
     });
 

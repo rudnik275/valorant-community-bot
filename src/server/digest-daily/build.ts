@@ -29,8 +29,10 @@
  *
  * The `text` field above is the LEGACY plain-text rendering (kept byte-for-byte
  * as the fallback). Since #315 the builder ALSO returns `richHtml` — the same
- * per-round data rendered as a Rich Message (h2 + Легенда details + separate
- * 🎯 Эйсы / 🔪 Ножи striped tables, grouped by player) via `./rich-render.ts`.
+ * per-round data rendered as a Rich Message (h2 + separate 🎯 Эйсы / 🔪 Ножи
+ * sections of flat `ник · 🗺 Карта (3🏆 | 7💀)` lines, grouped by player; the
+ * striped tables and the Легенда accordion are gone since 2026-08-24) via
+ * `./rich-render.ts`. NOTE the legend below is the LEGACY TEXT one and stays.
  * The post path (scheduled-digest.ts step 6) tries `richHtml` via
  * `sendRichMessage` first and falls back to `text` on any error.
  *

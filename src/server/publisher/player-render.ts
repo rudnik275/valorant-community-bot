@@ -101,3 +101,21 @@ export function matchLink(opts: MatchLinkOptions): string {
 export function matchLinkIcon(opts: MatchLinkOptions): string {
   return matchLink(opts);
 }
+
+/**
+ * Match link for a RICH message (`sendRichMessage`). Same visual format as
+ * {@link matchLink} — map emoji, space, map name — but the emoji sits OUTSIDE
+ * the anchor.
+ *
+ * Deliberately a separate function: in a Rich Message an `<a>` whose content
+ * includes a `<tg-emoji>` does NOT render as a tappable link (owner screenshot,
+ * 2026-08-04 — the map name came out plain black), while the identical markup
+ * links fine in a normal `sendMessage`. Rich renderers must call this one;
+ * classic-HTML templates keep using `matchLink`.
+ */
+export function richMatchLink(opts: MatchLinkOptions): string {
+  const { url, mapName } = opts;
+  const icon = mapToEmojiHtml(mapName ?? undefined);
+  const label = mapName ? esc(mapName) : 'матч';
+  return `${icon ? `${icon} ` : ''}<a href="${esc(url)}">${label}</a>`;
+}
