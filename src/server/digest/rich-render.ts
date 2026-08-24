@@ -38,9 +38,11 @@
  * tests) while the text twin is built from the same lines with real newlines.
  */
 
-import { renderPlayerName } from '../publisher/player-render.ts';
+import {
+  renderPlayerName,
+  richMatchLink as sharedRichMatchLink,
+} from '../publisher/player-render.ts';
 import { rankToEmojiHtml } from '../publisher/rank-emoji.ts';
-import { mapToEmojiHtml } from '../publisher/valorant-emoji.ts';
 import type { AceKnifeStanding } from './ace-knife.ts';
 
 /**
@@ -261,17 +263,12 @@ export function mapSplashUrl(map: string | null | undefined): string | null {
 }
 
 /**
- * Match link for a RICH message. Deliberately not the shared `matchLink`
- * helper: in a Rich Message an `<a>` whose content includes a `<tg-emoji>`
- * does not render as a tappable link (owner screenshot, 2026-08-04 — the map
- * name came out plain black), while the identical markup links fine in a
- * normal `sendMessage`. So here the icon sits OUTSIDE the anchor and only the
- * map name is linked.
+ * Match link for a RICH message — positional wrapper over the shared
+ * `richMatchLink` in publisher/player-render.ts, which is now where the
+ * "icon OUTSIDE the anchor" rule lives (the daily digest needs it too).
  */
 function richMatchLink(url: string, mapName: string | null): string {
-  const icon = mapName ? mapToEmojiHtml(mapName) : '';
-  const label = mapName ? esc(mapName) : 'матч';
-  return `${icon ? `${icon} ` : ''}<a href="${esc(url)}">${label}</a>`;
+  return sharedRichMatchLink({ url, mapName });
 }
 
 /** HTML-escape (same rules as publisher/templates.ts esc). */
