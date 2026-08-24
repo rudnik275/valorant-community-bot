@@ -102,6 +102,42 @@ describe('renderRichDailyDigest', () => {
     expect(html.match(/Ace#ACE/g)?.length).toBe(1);
   });
 
+  it('marks a multi-ace match with a bold ×N next to the nick', () => {
+    const html = renderRichDailyDigest([
+      aceRow({ round0: 2, won: true }),
+      aceRow({ round0: 6, won: false }),
+      aceRow({ round0: 10, won: true }),
+    ]);
+    expect(html).toContain('<b>×3</b> ·');
+    // ×N sits on the nick side of the separator, not on the match.
+    expect(html.indexOf('<b>×3</b>')).toBeLessThan(html.indexOf('Ascent'));
+  });
+
+  it('marks a two-knife match the same way', () => {
+    const html = renderRichDailyDigest([
+      knifeRow({ round0: 3, won: true }),
+      knifeRow({ round0: 9, won: false }),
+    ]);
+    expect(html).toContain('<b>×2</b> ·');
+    expect(html).toContain('(4🏆 | 10💀)');
+  });
+
+  it('never prints ×1 — a single occurrence carries no multiplier', () => {
+    const html = renderRichDailyDigest([aceRow(), knifeRow()]);
+    expect(html).not.toContain('×');
+  });
+
+  it('counts the multiplier per match, not per player across matches', () => {
+    // Same player: two aces on m1, one on m2 → ×2 on the first line only.
+    const html = renderRichDailyDigest([
+      aceRow({ matchId: 'm1', map: 'Ascent', round0: 1, won: true }),
+      aceRow({ matchId: 'm1', map: 'Ascent', round0: 5, won: true }),
+      aceRow({ matchId: 'm2', map: 'Bind', round0: 3, won: true }),
+    ]);
+    expect(html.match(/×\d+/g)).toEqual(['×2']);
+    expect(html.indexOf('×2')).toBeLessThan(html.indexOf('Bind'));
+  });
+
   it('renders 💀 N for a lost round and 🏆 N for a won round', () => {
     const html = renderRichDailyDigest([
       aceRow({ matchId: 'w1', round0: 0, won: true }),
