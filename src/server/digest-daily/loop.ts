@@ -49,7 +49,7 @@ export interface DailyDigestLoopDeps {
   sendMessage: SendMessage;
   /**
    * Rich Message send (#315). When provided, the daily digest posts as a Rich
-   * Message (flat lines + details), falling back to `sendMessage` (legacy text) on any
+   * Message (flat lines), falling back to `sendMessage` (legacy text) on any
    * error. Omitted ⇒ legacy text only (unchanged pre-#315 behaviour).
    */
   sendRichMessage?: SendRichMessage | undefined;

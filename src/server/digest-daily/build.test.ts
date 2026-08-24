@@ -504,7 +504,7 @@ describe('buildDailyAceDigest', () => {
       expect(html).toContain('<h2>🍿 Эйсы и ножи за предыдущие 24 часа</h2>');
       expect(html).toContain('<h3>🎯 Эйсы</h3>');
       expect(html).not.toContain('<table');
-      expect(html).toContain('· раунд 🏆 3 ·');
+      expect(html).toContain('(3🏆)');
       // Match link icon points at the tracker URL.
       expect(html).toContain('href="https://tracker.gg/valorant/match/m1"');
     });

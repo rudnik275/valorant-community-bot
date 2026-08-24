@@ -17,7 +17,7 @@ vi.mock('./build.ts', () => ({
   buildDailyAceDigest: vi.fn().mockResolvedValue({
     text: '🎯 Ace\n<i>💀 без победы в раунде</i>\n<i>🏆 с победой в раунде</i>\n\n<b>Player#TAG</b> (Jett) 🏆round 2 · 🗺<a href="https://tracker.gg/valorant/match/m1">Ascent</a>\n\n<i>Эйсы и ножи за предыдущие 24 часа</i>',
     richHtml:
-      '<h2>🍿 Эйсы и ножи за предыдущие 24 часа</h2><h3>🎯 Эйсы</h3><b>Player#TAG</b> · раунд 🏆 2 · <a href="https://tracker.gg/valorant/match/m1">Ascent</a>',
+      '<h2>🍿 Эйсы и ножи за предыдущие 24 часа</h2><h3>🎯 Эйсы</h3><b>Player#TAG</b> · <a href="https://tracker.gg/valorant/match/m1">Ascent</a> (2🏆)',
     includedEventIds: [42],
   }),
 }));
@@ -25,7 +25,7 @@ vi.mock('./build.ts', () => ({
 const MOCK_TEXT =
   '🎯 Ace\n<i>💀 без победы в раунде</i>\n<i>🏆 с победой в раунде</i>\n\n<b>Player#TAG</b> (Jett) 🏆round 2 · 🗺<a href="https://tracker.gg/valorant/match/m1">Ascent</a>\n\n<i>Эйсы и ножи за предыдущие 24 часа</i>';
 const MOCK_RICH =
-  '<h2>🍿 Эйсы и ножи за предыдущие 24 часа</h2><h3>🎯 Эйсы</h3><b>Player#TAG</b> · раунд 🏆 2 · <a href="https://tracker.gg/valorant/match/m1">Ascent</a>';
+  '<h2>🍿 Эйсы и ножи за предыдущие 24 часа</h2><h3>🎯 Эйсы</h3><b>Player#TAG</b> · <a href="https://tracker.gg/valorant/match/m1">Ascent</a> (2🏆)';
 
 const MIGRATIONS_FOLDER = join(process.cwd(), 'drizzle');
 

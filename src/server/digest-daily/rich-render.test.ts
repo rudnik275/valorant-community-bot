@@ -42,18 +42,13 @@ describe('renderRichDailyDigest', () => {
     expect(html).toContain('<h2>🍿 Эйсы и ножи за предыдущие 24 часа</h2>');
   });
 
-  it('renders the legend inside a <details> with ONLY the two 💀/🏆 lines (no 🎯/🔪 lines)', () => {
-    const html = renderRichDailyDigest([aceRow()]);
-    expect(html).toContain(
-      '<details><summary>ℹ️ Легенда</summary>' +
-        '<blockquote>💀 - без победы в раунде<br>🏆 - с победой в раунде</blockquote>' +
-        '</details>',
-    );
-    // The dropped legend lines must be gone.
-    expect(html).not.toContain('- Ace');
-    expect(html).not.toContain('Заколол баранчика');
-    expect(html).not.toContain('Распотрошил гуся');
-    expect(html).not.toContain('🔪🪿');
+  it('emits NO legend at all — 🏆/💀 on the round markers speak for themselves', () => {
+    const html = renderRichDailyDigest([aceRow(), knifeRow()]);
+    expect(html).not.toContain('Легенда');
+    expect(html).not.toContain('<details');
+    expect(html).not.toContain('<blockquote');
+    expect(html).not.toContain('без победы в раунде');
+    expect(html).not.toContain('с победой в раунде');
   });
 
   it('emits NO table markup at all — the layout is flat lines', () => {
@@ -74,7 +69,7 @@ describe('renderRichDailyDigest', () => {
     expect(html).toContain('<h3>🔪 Ножи</h3>');
   });
 
-  it('renders one line per player+match as `ник · раунд N · ссылка`', () => {
+  it('renders one line per player+match as `ник · 🗺 Карта (N🏆)`', () => {
     const html = renderRichDailyDigest([aceRow()]);
     const player = renderPlayerName({
       name: 'Ace',
@@ -84,7 +79,9 @@ describe('renderRichDailyDigest', () => {
       agent: 'Jett',
     });
     const match = richMatchLink({ url: TRACKER('m1'), mapName: 'Ascent' });
-    expect(html).toContain(`${player} · раунд 🏆 3 · ${match}`);
+    expect(html).toContain(`${player} · ${match} (3🏆)`);
+    // No «раунд»/«раунды» label — the brackets hang off the map name.
+    expect(html).not.toContain('раунд');
   });
 
   it('links the map name itself (tg-emoji stays OUTSIDE the anchor in rich messages)', () => {
@@ -100,7 +97,7 @@ describe('renderRichDailyDigest', () => {
       aceRow({ round0: 2, won: true }),
       aceRow({ round0: 10, won: true }),
     ]);
-    expect(html).toContain('· раунды 🏆 3, 💀 7, 🏆 11 ·');
+    expect(html).toContain('(3🏆 | 7💀 | 11🏆)');
     // The nick is printed once, not once per round.
     expect(html.match(/Ace#ACE/g)?.length).toBe(1);
   });
@@ -110,15 +107,15 @@ describe('renderRichDailyDigest', () => {
       aceRow({ matchId: 'w1', round0: 0, won: true }),
       aceRow({ matchId: 'l1', round0: 5, won: false }),
     ]);
-    expect(html).toContain('раунд 🏆 1');
-    expect(html).toContain('раунд 💀 6');
+    expect(html).toContain('(1🏆)');
+    expect(html).toContain('(6💀)');
   });
 
   it('renders a bare round number (no emoji) when the outcome is unknown', () => {
     const html = renderRichDailyDigest([aceRow({ round0: 3, won: null })]);
-    expect(html).toContain('· раунд 4 ·');
-    expect(html).not.toContain('🏆 4');
-    expect(html).not.toContain('💀 4');
+    expect(html).toContain('(4)');
+    expect(html).not.toContain('4🏆');
+    expect(html).not.toContain('4💀');
   });
 
   it('drops the rank icon when rank is null but keeps the agent icon (renderPlayerName contract)', () => {
@@ -151,7 +148,7 @@ describe('renderRichDailyDigest', () => {
     // Beta's single line is NOT between Alpha's two lines.
     expect(posB1).toBeGreaterThan(posA2);
     // Within Alpha, chronological order preserved (round 1 before round 5).
-    expect(html.indexOf('раунд 🏆 1')).toBeLessThan(html.indexOf('раунд 🏆 5'));
+    expect(html.indexOf('(1🏆)')).toBeLessThan(html.indexOf('(5🏆)'));
   });
 
   it('separates lines with <br> (never a raw newline)', () => {
@@ -159,7 +156,7 @@ describe('renderRichDailyDigest', () => {
       aceRow({ riotName: 'Alpha', riotTag: 'A', matchId: 'a1' }),
       aceRow({ riotName: 'Beta', riotTag: 'B', matchId: 'b1' }),
     ]);
-    expect(html).toContain('</a><br>');
+    expect(html).toContain(')<br>');
   });
 
   it('omits the Ножи section entirely when there are no knife events', () => {
@@ -187,8 +184,8 @@ describe('renderRichDailyDigest', () => {
       aceRow({ riotName: 'Both', riotTag: 'B', matchId: 'same', round0: 1, won: true }),
       knifeRow({ riotName: 'Both', riotTag: 'B', matchId: 'same', round0: 8, won: false }),
     ]);
-    expect(html).toContain('· раунд 🏆 2 ·');
-    expect(html).toContain('· раунд 💀 9 ·');
+    expect(html).toContain('(2🏆)');
+    expect(html).toContain('(9💀)');
   });
 
   it('never emits a raw newline (rich HTML collapses \\n browser-style)', () => {
