@@ -85,6 +85,24 @@ export interface RichTemplateContext {
    * team; community_clash = no single subject).
    */
   heroPuuids?: string[];
+  /**
+   * match_comeback only: the deepest deficit the team dug itself out of and the
+   * final score, so the description can say «отыгрались с 3:11 до 13:11»
+   * instead of a scoreless "из глубокого отставания". The legacy plain template
+   * always carried these numbers; the #315 rich rewrite dropped them and the
+   * group noticed the message no longer says from WHAT score they came back
+   * (owner, 2026-08-28). Absent ⇒ the generic sentence is used, so pre-#315
+   * payloads still render.
+   */
+  comebackScores?: ComebackScores;
+}
+
+/** match_comeback deficit + final round scores, player side first. */
+export interface ComebackScores {
+  deficitPlayer: number;
+  deficitOpponent: number;
+  finalPlayer: number;
+  finalOpponent: number;
 }
 
 /** Titles — emoji + verbatim heading text, bold per the approved format. */
@@ -104,8 +122,11 @@ function describe(eventType: EventType, ctx: RichTemplateContext): string {
   switch (eventType) {
     case 'giant_slayer':
       return 'Выиграл(а) против превосходящего врага.';
-    case 'match_comeback':
-      return 'Отыгрались из глубокого отставания и вырвали победу.';
+    case 'match_comeback': {
+      const s = ctx.comebackScores;
+      if (!s) return 'Отыгрались из глубокого отставания и вырвали победу.';
+      return `Отыгрались с ${s.deficitPlayer}:${s.deficitOpponent} до ${s.finalPlayer}:${s.finalOpponent} и вырвали победу.`;
+    }
     case 'community_clash':
       return 'Наши сошлись друг против друга в одном матче.';
     default:
@@ -232,6 +253,28 @@ function clashTeamLabel(
 }
 
 /**
+ * Pull the match_comeback deficit + final scores out of the event payload.
+ * Returns `null` unless ALL FOUR are finite numbers — a half-filled score line
+ * («отыгрались с 3:? до 13:11») is worse than the generic sentence, and old
+ * pre-#315 payloads legitimately have none of them.
+ */
+function readComebackScores(payload: Record<string, unknown>): ComebackScores | null {
+  const num = (key: string): number | null => {
+    const v = payload[key];
+    return typeof v === 'number' && Number.isFinite(v) ? v : null;
+  };
+  const deficitPlayer = num('deficit_score_player');
+  const deficitOpponent = num('deficit_score_opponent');
+  const finalPlayer = num('final_score_player');
+  const finalOpponent = num('final_score_opponent');
+  if (
+    deficitPlayer === null || deficitOpponent === null ||
+    finalPlayer === null || finalOpponent === null
+  ) return null;
+  return { deficitPlayer, deficitOpponent, finalPlayer, finalOpponent };
+}
+
+/**
  * Render one of the three "trio" events as a rich HTML message, or `null` when
  * the roster data is incomplete (⇒ legacy plain-text fallback).
  */
@@ -304,6 +347,11 @@ export async function renderRichEvent(
       ? { heroPuuids: match.heroPuuids }
       : {}),
   };
+
+  if (eventType === 'match_comeback') {
+    const scores = readComebackScores(payload);
+    if (scores) ctx.comebackScores = scores;
+  }
 
   if (eventType === 'community_clash') {
     const winner = payload['winner_team_id'];

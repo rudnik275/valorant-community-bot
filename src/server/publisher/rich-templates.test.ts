@@ -162,6 +162,18 @@ describe('renderRichTemplate — table structure & content', () => {
     expect(html).toContain('Поводил(ла) по губам</b><br><i>');
   });
 
+  it('match_comeback names the score it came back FROM and the final score', () => {
+    const html = renderRichTemplate('match_comeback', ctx({
+      comebackScores: { deficitPlayer: 3, deficitOpponent: 11, finalPlayer: 13, finalOpponent: 11 },
+    }))!;
+    expect(html).toContain('<i>Отыгрались с 3:11 до 13:11 и вырвали победу.</i>');
+  });
+
+  it('match_comeback without scores keeps the generic sentence (old payloads)', () => {
+    const html = renderRichTemplate('match_comeback', ctx())!;
+    expect(html).toContain('<i>Отыгрались из глубокого отставания и вырвали победу.</i>');
+  });
+
   it('match_comeback / community_clash ignore heroPuuids (no single subject)', () => {
     const comeback = renderRichTemplate('match_comeback', ctx({ heroPuuids: ['b1'] }))!;
     expect(comeback).toContain('Мы вами гордимся</b><br><i>');
