@@ -13,7 +13,7 @@ import {
 } from '../lib/henrik.ts';
 import { scanForPuuid as defaultScanForPuuid } from '../scanner/index.ts';
 import logger from '../lib/log.ts';
-import { FULL_PERMISSIONS } from '../cron/restrict-grace.ts';
+import { ungateMember, type RestrictChatMember } from '../gate/member-gate.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
@@ -28,11 +28,7 @@ export interface OnboardHandlerDeps {
    * Telegram Bot API: restrict a chat member.
    * Used to lift read-only restriction after successful onboard.
    */
-  restrictChatMember?: (
-    chatId: number,
-    userId: number,
-    permissions: typeof FULL_PERMISSIONS,
-  ) => Promise<void>;
+  restrictChatMember?: RestrictChatMember;
   /** Returns allowed Telegram chat IDs — used to lift restrictions after onboard. */
   getAllowedChatIds?: () => Set<number>;
   /**
@@ -86,30 +82,13 @@ export function makeOnboardHandler(deps: OnboardHandlerDeps) {
       .limit(1);
     if (!currentRow) return;
 
-    const chatIds = getAllowedChatIds();
-    let anyUnrestrictFailed = false;
-    for (const chatId of chatIds) {
-      try {
-        await restrictChatMember(chatId, telegramId, FULL_PERMISSIONS);
-      } catch (err) {
-        logger.warn(
-          { module: 'onboard', telegram_id: telegramId, chat_id: chatId, err },
-          'Failed to unrestrict user in chat — will retry on next onboard',
-        );
-        anyUnrestrictFailed = true;
-      }
-    }
-
-    if (!anyUnrestrictFailed) {
-      await deps.db
-        .update(users)
-        .set({ restricted_at: null })
-        .where(eq(users.telegram_id, telegramId));
-      logger.info(
-        { module: 'onboard', telegram_id: telegramId },
-        'User restriction lifted after onboard',
-      );
-    }
+    // The lifting itself lives next to the gating it undoes — see
+    // gate/member-gate.ts. Onboard decides WHEN someone earns the right to
+    // write back; it does not own what that means.
+    await ungateMember(
+      { db: deps.db, restrictChatMember },
+      { chatIds: getAllowedChatIds(), userId: telegramId },
+    );
   };
 
   /**

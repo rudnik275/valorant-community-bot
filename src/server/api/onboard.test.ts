@@ -14,7 +14,7 @@ import {
   type RiotAccount,
 } from '../lib/henrik.ts';
 import type { TelegramUser } from '../lib/init-data.ts';
-import { FULL_PERMISSIONS } from '../cron/restrict-grace.ts';
+import { FULL_PERMISSIONS, type RestrictChatMember } from '../gate/member-gate.ts';
 import logger from '../lib/log.ts';
 
 vi.mock('../lib/log.ts', () => ({
@@ -49,7 +49,7 @@ function makeApp(
     telegramUser?: TelegramUser;
     validateAccount?: (name: string, tag: string) => Promise<RiotAccount>;
     scanForPuuid?: (puuid: string, opts: { detection: boolean }) => Promise<unknown>;
-    restrictChatMember?: (chatId: number, userId: number, permissions: typeof FULL_PERMISSIONS) => Promise<void>;
+    restrictChatMember?: RestrictChatMember;
     getAllowedChatIds?: () => Set<number>;
   } = {},
 ) {
@@ -417,7 +417,7 @@ describe('POST /api/onboard', () => {
 
     // Warning should be logged
     expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
-      expect.objectContaining({ module: 'onboard', telegram_id: 42 }),
+      expect.objectContaining({ module: 'member-gate', telegram_id: 42 }),
       expect.stringContaining('Failed to unrestrict'),
     );
   });

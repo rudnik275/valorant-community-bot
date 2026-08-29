@@ -11,9 +11,11 @@
  * - On success → UPDATE riot_puuid, riot_region, riot_name, riot_tag from canonical Henrik
  *   response. Fire-and-forget scanForPuuid.
  * - On HenrikInactiveAccountError → no-op, will retry tomorrow.
- * - On HenrikNotFoundError → CLEAR riot_name/riot_tag and notify the user; this
+ * - On HenrikNotFoundError → CLEAR riot_name/riot_tag and gate the member; this
  *   is the settling step for nicks that `onboard` admitted without a verdict
- *   while Henrik was down. restrict-grace re-gates the row on its next tick.
+ *   while Henrik was down. Gating happens here rather than waiting for the daily
+ *   sweep, so the explanation the member receives is about something that has
+ *   already happened.
  * - On other errors (Henrik-side, no verdict) → log warn, no DB change.
  *
  * No notification to the user on success. No schema migration. No new columns.
@@ -28,6 +30,7 @@ import {
   HenrikNotFoundError,
 } from '../lib/henrik.ts';
 import logger from '../lib/log.ts';
+import { gateMember, type MemberGateDeps } from '../gate/member-gate.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
@@ -38,11 +41,13 @@ export interface RetryPendingOnboardDeps {
   validateAccount: (name: string, tag: string) => Promise<RiotAccount>;
   /** Fire-and-forget per-puuid scan, already bound to db. Injectable for testing. */
   scanForPuuid: (puuid: string, opts: { detection: boolean }) => Promise<unknown>;
+  /** Chats the user should be gated in once their nick is cleared. */
+  getAllowedChatIds?: () => Set<number>;
   /**
-   * Best-effort notice to a user whose pending nick turned out not to exist and
-   * was cleared. Optional — absent ⇒ the row is still cleared, just silently.
+   * Gate dependencies, forwarded untouched. Absent ⇒ the row is still cleared,
+   * the member is simply left for the daily sweep to gate.
    */
-  onNickCleared?: (telegramId: number, riotName: string, riotTag: string) => Promise<void>;
+  gate?: MemberGateDeps;
 }
 
 export async function runRetryPendingOnboardTick(deps: RetryPendingOnboardDeps): Promise<void> {
@@ -113,17 +118,17 @@ export async function runRetryPendingOnboardTick(deps: RetryPendingOnboardDeps):
           'Pending nick does not exist — cleared; restrict-grace will re-gate',
         );
 
-        // Tell them why, or the re-restriction reads as the bot randomly
-        // muting them hours after they were let in.
-        if (deps.onNickCleared) {
-          try {
-            await deps.onNickCleared(telegram_id, riot_name, riot_tag);
-          } catch (notifyErr) {
-            logger.warn(
-              { module: 'retry-pending-onboard', telegram_id, err: notifyErr },
-              'Failed to notify user about cleared nick',
-            );
-          }
+        // Gate immediately rather than leaving it to the next sweep. Waiting
+        // meant telling the person "access WILL be restricted" and then doing it
+        // hours later — gateMember restricts and explains in the same breath, so
+        // the notice describes what already happened.
+        if (deps.gate && deps.getAllowedChatIds) {
+          await gateMember(deps.gate, {
+            chatIds: deps.getAllowedChatIds(),
+            userId: telegram_id,
+            reason: { kind: 'nick_not_found', riotName: riot_name, riotTag: riot_tag },
+            source: 'retry-pending-onboard',
+          });
         }
         continue;
       }

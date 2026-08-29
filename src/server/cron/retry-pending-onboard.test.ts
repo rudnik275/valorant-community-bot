@@ -20,6 +20,9 @@ import {
   type RiotAccount,
 } from '../lib/henrik.ts';
 import logger from '../lib/log.ts';
+import { READONLY_PERMISSIONS } from '../gate/member-gate.ts';
+
+const CHAT_ID = -100999;
 
 vi.mock('../lib/log.ts', () => ({
   default: {
@@ -136,11 +139,13 @@ describe('runRetryPendingOnboardTick', () => {
     );
 
     const scanForPuuid = vi.fn().mockResolvedValue(undefined);
-    const onNickCleared = vi.fn().mockResolvedValue(undefined);
+    const restrictChatMember = vi.fn().mockResolvedValue(undefined);
+    const notify = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps(db, {
       validateAccount: vi.fn().mockRejectedValue(new HenrikNotFoundError()),
       scanForPuuid,
-      onNickCleared,
+      getAllowedChatIds: () => new Set([CHAT_ID]),
+      gate: { db, restrictChatMember, notify },
     });
 
     await runRetryPendingOnboardTick(deps);
@@ -154,20 +159,31 @@ describe('runRetryPendingOnboardTick', () => {
     expect(row.riot_puuid).toBeNull();
     expect(scanForPuuid).not.toHaveBeenCalled();
 
-    // The user must be told — an unexplained re-mute reads as the bot breaking.
-    expect(onNickCleared).toHaveBeenCalledWith(3, 'GhostPlayer', 'XX1');
+    // Gated right here, not left for tomorrow's sweep.
+    expect(restrictChatMember).toHaveBeenCalledWith(CHAT_ID, 3, READONLY_PERMISSIONS);
+
+    // And told why — an unexplained mute reads as the bot breaking. The notice
+    // names the nick that failed, so it is actionable rather than cryptic.
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(notify).mock.calls[0]![0].html).toContain('GhostPlayer#XX1');
   });
 
-  it('clearing survives a failing notification', async () => {
+  it('clearing and gating survive a failing notification', async () => {
     sqlite.exec(
       `INSERT INTO users (telegram_id, telegram_username, riot_name, riot_tag, joined_at)
        VALUES (7, 'grace', 'GhostPlayer', 'XX1', ${Date.now()})`,
     );
 
+    const restrictChatMember = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps(db, {
       validateAccount: vi.fn().mockRejectedValue(new HenrikNotFoundError()),
       scanForPuuid: vi.fn().mockResolvedValue(undefined),
-      onNickCleared: vi.fn().mockRejectedValue(new Error('telegram down')),
+      getAllowedChatIds: () => new Set([CHAT_ID]),
+      gate: {
+        db,
+        restrictChatMember,
+        notify: vi.fn().mockRejectedValue(new Error('telegram down')),
+      },
     });
 
     await runRetryPendingOnboardTick(deps);
@@ -176,6 +192,8 @@ describe('runRetryPendingOnboardTick', () => {
       .prepare('SELECT riot_name FROM users WHERE telegram_id = 7')
       .get() as { riot_name: string | null };
     expect(row.riot_name).toBeNull();
+    // Being unreachable must not leave someone un-gated.
+    expect(restrictChatMember).toHaveBeenCalledWith(CHAT_ID, 7, READONLY_PERMISSIONS);
   });
 
   // The mirror of case 3: a Henrik-side failure is NOT a verdict, so the row
@@ -187,11 +205,12 @@ describe('runRetryPendingOnboardTick', () => {
        VALUES (8, 'heidi', 'RealPlayer', 'EU1', ${Date.now()})`,
     );
 
-    const onNickCleared = vi.fn().mockResolvedValue(undefined);
+    const restrictChatMember = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps(db, {
       validateAccount: vi.fn().mockRejectedValue(new HenrikUpstreamError(503, 'down')),
       scanForPuuid: vi.fn().mockResolvedValue(undefined),
-      onNickCleared,
+      getAllowedChatIds: () => new Set([CHAT_ID]),
+      gate: { db, restrictChatMember, notify: vi.fn() },
     });
 
     await runRetryPendingOnboardTick(deps);
@@ -202,7 +221,7 @@ describe('runRetryPendingOnboardTick', () => {
 
     expect(row.riot_name).toBe('RealPlayer');
     expect(row.riot_tag).toBe('EU1');
-    expect(onNickCleared).not.toHaveBeenCalled();
+    expect(restrictChatMember).not.toHaveBeenCalled();
   });
 
   // Case 4: Fully-linked user (puuid set) → not picked up

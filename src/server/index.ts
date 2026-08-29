@@ -45,7 +45,7 @@ import { safeSendMessage } from './lib/safe-telegram.ts';
 import { send, sendPhotoExempt, InputFile } from './lib/telegram-send.ts';
 import { sendRichMessageHtml } from './lib/rich-message.ts';
 import { sendEphemeralHtml, notifyUserQuietly } from './lib/ephemeral-message.ts';
-import { esc } from './publisher/templates.ts';
+import type { MemberGateDeps } from './gate/member-gate.ts';
 import { isPublishingEnabled } from './lib/silent-period.ts';
 
 const PORT = Number(process.env['PORT'] ?? 3000);
@@ -59,6 +59,30 @@ const app = new Hono();
 
 // Routes
 app.route('/healthz', healthz);
+
+/**
+ * Dependencies for `gateMember` / `ungateMember`, built in ONE place.
+ *
+ * Every path that can take away the right to write shares this, so `notify`
+ * cannot be wired into some call sites and forgotten in others — which is
+ * exactly how a member ended up silently muted on 2026-08-29.
+ */
+function makeGateDeps(api: Bot['api']): MemberGateDeps {
+  return {
+    db,
+    restrictChatMember: (chatId, userId, permissions) =>
+      api.restrictChatMember(chatId, userId, permissions).then(() => undefined),
+    getMiniAppUrl: () => process.env['PUBLIC_BASE_URL'] ?? '',
+    notify: ({ chatId, userId, html }) =>
+      notifyUserQuietly(
+        {
+          sendEphemeral: (cid, uid, body) => sendEphemeralHtml(api, cid, uid, body),
+          sendDirect: (uid, body) => api.sendMessage(uid, body, { parse_mode: 'HTML' }),
+        },
+        { chatId, userId, html, reason: 'member_gated' },
+      ),
+  };
+}
 
 // Bot setup
 const botToken = process.env['TELEGRAM_BOT_TOKEN'];
@@ -78,11 +102,11 @@ if (botToken) {
   const lastMessageHandler = makeLastMessageHandler({ db, isAllowedChat });
   bot.on('message', lastMessageHandler);
   bot.on('chat_member', makeChatMemberListener({
-    db,
+    ...makeGateDeps(bot.api),
     isAllowedChat,
-    // Nick-gate: restrict fresh joiners without a nick to read-only immediately.
-    restrictChatMember: (chatId, userId, permissions) =>
-      bot!.api.restrictChatMember(chatId, userId, permissions).then(() => undefined),
+    // Nick-gate: a fresh joiner without a nick is gated immediately — and told
+    // why, since the guard bot is not the only way into the group (manual
+    // approval and direct adds skip it entirely).
     getChatAdministrators: (chatId) => bot!.api.getChatAdministrators(chatId),
   }));
   // Guard-bot: show the nick Mini App to join requesters (#350). Additive —
@@ -269,12 +293,12 @@ if (process.env['SCANNER_DISABLED'] !== 'true') {
       logger.warn({ module: 'publisher' }, 'TELEGRAM_PRIMARY_CHAT_ID not set — publisher disabled');
     }
 
+    const gateDeps = makeGateDeps(bot.api);
+
     startRestrictGraceLoop({
-      db,
+      ...gateDeps,
       getAllowedChatIds: loadAllowedChatIds,
       getBotId: () => bot!.botInfo.id,
-      restrictChatMember: (chatId, userId, permissions) =>
-        bot!.api.restrictChatMember(chatId, userId, permissions).then(() => undefined),
       getChatAdministrators: (chatId) =>
         bot!.api.getChatAdministrators(chatId),
     });
@@ -291,29 +315,8 @@ if (process.env['SCANNER_DISABLED'] !== 'true') {
       db,
       validateAccount: resolveAccount,
       scanForPuuid,
-      // A nick that turned out not to exist gets cleared, and restrict-grace
-      // re-gates the user on its next tick. Telling them why is the whole point:
-      // an unexplained mute hours after being let in reads as the bot breaking.
-      // Ephemeral keeps it between the bot and that one person.
-      onNickCleared: async (telegramId, riotName, riotTag) => {
-        const chatId = Number(process.env['TELEGRAM_PRIMARY_CHAT_ID'] ?? '0');
-        if (!chatId) return;
-        const appUrl = process.env['PUBLIC_BASE_URL'] ?? '';
-        const html =
-          `Не получилось подтвердить твой Riot ID <b>${esc(riotName)}#${esc(riotTag)}</b> — Valorant такого не знает.\n` +
-          `Скорее всего опечатка: легко перепутать латинскую <b>I</b> со строчной <b>l</b>, а букву <b>O</b> с нулём.\n` +
-          (appUrl
-            ? `Введи ник заново — <a href="${esc(appUrl)}">открыть форму</a>. Пока он не подтверждён, доступ к чату будет ограничен.`
-            : `Введи ник заново. Пока он не подтверждён, доступ к чату будет ограничен.`);
-        await notifyUserQuietly(
-          {
-            sendEphemeral: (cid, uid, body) => sendEphemeralHtml(bot!.api, cid, uid, body),
-            sendDirect: (uid, body) =>
-              bot!.api.sendMessage(uid, body, { parse_mode: 'HTML' }),
-          },
-          { chatId, userId: telegramId, html, reason: 'nick_cleared' },
-        );
-      },
+      getAllowedChatIds: loadAllowedChatIds,
+      gate: gateDeps,
     });
   }
 }

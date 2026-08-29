@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { makeChatMemberListener } from './chat-member-listener.ts';
 import { users } from '../db/schema/users.ts';
-import { READONLY_PERMISSIONS } from '../cron/restrict-grace.ts';
+import { READONLY_PERMISSIONS } from '../gate/member-gate.ts';
 import logger from '../lib/log.ts';
 
 vi.mock('../lib/log.ts', () => ({
@@ -383,8 +383,8 @@ describe('makeChatMemberListener', () => {
       const row = db.select().from(users).where(eq(users.telegram_id, 206)).all()[0]!;
       expect(row.restricted_at).toBeNull();
       expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
-        expect.objectContaining({ event: 'restrict_on_join_failed', user_id: 206 }),
-        expect.stringContaining('restrictChatMember failed on join'),
+        expect.objectContaining({ module: 'member-gate', source: 'on-join', telegram_id: 206 }),
+        expect.stringContaining('restrictChatMember failed'),
       );
     });
 
