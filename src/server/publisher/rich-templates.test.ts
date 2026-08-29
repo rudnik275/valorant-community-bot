@@ -226,6 +226,11 @@ describe('renderRichTemplate — team grouping & separators', () => {
     expect((html.match(/<th>Игрок<\/th>/g) ?? []).length).toBe(2);
     expect(html).not.toContain('colspan');
 
+    // The first caption gets a blank line after the result line; the second
+    // needs none, the table above it already provides the gap.
+    expect(html).toContain('</i><br><br><b>Команда А</b>');
+    expect(html).toContain('</table><br><b>Команда Б</b>');
+
     // Each label precedes its table, and Б comes after А's table.
     const aIdx = html.indexOf('<b>Команда А</b>');
     const firstTable = html.indexOf('<table');

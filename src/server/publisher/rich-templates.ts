@@ -367,8 +367,13 @@ export function renderRichTemplate(
   // is not the place to start: they simply get two tables where they used to
   // have one blank separator row doing the same job.
   const teamBlocks = teams.map((t, i) => {
+    // The FIRST caption follows the description — an inline line — so a single
+    // <br> only drops it onto the next row and it reads as glued to the result
+    // (owner, 2026-08-29). Later captions follow a `</table>`, a block element
+    // that already brings its own vertical gap. Hence the asymmetry.
+    const lead = i === 0 ? '<br><br>' : '<br>';
     const label = eventType === 'community_clash'
-      ? `<br><b>${esc(clashTeamLabel(i))}</b>`
+      ? `${lead}<b>${esc(clashTeamLabel(i))}</b>`
       : '';
     const rows = t.rows.map(playerRow).join('');
     return `${label}<table${COMPACT_ATTR}><tr><th>Игрок</th><th>Агент · K/D</th></tr>${rows}</table>`;
