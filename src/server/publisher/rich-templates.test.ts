@@ -66,7 +66,7 @@ describe('renderRichTemplate — table structure & content', () => {
     expect(html).not.toBeNull();
     // Count player <tr> rows: total rows minus header minus separators.
     const trCount = (html!.match(/<tr>/g) ?? []).length;
-    // 10 players + 1 header + 1 mid-team separator (giant_slayer) = 12
+    // 10 player rows + one header row per team table = 12
     expect(trCount).toBe(12);
     // Every participant name appears.
     for (const name of ['Alice', 'Bob', 'Carol', 'Frank', 'Jack']) {
@@ -206,23 +206,34 @@ describe('renderRichTemplate — table structure & content', () => {
 });
 
 describe('renderRichTemplate — team grouping & separators', () => {
-  it('giant_slayer / match_comeback use a NEUTRAL separator (no team names)', () => {
+  it('giant_slayer / match_comeback split the fives into two tables, unnamed', () => {
     for (const type of ['giant_slayer', 'match_comeback'] as const) {
       const html = renderRichTemplate(type, ctx())!;
-      // Exactly one full-width separator between the two fives.
-      const seps = (html.match(/<td colspan="2">/g) ?? []).length;
-      expect(seps).toBe(1);
-      // No "Команда" label for these.
+      // One table per five, replacing the old blank full-width separator row.
+      expect((html.match(/<table/g) ?? []).length).toBe(2);
+      expect(html).not.toContain('colspan');
+      // These events never named their teams and still don't.
       expect(html).not.toContain('Команда');
     }
   });
 
-  it('community_clash labels both teams «Команда А/Б» via colspan separators', () => {
+  it('community_clash names each team as text ABOVE its own table', () => {
+    // The name used to be a row inside the table. It is a caption now, and each
+    // five gets its own table with its own header (owner, 2026-08-29).
     const html = renderRichTemplate('community_clash', ctx({ winnerTeamId: 'Blue', teamScores: { Blue: { won: 13, lost: 11 }, Red: { won: 11, lost: 13 } } }))!;
-    const seps = (html.match(/<td colspan="2">/g) ?? []).length;
-    expect(seps).toBe(2); // one per team
-    expect(html).toContain('Команда А');
-    expect(html).toContain('Команда Б');
+
+    expect((html.match(/<table/g) ?? []).length).toBe(2);
+    expect((html.match(/<th>Игрок<\/th>/g) ?? []).length).toBe(2);
+    expect(html).not.toContain('colspan');
+
+    // Each label precedes its table, and Б comes after А's table.
+    const aIdx = html.indexOf('<b>Команда А</b>');
+    const firstTable = html.indexOf('<table');
+    const bIdx = html.indexOf('<b>Команда Б</b>');
+    const secondTable = html.indexOf('<table', firstTable + 1);
+    expect(aIdx).toBeLessThan(firstTable);
+    expect(bIdx).toBeGreaterThan(firstTable);
+    expect(bIdx).toBeLessThan(secondTable);
   });
 
   it('community_clash keeps the table plain — the outcome is stated above it', () => {
@@ -231,13 +242,14 @@ describe('renderRichTemplate — team grouping & separators', () => {
     // outcome and score go on top, the table below stays a table.
     const html = renderRichTemplate('community_clash', ctx({ winnerTeamId: 'Blue', teamScores: { Blue: { won: 13, lost: 11 }, Red: { won: 11, lost: 13 } } }))!;
 
-    const table = html.slice(html.indexOf('<table'));
-    expect(table).not.toContain('🥇');
-    expect(table).not.toContain('победа');
-    expect(table).not.toContain('13:11');
-    // Both separators still say which five is which.
-    expect(table).toContain('Команда А');
-    expect(table).toContain('Команда Б');
+    // Nothing about the result survives below the description.
+    const belowDesc = html.slice(html.indexOf('<table'));
+    expect(belowDesc).not.toContain('🥇');
+    expect(belowDesc).not.toContain('победа');
+    expect(belowDesc).not.toContain('13:11');
+    // The captions still say which five is which.
+    expect(html).toContain('<b>Команда А</b>');
+    expect(html).toContain('<b>Команда Б</b>');
   });
 
   it('community_clash states the outcome and score under the title', () => {

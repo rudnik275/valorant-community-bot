@@ -5,14 +5,18 @@
  * Each renders a SINGLE rich HTML message with the approved format:
  *
  *   [эмодзи] <b>Заголовок</b>
- *   <i>описание</i>
- *   <table>  Игрок | Агент · K/D   — ALL 10 participants, split into two teams
- *     [team-separator row, colspan=2 — team name, or blank between the fives]
- *     … 5 rows …
- *     [team-separator row]
- *     … 5 rows …
- *   </table>
+ *   <i>описание — for community_clash this also carries the outcome + score</i>
+ *   [<b>Команда А</b> — plain text, community_clash only]
+ *   <table>  Игрок | Агент · K/D  ·  5 rows
+ *   [<b>Команда Б</b>]
+ *   <table>  Игрок | Агент · K/D  ·  5 rows
  *   [map-emoji] <a href="…">Карта</a>
+ *
+ * ONE TABLE PER TEAM, each with its own header (owner, 2026-08-29). It used to
+ * be a single table whose fives were divided by a full-width `colspan=2` row —
+ * carrying the team name for community_clash, blank for the other two. Two
+ * tables read better and let the team name be ordinary text above its table
+ * instead of a row inside it.
  *
  * The renderer returns `null` when the data is incomplete (no roster rows, or
  * any participant missing tier/kills/deaths — pre-#315 rows). `null` ⇒ the
@@ -23,7 +27,6 @@
  *   - `<table>/<tr>/<th>/<td>` render as tables; `<tg-emoji>` survives inside
  *     cells; `<details><summary>` renders collapsible; raw `\n` collapses
  *     browser-style so block markup / `<br>` is used — no raw newlines here.
- *   - `colspan` on a `<td>` merges columns for the team-separator rows.
  */
 
 import type { EventType } from './types.ts';
@@ -204,11 +207,6 @@ function playerRow(row: FullRosterRow): string {
   return `<tr><td>${name}</td><td>${agentKd(row)}</td></tr>`;
 }
 
-/** A full-width separator row spanning both columns. */
-function separatorRow(label: string): string {
-  return `<tr><td colspan="2">${label}</td></tr>`;
-}
-
 /**
  * Every participant must have tier/kills/deaths for a complete table. Any null
  * ⇒ incomplete (pre-#315 roster) ⇒ caller falls back to legacy text.
@@ -361,26 +359,22 @@ export function renderRichTemplate(
   const desc = [describe(eventType, ctx), outcome].filter(Boolean).join(' ');
   const descLine = desc ? `<br><i>${esc(desc)}</i>` : '';
 
-  // Build table body: team A rows, separator, team B rows, separator between.
-  const bodyRows: string[] = [];
-  teams.forEach((t, i) => {
-    if (eventType === 'community_clash') {
-      bodyRows.push(separatorRow(clashTeamLabel(i)));
-    } else if (i > 0) {
-      // giant_slayer / match_comeback: a BLANK full-width row between the two
-      // fives — no team names, and no dash either (owner, 2026-08-04: the
-      // «———» read as a stray artefact). First team needs no leading row.
-      bodyRows.push(separatorRow(''));
-    }
-    for (const row of t.rows) bodyRows.push(playerRow(row));
+  // One table PER TEAM, each with its own header, rather than a single table
+  // split by full-width separator rows (owner, 2026-08-29 — reads better).
+  //
+  // community_clash puts the team name above its table as ordinary text, not
+  // as a row inside it. The other two events never named their teams, and this
+  // is not the place to start: they simply get two tables where they used to
+  // have one blank separator row doing the same job.
+  const teamBlocks = teams.map((t, i) => {
+    const label = eventType === 'community_clash'
+      ? `<br><b>${esc(clashTeamLabel(i))}</b>`
+      : '';
+    const rows = t.rows.map(playerRow).join('');
+    return `${label}<table${COMPACT_ATTR}><tr><th>Игрок</th><th>Агент · K/D</th></tr>${rows}</table>`;
   });
 
-  const table =
-    `<table${COMPACT_ATTR}><tr><th>Игрок</th><th>Агент · K/D</th></tr>` +
-    bodyRows.join('') +
-    '</table>';
-
-  return `${title}${hero}${descLine}${table}${matchLinkLine(ctx)}`;
+  return `${title}${hero}${descLine}${teamBlocks.join('')}${matchLinkLine(ctx)}`;
 }
 
 /**
