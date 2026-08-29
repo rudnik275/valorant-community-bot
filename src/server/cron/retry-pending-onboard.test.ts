@@ -16,6 +16,7 @@ import {
 import {
   HenrikInactiveAccountError,
   HenrikNotFoundError,
+  HenrikUpstreamError,
   type RiotAccount,
 } from '../lib/henrik.ts';
 import logger from '../lib/log.ts';
@@ -121,32 +122,87 @@ describe('runRetryPendingOnboardTick', () => {
     expect(scanForPuuid).not.toHaveBeenCalled();
   });
 
-  // Case 3: Pending user, Henrik 404 not-found → no DB change, log warn
-  it('pending user → Henrik not-found → no DB change, warn logged', async () => {
+  // Case 3: Pending user, Henrik 404 not-found → CLEAR the nick (#350).
+  //
+  // Since onboard started admitting on Henrik-side failures, a pending row can
+  // hold a nick nobody ever verified. A definitive 404 is the verdict that says
+  // it is junk; clearing name+tag returns the row to «no nick», which is the
+  // state restrict-grace already re-gates. Without this the user keeps group
+  // access forever on a nick that does not exist.
+  it('pending user → Henrik not-found → nick cleared so restrict-grace re-gates', async () => {
     sqlite.exec(
       `INSERT INTO users (telegram_id, telegram_username, riot_name, riot_tag, joined_at)
        VALUES (3, 'carol', 'GhostPlayer', 'XX1', ${Date.now()})`,
     );
 
     const scanForPuuid = vi.fn().mockResolvedValue(undefined);
+    const onNickCleared = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps(db, {
       validateAccount: vi.fn().mockRejectedValue(new HenrikNotFoundError()),
       scanForPuuid,
+      onNickCleared,
     });
 
     await runRetryPendingOnboardTick(deps);
 
     const row = sqlite
-      .prepare('SELECT riot_puuid FROM users WHERE telegram_id = 3')
-      .get() as { riot_puuid: string | null };
+      .prepare('SELECT riot_name, riot_tag, riot_puuid FROM users WHERE telegram_id = 3')
+      .get() as { riot_name: string | null; riot_tag: string | null; riot_puuid: string | null };
 
+    expect(row.riot_name).toBeNull();
+    expect(row.riot_tag).toBeNull();
     expect(row.riot_puuid).toBeNull();
     expect(scanForPuuid).not.toHaveBeenCalled();
 
-    expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
-      expect.objectContaining({ module: 'retry-pending-onboard', telegram_id: 3 }),
-      expect.stringContaining('validateAccount failed'),
+    // The user must be told — an unexplained re-mute reads as the bot breaking.
+    expect(onNickCleared).toHaveBeenCalledWith(3, 'GhostPlayer', 'XX1');
+  });
+
+  it('clearing survives a failing notification', async () => {
+    sqlite.exec(
+      `INSERT INTO users (telegram_id, telegram_username, riot_name, riot_tag, joined_at)
+       VALUES (7, 'grace', 'GhostPlayer', 'XX1', ${Date.now()})`,
     );
+
+    const deps = makeDeps(db, {
+      validateAccount: vi.fn().mockRejectedValue(new HenrikNotFoundError()),
+      scanForPuuid: vi.fn().mockResolvedValue(undefined),
+      onNickCleared: vi.fn().mockRejectedValue(new Error('telegram down')),
+    });
+
+    await runRetryPendingOnboardTick(deps);
+
+    const row = sqlite
+      .prepare('SELECT riot_name FROM users WHERE telegram_id = 7')
+      .get() as { riot_name: string | null };
+    expect(row.riot_name).toBeNull();
+  });
+
+  // The mirror of case 3: a Henrik-side failure is NOT a verdict, so the row
+  // must survive untouched. Getting this wrong would wash out real members
+  // during an outage — the exact failure the admit-on-trust rule guards against.
+  it('pending user → Henrik-side failure → nick preserved, retried tomorrow', async () => {
+    sqlite.exec(
+      `INSERT INTO users (telegram_id, telegram_username, riot_name, riot_tag, joined_at)
+       VALUES (8, 'heidi', 'RealPlayer', 'EU1', ${Date.now()})`,
+    );
+
+    const onNickCleared = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps(db, {
+      validateAccount: vi.fn().mockRejectedValue(new HenrikUpstreamError(503, 'down')),
+      scanForPuuid: vi.fn().mockResolvedValue(undefined),
+      onNickCleared,
+    });
+
+    await runRetryPendingOnboardTick(deps);
+
+    const row = sqlite
+      .prepare('SELECT riot_name, riot_tag FROM users WHERE telegram_id = 8')
+      .get() as { riot_name: string | null; riot_tag: string | null };
+
+    expect(row.riot_name).toBe('RealPlayer');
+    expect(row.riot_tag).toBe('EU1');
+    expect(onNickCleared).not.toHaveBeenCalled();
   });
 
   // Case 4: Fully-linked user (puuid set) → not picked up
