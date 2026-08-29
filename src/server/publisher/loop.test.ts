@@ -693,7 +693,8 @@ describe('startPublisherLoop', () => {
       // attributes (the roster table carries `compact`, see #352).
       expect(richHtml).toContain('<table');
       expect(richHtml).toContain('⚔️ <b>Френдлифаер</b>');
-      expect(richHtml).toContain('победа 13:11');
+      // The outcome is stated above the table now, not on a separator row.
+      expect(richHtml).toContain('выиграла 13:11');
       expect(sendMessage).not.toHaveBeenCalled();
       expect(getEventStatus(sqlite, id)).toBe('posted');
     });

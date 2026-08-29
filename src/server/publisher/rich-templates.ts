@@ -258,50 +258,58 @@ function teamLetter(index: number): string {
 }
 
 /**
- * community_clash outcome sentence — who won and by how much — appended to the
- * description under the title.
+ * community_clash outcome sentence — how the match ended and with what score —
+ * placed in the description under the title.
  *
  * The result used to live only on the winning team's separator row, halfway
- * down a ten-row table: you had to scroll past five players to find out how the
- * match ended (owner, 2026-08-29). Same treatment match_comeback got in #348 —
- * the score belongs in the sentence that tells you what happened.
+ * down a ten-row table: you had to scroll past five players to find out who
+ * won (owner, 2026-08-29). The whole outcome goes above the table now and the
+ * table below it stays plain — same treatment match_comeback got in #348.
  *
- * Returns '' when the payload names no winner, or names one absent from the
- * roster: a clash message without an outcome line still renders, and old
- * pre-#315 payloads legitimately carry neither winner nor scores.
+ * Three endings, all stated here:
+ *   - one side won      → «Команда Б выиграла 13:7.»
+ *   - the match tied    → «Ничья 12:12.»
+ *   - nothing is known  → '' (the message still renders, it just claims nothing)
+ *
+ * A draw and a missing result look identical in `winnerTeamId` — both are null,
+ * since the detector leaves it null for `result === 'draw'` AND when it cannot
+ * work out the player's team. `teamScores` is what separates them: present ⇒ we
+ * really did see a tied match; absent ⇒ we know nothing and must say nothing.
+ * Old pre-#315 payloads carry neither and fall into the silent case.
  */
 function clashOutcome(
   teams: Array<{ teamId: string; rows: FullRosterRow[] }>,
   ctx: RichTemplateContext,
 ): string {
-  if (!ctx.winnerTeamId) return '';
-  const index = teams.findIndex((t) => t.teamId === ctx.winnerTeamId);
-  if (index < 0) return '';
+  if (ctx.winnerTeamId) {
+    const index = teams.findIndex((t) => t.teamId === ctx.winnerTeamId);
+    // A winner we can't place in the table can't be named — stay silent rather
+    // than guess a letter.
+    if (index < 0) return '';
 
-  const letter = teamLetter(index);
-  const score = ctx.teamScores?.[ctx.winnerTeamId];
-  return score
-    ? `Команда ${letter} выиграла ${score.won}:${score.lost}.`
-    : `Победила команда ${letter}.`;
+    const letter = teamLetter(index);
+    const score = ctx.teamScores?.[ctx.winnerTeamId];
+    return score
+      ? `Команда ${letter} выиграла ${score.won}:${score.lost}.`
+      : `Победила команда ${letter}.`;
+  }
+
+  const firstTeam = teams[0];
+  const score = firstTeam ? ctx.teamScores?.[firstTeam.teamId] : undefined;
+  // Either side's numbers describe a draw equally well — they are equal.
+  return score ? `Ничья ${score.won}:${score.lost}.` : '';
 }
 
 /**
- * community_clash separator label for a team: «Команда А/Б», with a winner
- * mark + score on the winning team's separator, plain on the other.
+ * community_clash separator label: just «Команда А/Б».
+ *
+ * Deliberately carries no medal and no score. Both used to sit here, which is
+ * how the result ended up buried mid-table; the outcome now lives in one place
+ * above the table (see `clashOutcome`) and this row only says which five is
+ * which.
  */
-function clashTeamLabel(
-  teamId: string,
-  index: number,
-  ctx: RichTemplateContext,
-): string {
-  const letter = teamLetter(index);
-  const base = `Команда ${letter}`;
-  if (ctx.winnerTeamId && teamId === ctx.winnerTeamId) {
-    const score = ctx.teamScores?.[teamId];
-    const scorePart = score ? ` — победа ${score.won}:${score.lost}` : ' — победа';
-    return `🥇 <b>${base}${scorePart}</b>`;
-  }
-  return base;
+function clashTeamLabel(index: number): string {
+  return `Команда ${teamLetter(index)}`;
 }
 
 /**
@@ -357,7 +365,7 @@ export function renderRichTemplate(
   const bodyRows: string[] = [];
   teams.forEach((t, i) => {
     if (eventType === 'community_clash') {
-      bodyRows.push(separatorRow(clashTeamLabel(t.teamId, i, ctx)));
+      bodyRows.push(separatorRow(clashTeamLabel(i)));
     } else if (i > 0) {
       // giant_slayer / match_comeback: a BLANK full-width row between the two
       // fives — no team names, and no dash either (owner, 2026-08-04: the

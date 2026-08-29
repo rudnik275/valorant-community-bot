@@ -225,21 +225,19 @@ describe('renderRichTemplate — team grouping & separators', () => {
     expect(html).toContain('Команда Б');
   });
 
-  it('community_clash marks the winner with a medal + "победа X:Y" score', () => {
+  it('community_clash keeps the table plain — the outcome is stated above it', () => {
+    // The medal and the score used to sit on the winning team's separator row,
+    // which is how the result ended up buried mid-table. Owner, 2026-08-29:
+    // outcome and score go on top, the table below stays a table.
     const html = renderRichTemplate('community_clash', ctx({ winnerTeamId: 'Blue', teamScores: { Blue: { won: 13, lost: 11 }, Red: { won: 11, lost: 13 } } }))!;
-    expect(html).toContain('🥇');
-    expect(html).toContain('победа 13:11');
-    // The losing team's separator carries no "победа".
-    // Count occurrences of "победа" — exactly one (winner only).
-    const wins = (html.match(/победа/g) ?? []).length;
-    expect(wins).toBe(1);
-  });
 
-  it('community_clash without team scores still marks the winner (score omitted)', () => {
-    const html = renderRichTemplate('community_clash', ctx({ winnerTeamId: 'Blue' }))!;
-    expect(html).toContain('🥇');
-    expect(html).toContain('победа');
-    expect(html).not.toContain('победа 13'); // no numeric score
+    const table = html.slice(html.indexOf('<table'));
+    expect(table).not.toContain('🥇');
+    expect(table).not.toContain('победа');
+    expect(table).not.toContain('13:11');
+    // Both separators still say which five is which.
+    expect(table).toContain('Команда А');
+    expect(table).toContain('Команда Б');
   });
 
   it('community_clash states the outcome and score under the title', () => {
@@ -270,6 +268,20 @@ describe('renderRichTemplate — team grouping & separators', () => {
   it('community_clash without scores still states who won', () => {
     const html = renderRichTemplate('community_clash', ctx({ winnerTeamId: 'Blue' }))!;
     expect(html).toContain('Победила команда А.');
+  });
+
+  it('community_clash states a draw with its score', () => {
+    // A draw and "we have no idea" both arrive as winnerTeamId null — the
+    // detector leaves it null for result === 'draw' as well as when it cannot
+    // work out the player's team. Having scores is what proves it was a real
+    // tied match.
+    const html = renderRichTemplate('community_clash', ctx({
+      winnerTeamId: null,
+      teamScores: { Blue: { won: 12, lost: 12 }, Red: { won: 12, lost: 12 } },
+    }))!;
+
+    expect(html).toContain('Ничья 12:12.');
+    expect(html.indexOf('Ничья')).toBeLessThan(html.indexOf('<table'));
   });
 
   it('community_clash says nothing about the outcome when there is no winner', () => {
