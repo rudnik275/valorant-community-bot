@@ -8,6 +8,11 @@ import healthz from './api/healthz.ts';
 import { scopeGuard } from './bot/scope-guard.ts';
 import { makeLastMessageHandler } from './bot/listener.ts';
 import { makeChatMemberListener } from './bot/chat-member-listener.ts';
+import {
+  makeJoinRequestListener,
+  JOIN_REQUEST_ANSWER_PARAMS,
+  type RawJoinRequestApi,
+} from './bot/join-request-listener.ts';
 import { makeTestDigestHandler, makeTestDigestImageHandler, makeTestRuntimeEventsHandler } from './bot/test-commands.ts';
 import { makeCongratsHandler, makeCongratsCallbackHandler } from './bot/congrats-command.ts';
 import { setupAdminCommandsForOwner } from './bot/setup-admin-commands.ts';
@@ -37,6 +42,8 @@ import { rebuildAllRecords } from './publisher/records-rebuild.ts';
 import { safeSendMessage } from './lib/safe-telegram.ts';
 import { send, sendPhotoExempt, InputFile } from './lib/telegram-send.ts';
 import { sendRichMessageHtml } from './lib/rich-message.ts';
+import { sendEphemeralHtml, notifyUserQuietly } from './lib/ephemeral-message.ts';
+import { esc } from './publisher/templates.ts';
 import { isPublishingEnabled } from './lib/silent-period.ts';
 
 const PORT = Number(process.env['PORT'] ?? 3000);
@@ -76,9 +83,21 @@ if (botToken) {
       bot!.api.restrictChatMember(chatId, userId, permissions).then(() => undefined),
     getChatAdministrators: (chatId) => bot!.api.getChatAdministrators(chatId),
   }));
+  // Guard-bot: show the nick Mini App to join requesters (#350). Additive —
+  // the on-join nick-gate above stays until a live join request is confirmed
+  // working, so a not-yet-configured group keeps today's behaviour exactly.
+  bot.on('chat_join_request', makeJoinRequestListener({
+    isAllowedChat,
+    sendChatJoinRequestWebApp: (args) =>
+      (bot!.api.raw as unknown as RawJoinRequestApi).sendChatJoinRequestWebApp(args),
+    getMiniAppUrl: () => process.env['PUBLIC_BASE_URL'] ?? '',
+  }));
+
   bot.start({
     drop_pending_updates: true,
-    allowed_updates: ['message', 'my_chat_member', 'chat_member', 'callback_query'],
+    // `chat_join_request` is required for the guard flow — without it the update
+    // never arrives and the ~10s answer window burns silently.
+    allowed_updates: ['message', 'my_chat_member', 'chat_member', 'callback_query', 'chat_join_request'],
   }).catch((err) => {
     logger.error({ module: 'bot', err }, 'grammY bot failed to start');
   });
@@ -270,6 +289,29 @@ if (process.env['SCANNER_DISABLED'] !== 'true') {
       db,
       validateAccount,
       scanForPuuid,
+      // A nick that turned out not to exist gets cleared, and restrict-grace
+      // re-gates the user on its next tick. Telling them why is the whole point:
+      // an unexplained mute hours after being let in reads as the bot breaking.
+      // Ephemeral keeps it between the bot and that one person.
+      onNickCleared: async (telegramId, riotName, riotTag) => {
+        const chatId = Number(process.env['TELEGRAM_PRIMARY_CHAT_ID'] ?? '0');
+        if (!chatId) return;
+        const appUrl = process.env['PUBLIC_BASE_URL'] ?? '';
+        const html =
+          `Не получилось подтвердить твой Riot ID <b>${esc(riotName)}#${esc(riotTag)}</b> — Valorant такого не знает.\n` +
+          `Скорее всего опечатка: легко перепутать латинскую <b>I</b> со строчной <b>l</b>, а букву <b>O</b> с нулём.\n` +
+          (appUrl
+            ? `Введи ник заново — <a href="${esc(appUrl)}">открыть форму</a>. Пока он не подтверждён, доступ к чату будет ограничен.`
+            : `Введи ник заново. Пока он не подтверждён, доступ к чату будет ограничен.`);
+        await notifyUserQuietly(
+          {
+            sendEphemeral: (cid, uid, body) => sendEphemeralHtml(bot!.api, cid, uid, body),
+            sendDirect: (uid, body) =>
+              bot!.api.sendMessage(uid, body, { parse_mode: 'HTML' }),
+          },
+          { chatId, userId: telegramId, html, reason: 'nick_cleared' },
+        );
+      },
     });
   }
 }
@@ -283,6 +325,10 @@ const onboardHandler = makeOnboardHandler({
         restrictChatMember: (chatId: number, userId: number, permissions: Parameters<typeof bot.api.restrictChatMember>[2]) =>
           bot!.api.restrictChatMember(chatId, userId, permissions).then(() => undefined),
         getAllowedChatIds: loadAllowedChatIds,
+        answerChatJoinRequestQuery: async (queryId: string, approve: boolean) => {
+          await (bot!.api.raw as unknown as RawJoinRequestApi)
+            .answerChatJoinRequestQuery(JOIN_REQUEST_ANSWER_PARAMS(queryId, approve));
+        },
       }
     : {}),
 });
