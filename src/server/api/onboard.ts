@@ -4,7 +4,7 @@ import { and, eq, isNotNull } from 'drizzle-orm';
 import { OnboardBodySchema } from '../../shared/schemas/onboard.ts';
 import { users } from '../db/schema/users.ts';
 import {
-  validateAccount as defaultValidateAccount,
+  resolveAccount as defaultValidateAccount,
   HenrikError,
   HenrikNotFoundError,
   HenrikInactiveAccountError,
