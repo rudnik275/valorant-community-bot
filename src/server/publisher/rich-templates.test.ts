@@ -242,6 +242,44 @@ describe('renderRichTemplate — team grouping & separators', () => {
     expect(html).not.toContain('победа 13'); // no numeric score
   });
 
+  it('community_clash states the outcome and score under the title', () => {
+    // The result used to be readable only off the winner's separator row,
+    // halfway down a ten-row table. It belongs in the sentence that says what
+    // happened — same treatment match_comeback got in #348.
+    const html = renderRichTemplate('community_clash', ctx({
+      winnerTeamId: 'Blue',
+      teamScores: { Blue: { won: 13, lost: 11 }, Red: { won: 11, lost: 13 } },
+    }))!;
+
+    expect(html).toContain('Команда А выиграла 13:11.');
+    // Above the table, not inside it.
+    expect(html.indexOf('Команда А выиграла')).toBeLessThan(html.indexOf('<table'));
+  });
+
+  it('community_clash names the winning side by its table letter', () => {
+    // The letter comes from the team's position in the table, so the sentence
+    // and the separator row can never disagree about who «Команда Б» is.
+    const html = renderRichTemplate('community_clash', ctx({
+      winnerTeamId: 'Red',
+      teamScores: { Blue: { won: 11, lost: 13 }, Red: { won: 13, lost: 11 } },
+    }))!;
+
+    expect(html).toContain('Команда Б выиграла 13:11.');
+  });
+
+  it('community_clash without scores still states who won', () => {
+    const html = renderRichTemplate('community_clash', ctx({ winnerTeamId: 'Blue' }))!;
+    expect(html).toContain('Победила команда А.');
+  });
+
+  it('community_clash says nothing about the outcome when there is no winner', () => {
+    // Pre-#315 payloads carry neither winner nor scores; the message must still
+    // render rather than claim a result it does not have.
+    const html = renderRichTemplate('community_clash', ctx({ winnerTeamId: null }))!;
+    expect(html).not.toContain('выиграла');
+    expect(html).not.toContain('Победила команда');
+  });
+
   it('community_clash draw (winnerTeamId null) marks no winner', () => {
     const html = renderRichTemplate('community_clash', ctx({ winnerTeamId: null }))!;
     expect(html).not.toContain('🥇');

@@ -252,6 +252,39 @@ function matchLinkLine(ctx: RichTemplateContext): string {
   return `<br>${icon ? `${icon} ` : ''}${anchor}`;
 }
 
+/** The letter a team is shown under, by its position in the table. */
+function teamLetter(index: number): string {
+  return index === 0 ? 'А' : index === 1 ? 'Б' : String(index + 1);
+}
+
+/**
+ * community_clash outcome sentence — who won and by how much — appended to the
+ * description under the title.
+ *
+ * The result used to live only on the winning team's separator row, halfway
+ * down a ten-row table: you had to scroll past five players to find out how the
+ * match ended (owner, 2026-08-29). Same treatment match_comeback got in #348 —
+ * the score belongs in the sentence that tells you what happened.
+ *
+ * Returns '' when the payload names no winner, or names one absent from the
+ * roster: a clash message without an outcome line still renders, and old
+ * pre-#315 payloads legitimately carry neither winner nor scores.
+ */
+function clashOutcome(
+  teams: Array<{ teamId: string; rows: FullRosterRow[] }>,
+  ctx: RichTemplateContext,
+): string {
+  if (!ctx.winnerTeamId) return '';
+  const index = teams.findIndex((t) => t.teamId === ctx.winnerTeamId);
+  if (index < 0) return '';
+
+  const letter = teamLetter(index);
+  const score = ctx.teamScores?.[ctx.winnerTeamId];
+  return score
+    ? `Команда ${letter} выиграла ${score.won}:${score.lost}.`
+    : `Победила команда ${letter}.`;
+}
+
 /**
  * community_clash separator label for a team: «Команда А/Б», with a winner
  * mark + score on the winning team's separator, plain on the other.
@@ -261,7 +294,7 @@ function clashTeamLabel(
   index: number,
   ctx: RichTemplateContext,
 ): string {
-  const letter = index === 0 ? 'А' : index === 1 ? 'Б' : String(index + 1);
+  const letter = teamLetter(index);
   const base = `Команда ${letter}`;
   if (ctx.winnerTeamId && teamId === ctx.winnerTeamId) {
     const score = ctx.teamScores?.[teamId];
@@ -313,7 +346,11 @@ export function renderRichTemplate(
   // The other trio events have no single subject, so no hero line for them.
   const hero = eventType === 'giant_slayer' ? heroLines(ctx) : '';
 
-  const desc = describe(eventType, ctx);
+  // The clash outcome needs the team ORDER (to say «Команда Б»), which only
+  // exists once the roster is grouped — so it is appended here rather than
+  // built inside `describe`, which sees the context but not the grouping.
+  const outcome = eventType === 'community_clash' ? clashOutcome(teams, ctx) : '';
+  const desc = [describe(eventType, ctx), outcome].filter(Boolean).join(' ');
   const descLine = desc ? `<br><i>${esc(desc)}</i>` : '';
 
   // Build table body: team A rows, separator, team B rows, separator between.
