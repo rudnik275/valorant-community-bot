@@ -1,9 +1,15 @@
 <template>
   <div class="container onboard-page">
-    <h1 class="h1">Привязка Riot ID</h1>
+    <h1 class="h1">{{ isJoinFlow ? 'Вступление в чат' : 'Привязка Riot ID' }}</h1>
 
     <p class="text-muted onboard-hint">
-      Введи своё Riot имя и тег — бот найдёт твой аккаунт и начнёт отслеживать матчи.
+      <template v-if="isJoinFlow">
+        Чтобы попасть в чат, введи свой Riot ID. По нему бот находит тебя в матчах —
+        без него статистика не соберётся.
+      </template>
+      <template v-else>
+        Введи своё Riot имя и тег — бот найдёт твой аккаунт и начнёт отслеживать матчи.
+      </template>
     </p>
 
     <!--
@@ -56,7 +62,7 @@
         data-testid="submit-btn"
       >
         <span v-if="loading" class="spinner" aria-hidden="true"></span>
-        {{ loading ? 'Проверяем…' : 'Привязать аккаунт' }}
+        {{ loading ? 'Проверяем…' : (isJoinFlow ? 'Войти в чат' : 'Привязать аккаунт') }}
       </button>
 
       <div v-if="apiError" class="glass-panel onboard-api-error" data-testid="api-error">
@@ -78,7 +84,45 @@
 
     <div v-else class="card onboard-success" data-testid="success-message">
       <p class="h2-section">Готово</p>
-      <p class="onboard-success-text">Аккаунт привязан: {{ linkedName }}#{{ linkedTag }} ({{ linkedRegion }})</p>
+
+      <!-- Verified link — the only case we can state as fact. -->
+      <p v-if="!pendingReason" class="onboard-success-text">
+        Аккаунт привязан: {{ linkedName }}#{{ linkedTag }} ({{ linkedRegion }})
+      </p>
+
+      <!-- Henrik confirmed the account exists, it just has no recent matches. -->
+      <p v-else-if="pendingReason === 'inactive'" class="onboard-success-text">
+        Ник принят: {{ linkedName }}#{{ linkedTag }}
+      </p>
+
+      <!-- Admitted on trust. Say so plainly: if the nick has a typo the bot will
+           restrict access later, and an unexplained mute reads as a bug. -->
+      <p v-else class="onboard-success-text">
+        Ник принят: {{ linkedName }}#{{ linkedTag }}
+      </p>
+
+      <p v-if="pendingReason === 'inactive'" class="onboard-success-sub" data-testid="pending-inactive">
+        Свежих матчей пока не видно — подтянем автоматически, как появятся.
+      </p>
+
+      <p v-else-if="pendingReason === 'henrik_unreachable'" class="onboard-success-sub" data-testid="pending-unreachable">
+        Проверить ник прямо сейчас не вышло — сервис статистики недоступен.
+        Мы поверили на слово и пустили. Перепроверим позже: если в нике опечатка,
+        бот напишет и попросит ввести заново.
+      </p>
+
+      <p v-if="isJoinFlow" class="onboard-success-sub" data-testid="join-done">
+        Можешь возвращаться в чат — доступ открыт.
+      </p>
+      <button
+        v-else
+        type="button"
+        class="btn-primary onboard-btn"
+        data-testid="continue-btn"
+        @click="router.push({ name: 'members' })"
+      >
+        Продолжить
+      </button>
     </div>
   </div>
 </template>
@@ -100,6 +144,22 @@ const success = ref(false);
 const linkedName = ref('');
 const linkedTag = ref('');
 const linkedRegion = ref('');
+/** null ⇒ fully verified link; otherwise why the nick was accepted unresolved. */
+const pendingReason = ref<'inactive' | 'henrik_unreachable' | null>(null);
+
+/**
+ * True when this Mini App session was opened from a join request (guard-bot
+ * flow) rather than from inside the group. Telegram puts the query id in
+ * initData; the SERVER re-reads it from the HMAC-validated string, so this
+ * unvalidated client-side read only drives copy — never authorisation.
+ */
+const isJoinFlow = ((): boolean => {
+  if (typeof window === 'undefined') return false;
+  const tg = (window as Window & {
+    Telegram?: { WebApp?: { initDataUnsafe?: { chat_join_request_query_id?: string } } };
+  }).Telegram;
+  return Boolean(tg?.WebApp?.initDataUnsafe?.chat_join_request_query_id);
+})();
 
 /**
  * Map a Zod issue to Russian copy.
@@ -165,14 +225,21 @@ async function onSubmit() {
     });
 
     if (res.ok) {
-      const body = await res.json() as { riot_name: string; riot_tag: string; riot_region: string | null; pending?: boolean };
-      if (body.pending) {
-        await router.push({ name: 'members' });
-        return;
-      }
+      const body = await res.json() as {
+        riot_name: string;
+        riot_tag: string;
+        riot_region: string | null;
+        pending?: boolean;
+        pending_reason?: 'inactive' | 'henrik_unreachable';
+      };
       linkedName.value = body.riot_name;
       linkedTag.value = body.riot_tag;
       linkedRegion.value = body.riot_region ?? '';
+      // A pending nick used to bounce straight to the members list with no
+      // explanation. That is no longer acceptable: since onboard admits on
+      // Henrik-side failures, «pending» can mean «we never checked this», and
+      // the user has to know that before a later re-gate surprises them.
+      pendingReason.value = body.pending ? (body.pending_reason ?? 'inactive') : null;
       success.value = true;
     } else {
       let errorCode = 'unknown';
@@ -331,5 +398,12 @@ async function onSubmit() {
   font-size: 15px;
   font-weight: 500;
   color: var(--status-online);
+}
+
+.onboard-success-sub {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
 }
 </style>

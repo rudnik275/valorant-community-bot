@@ -220,7 +220,20 @@ describe('Onboard.vue', () => {
 
   // ── Error states ─────────────────────────────────────────────────────────────
 
-  it('navigates to members list when API returns 200 with pending: true', async () => {
+  /** Submit the form and let the fetch microtask settle. */
+  async function submitOnboard(wrapper: ReturnType<typeof mount>) {
+    await wrapper.find('[data-testid="input-name"]').setValue('YarosBzdun');
+    await wrapper.find('[data-testid="input-tag"]').setValue('2307');
+    await wrapper.find('form').trigger('submit');
+    await new Promise((r) => setTimeout(r, 0));
+    await wrapper.vm.$nextTick();
+  }
+
+  // A pending nick used to bounce silently to the members list. It must now
+  // explain itself: since onboard admits on Henrik-side failures, «pending» can
+  // mean «nobody checked this nick», and a later re-gate would otherwise look
+  // like the bot randomly muting the user.
+  it('explains an inactive-account pending instead of silently redirecting', async () => {
     fetchMock.mockResolvedValue(makeOkResponse({
       status: 'ok',
       riot_name: 'YarosBzdun',
@@ -228,21 +241,65 @@ describe('Onboard.vue', () => {
       riot_puuid: null,
       riot_region: null,
       pending: true,
+      pending_reason: 'inactive',
     }));
 
     const router = makeRouter();
     const wrapper = mount(Onboard, { global: { plugins: [router] } });
-
     await router.push('/onboard');
-    await wrapper.find('[data-testid="input-name"]').setValue('YarosBzdun');
-    await wrapper.find('[data-testid="input-tag"]').setValue('2307');
-    await wrapper.find('form').trigger('submit');
+    await submitOnboard(wrapper);
 
+    expect(wrapper.find('[data-testid="success-message"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="pending-inactive"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="pending-unreachable"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="api-error"]').exists()).toBe(false);
+  });
+
+  it('warns that an unverified nick may be re-checked later', async () => {
+    fetchMock.mockResolvedValue(makeOkResponse({
+      status: 'ok',
+      riot_name: 'YarosBzdun',
+      riot_tag: '2307',
+      riot_puuid: null,
+      riot_region: null,
+      pending: true,
+      pending_reason: 'henrik_unreachable',
+    }));
+
+    const router = makeRouter();
+    const wrapper = mount(Onboard, { global: { plugins: [router] } });
+    await router.push('/onboard');
+    await submitOnboard(wrapper);
+
+    const text = wrapper.find('[data-testid="pending-unreachable"]').text();
+    expect(text).toContain('не вышло');
+    expect(wrapper.find('[data-testid="pending-inactive"]').exists()).toBe(false);
+  });
+
+  it('offers a way onward to the members list on the pending path', async () => {
+    // Outside the join flow the user IS in the group, so the terminal card must
+    // not be a dead end — the old redirect at least got them somewhere.
+    fetchMock.mockResolvedValue(makeOkResponse({
+      status: 'ok',
+      riot_name: 'YarosBzdun',
+      riot_tag: '2307',
+      riot_puuid: null,
+      riot_region: null,
+      pending: true,
+      pending_reason: 'inactive',
+    }));
+
+    const router = makeRouter();
+    const wrapper = mount(Onboard, { global: { plugins: [router] } });
+    await router.push('/onboard');
+    await submitOnboard(wrapper);
+
+    await wrapper.find('[data-testid="continue-btn"]').trigger('click');
+    // router.push resolves asynchronously — a tick alone lands before navigation.
     await new Promise((r) => setTimeout(r, 0));
     await wrapper.vm.$nextTick();
 
     expect(router.currentRoute.value.name).toBe('members');
-    expect(wrapper.find('[data-testid="api-error"]').exists()).toBe(false);
   });
 
   it('shows "Аккаунт Riot не найден" for account_not_found', async () => {
