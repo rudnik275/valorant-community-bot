@@ -29,11 +29,14 @@
  *    group must be switched to approval-based joins with this bot designated as
  *    guard.
  *
- * Until (2) is done Telegram never sends `chat_join_request` with a `query_id`,
- * so this handler no-ops. Treat the guard flow as dark code: harmless, but not
- * yet load-bearing. The pre-existing nick-gate in chat-member-listener.ts stays
- * in place and MUST NOT be removed before a live join request has been observed
- * working end to end.
+ * Both were done on 2026-08-29 and a live join request was observed working end
+ * to end.
+ *
+ * That does NOT make the on-join nick-gate in chat-member-listener.ts
+ * redundant, and it must not be removed: the guard only sees people who
+ * *requested* to join. Someone whose pending request the owner approves by
+ * hand, or who is added directly by a member, arrives with no join request at
+ * all — for them the on-join gate is the only immediate protection.
  *
  * Note we never answer `decline` on a bad nick — we simply do not answer, which
  * leaves the request in Telegram's pending queue (the `queue` outcome by

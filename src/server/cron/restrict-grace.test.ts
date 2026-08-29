@@ -11,7 +11,8 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import Database from 'better-sqlite3';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
-import { runRestrictGraceTick, READONLY_PERMISSIONS, type RestrictGraceDeps } from './restrict-grace.ts';
+import { runRestrictGraceTick, type RestrictGraceDeps } from './restrict-grace.ts';
+import { READONLY_PERMISSIONS } from '../gate/member-gate.ts';
 import { users } from '../db/schema/users.ts';
 import logger from '../lib/log.ts';
 
@@ -217,7 +218,9 @@ describe('runRestrictGraceTick', () => {
     expect(row.restricted_at).toBeNull();
 
     expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
-      expect.objectContaining({ module: 'restrict-grace', telegram_id: 7 }),
+      // Restricting is done by the shared gate now, so the warning comes from
+      // there. What matters is unchanged: a failed restrict is not recorded.
+      expect.objectContaining({ module: 'member-gate', telegram_id: 7 }),
       expect.stringContaining('restrictChatMember failed'),
     );
   });

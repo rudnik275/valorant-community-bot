@@ -28,7 +28,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import type { LibSQLDatabase } from 'drizzle-orm/libsql';
 import logger from '../lib/log.ts';
 import { users } from '../db/schema/users.ts';
-import { READONLY_PERMISSIONS } from '../cron/restrict-grace.ts';
+import { gateMember, type MemberGateDeps, type RestrictChatMember } from '../gate/member-gate.ts';
 
 // Accept any Drizzle SQLite-compatible db (bun-sqlite or better-sqlite3 in tests)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -43,16 +43,18 @@ export interface ChatMemberListenerDeps {
    * Telegram Bot API: restrict a chat member. Optional — when absent, on-join
    * read-only restriction is skipped (membership tracking still works).
    */
-  restrictChatMember?: (
-    chatId: number,
-    userId: number,
-    permissions: typeof READONLY_PERMISSIONS,
-  ) => Promise<void>;
+  restrictChatMember?: RestrictChatMember;
   /**
    * Telegram Bot API: get chat administrators. Required alongside
    * restrictChatMember to skip restricting admins on join.
    */
   getChatAdministrators?: (chatId: number) => Promise<Array<{ user: { id: number } }>>;
+  /**
+   * Passed straight through to `gateMember` — this listener never composes the
+   * notice itself, it only decides who gets gated.
+   */
+  notify?: MemberGateDeps['notify'];
+  getMiniAppUrl?: MemberGateDeps['getMiniAppUrl'];
   /** Injectable now timestamp in ms, defaults to Date.now(). */
   getNowMs?: () => number;
 }
@@ -156,9 +158,7 @@ async function restrictOnJoinIfNoNick(
   chatId: number,
   userId: number,
 ): Promise<void> {
-  const restrictChatMember = deps.restrictChatMember!;
   const getChatAdministrators = deps.getChatAdministrators!;
-  const getNowMs = deps.getNowMs ?? (() => Date.now());
 
   // Read back the row: has this user entered a nick, or are they already restricted?
   const [row]: Array<{ riot_name: string | null; restricted_at: number | null }> = await deps.db
@@ -185,20 +185,25 @@ async function restrictOnJoinIfNoNick(
   }
   if (adminIds.has(userId)) return;
 
-  try {
-    await restrictChatMember(chatId, userId, READONLY_PERMISSIONS);
-    await deps.db
-      .update(users)
-      .set({ restricted_at: getNowMs() })
-      .where(eq(users.telegram_id, userId));
-    logger.info(
-      { event: 'restrict_on_join', user_id: userId, chat_id: chatId },
-      'New member without nick restricted (read-only) on join',
-    );
-  } catch (err) {
-    logger.warn(
-      { event: 'restrict_on_join_failed', user_id: userId, chat_id: chatId, err },
-      'restrictChatMember failed on join — not marking restricted_at',
-    );
-  }
+  // Restricting, recording and explaining all happen inside gateMember — this
+  // handler decides only WHETHER someone should be gated. Errors are contained
+  // there, so nothing can escape into grammY's update loop.
+  //
+  // Built explicitly rather than cast: the caller has already proven
+  // restrictChatMember exists, and spelling the object out keeps that proof
+  // visible instead of hiding it behind a `as`.
+  const gateDeps: MemberGateDeps = {
+    db: deps.db,
+    restrictChatMember: deps.restrictChatMember!,
+    ...(deps.notify ? { notify: deps.notify } : {}),
+    ...(deps.getMiniAppUrl ? { getMiniAppUrl: deps.getMiniAppUrl } : {}),
+    ...(deps.getNowMs ? { getNowMs: deps.getNowMs } : {}),
+  };
+
+  await gateMember(gateDeps, {
+    chatIds: [chatId],
+    userId,
+    reason: { kind: 'no_nick' },
+    source: 'on-join',
+  });
 }
