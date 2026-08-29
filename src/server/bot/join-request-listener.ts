@@ -21,18 +21,24 @@
  * goes through `bot.api.raw` like `rich-message.ts` does. Exact payload notes
  * live on `JOIN_REQUEST_WEBAPP_PARAMS`.
  *
- * ── Two owner-side prerequisites, NEITHER of them satisfied yet ──────────────
- * 1. `getMe` currently returns `supports_join_request_queries: false` — join
- *    request queries are off for this bot and must be enabled in @BotFather.
- * 2. `getChat` on the primary group returns no `guard_bot` field — the group is
- *    not configured to use one, and must be switched to approval-based joins
- *    with this bot designated as guard.
+ * ── Two owner-side prerequisites ────────────────────────────────────────────
+ * 1. DONE (2026-08-29): Guard Mode enabled in @BotFather — `getMe` now returns
+ *    `supports_join_request_queries: true`, and the API stopped answering
+ *    BOT_GUARD_NOT_SUPPORTED.
+ * 2. PENDING: `getChat` on the primary group still returns no `guard_bot` — the
+ *    group must be switched to approval-based joins with this bot designated as
+ *    guard.
  *
- * Until both are done Telegram never sends `chat_join_request` with a
- * `query_id`, so this handler no-ops. Treat the guard flow as dark code:
- * harmless, but not yet load-bearing. The pre-existing nick-gate in
- * chat-member-listener.ts stays in place and MUST NOT be removed before a live
- * join request has been observed working end to end.
+ * Until (2) is done Telegram never sends `chat_join_request` with a `query_id`,
+ * so this handler no-ops. Treat the guard flow as dark code: harmless, but not
+ * yet load-bearing. The pre-existing nick-gate in chat-member-listener.ts stays
+ * in place and MUST NOT be removed before a live join request has been observed
+ * working end to end.
+ *
+ * Note we never answer `decline` on a bad nick — we simply do not answer, which
+ * leaves the request in Telegram's pending queue (the `queue` outcome by
+ * omission). Declining would force the person to submit a whole new request
+ * over what is usually a typo.
  */
 
 import { type Context } from 'grammy';
@@ -61,32 +67,40 @@ export function JOIN_REQUEST_WEBAPP_PARAMS(queryId: string, url: string): Record
   };
 }
 
+/** The outcomes `answerChatJoinRequestQuery` accepts. */
+export type JoinRequestResult = 'approve' | 'decline' | 'queue';
+
 /**
- * Build the `answerChatJoinRequestQuery` payload — the call that actually admits
- * someone once their nick checks out.
+ * Build the `answerChatJoinRequestQuery` payload — the call that admits someone
+ * once their nick checks out.
  *
- * STILL UNRESOLVED. The method exists, but an empty call answers `Bad Request:
- * invalid query result specified` (probed 2026-08-29), which says it wants a
- * structured "query result" rather than a plain approve boolean — and the shape
- * of that result could not be determined: the official reference page truncates
- * before this method, and a second probe round was cut short when the 1Password
- * session locked.
+ * `result` is a STRING ENUM, not an object. Resolved by probing the live API on
+ * 2026-08-29 once Guard Mode was enabled: every object form
+ * (`{approve:true}`, `{type:'approve'}`, …) answers `invalid query result
+ * specified`, whereas the bare string `'approve'` gets past result validation
+ * and fails only on the deliberately bogus query id. Sweeping candidate strings
+ * then gave exactly three members:
  *
- * Several spellings are sent at once because the Bot API ignores unknown fields,
- * so the cost of over-sending is zero while the cost of guessing wrong and
- * sending nothing is a friend stuck outside the group. If none of them is right
- * the call fails, the request stays pending, and the owner approves by hand —
- * the documented fallback. Resolve this before removing the old nick-gate.
+ *   approve · decline · queue
+ *
+ * Note `decline`, not `reject` — BotFather's Guard Mode blurb says "approve,
+ * reject, or queue", but `reject` is NOT accepted by the API. `queue` leaves the
+ * request in Telegram's pending list for a human.
+ *
+ * The id parameter name is still undetermined and probably undeterminable this
+ * way: the API returns the same "query ID is invalid" whether the id is sent
+ * under either name or omitted entirely. Both spellings are sent — unknown
+ * fields are ignored, so over-sending costs nothing.
  */
 export function JOIN_REQUEST_ANSWER_PARAMS(
   queryId: string,
   approve: boolean,
 ): Record<string, unknown> {
+  const result: JoinRequestResult = approve ? 'approve' : 'decline';
   return {
     chat_join_request_query_id: queryId,
     query_id: queryId,
-    approve,
-    result: { approve },
+    result,
   };
 }
 
