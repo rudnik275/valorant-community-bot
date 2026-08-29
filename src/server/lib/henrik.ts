@@ -544,29 +544,136 @@ export async function getMatches(
   return henrikQueue.enqueue({
     key: endpoint,
     priority: opts?.priority ?? 'background',
-    fn: () => fetchWithRetry(endpoint, (json) => {
-      const parsed = MatchesV4ResponseSchema.safeParse(json);
-      if (!parsed.success) {
-        throw new HenrikError(`Unexpected Henrik matches response shape: ${parsed.error.message}`);
-      }
-      const matches: HenrikMatchV4[] = [];
-      for (let i = 0; i < parsed.data.data.length; i++) {
-        const raw = parsed.data.data[i];
-        const match = HenrikMatchV4Schema.safeParse(raw);
-        if (match.success) {
-          matches.push(match.data);
-        } else {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const matchId = ((raw as any)?.metadata?.match_id as string | undefined) ?? null;
-          logger.warn(
-            { module: 'henrik', endpoint, index: i, match_id: matchId, err: match.error.message },
-            'Dropping malformed match from Henrik response — other matches will still ingest',
+    fn: () => fetchWithRetry(endpoint, (json) => parseMatchesResponse(json, endpoint)),
+  });
+}
+
+/**
+ * Parse a v4 matches payload, dropping individual malformed matches rather than
+ * failing the whole response. Shared by the by-puuid and by-name endpoints.
+ */
+function parseMatchesResponse(json: unknown, endpoint: string): HenrikMatchV4[] {
+  const parsed = MatchesV4ResponseSchema.safeParse(json);
+  if (!parsed.success) {
+    throw new HenrikError(`Unexpected Henrik matches response shape: ${parsed.error.message}`);
+  }
+  const matches: HenrikMatchV4[] = [];
+  for (let i = 0; i < parsed.data.data.length; i++) {
+    const raw = parsed.data.data[i];
+    const match = HenrikMatchV4Schema.safeParse(raw);
+    if (match.success) {
+      matches.push(match.data);
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const matchId = ((raw as any)?.metadata?.match_id as string | undefined) ?? null;
+      logger.warn(
+        { module: 'henrik', endpoint, index: i, match_id: matchId, err: match.error.message },
+        'Dropping malformed match from Henrik response — other matches will still ingest',
+      );
+    }
+  }
+  return matches;
+}
+
+/**
+ * Get recent matches for a player by NAME + TAG (no PUUID needed).
+ * Endpoint: GET /valorant/v4/matches/{region}/{platform}/{name}/{tag}?size=N
+ *
+ * Exists for one job: recovering a PUUID when the account endpoint refuses to
+ * give us one (see `resolveAccount`). Match data stays fresh when the account
+ * record has gone stale, so this is the more trustworthy source of the two.
+ */
+export async function getMatchesByName(
+  name: string,
+  tag: string,
+  region: string,
+  opts?: { platform?: 'pc' | 'console'; size?: number; priority?: Priority },
+): Promise<HenrikMatchV4[]> {
+  const platform = opts?.platform ?? 'console';
+  const size = opts?.size ?? 3;
+  const endpoint = `/valorant/v4/matches/${encodeURIComponent(region)}/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}?size=${size}`;
+  return henrikQueue.enqueue({
+    key: endpoint,
+    priority: opts?.priority ?? 'background',
+    fn: () => fetchWithRetry(endpoint, (json) => parseMatchesResponse(json, endpoint)),
+  });
+}
+
+/**
+ * Region the group plays in. Needed because the by-name matches endpoint takes
+ * a region in the path, while the region normally arrives IN the account
+ * response we are trying to work around. Everyone here is EU/console.
+ */
+const FALLBACK_REGION = 'eu';
+
+/**
+ * Resolve a Riot account by name + tag, falling back to match data when the
+ * account endpoint claims the account is inactive.
+ *
+ * Henrik answers `404 code:24` for accounts it considers to have no recent
+ * match data — but that record goes stale independently of the matches
+ * themselves, so an account can be perfectly playable and still be refused
+ * here. That used to strand the player in a pending state until they played
+ * again ("play a match, then you'll appear"). Asking for their matches by NAME
+ * gets a PUUID straight out of the roster and removes that wait entirely.
+ *
+ * Scope is deliberately narrow:
+ *   - ONLY `HenrikInactiveAccountError` triggers the fallback. A definitive
+ *     `HenrikNotFoundError` means the nick does not exist, and a nick that does
+ *     not exist must keep failing — that is what keeps the join gate honest.
+ *   - If the fallback finds nothing, the ORIGINAL inactive error is rethrown,
+ *     so callers see exactly the behaviour they saw before.
+ *   - Costs one extra request only on the failure path; the happy path is
+ *     untouched.
+ */
+export async function resolveAccount(
+  name: string,
+  tag: string,
+  opts?: { priority?: Priority },
+): Promise<RiotAccount> {
+  try {
+    return await validateAccount(name, tag, opts);
+  } catch (err) {
+    if (!(err instanceof HenrikInactiveAccountError)) throw err;
+
+    let matches: HenrikMatchV4[];
+    try {
+      const byNameOpts: { size: number; priority?: Priority } = { size: 3 };
+      if (opts?.priority) byNameOpts.priority = opts.priority;
+      matches = await getMatchesByName(name, tag, FALLBACK_REGION, byNameOpts);
+    } catch (fallbackErr) {
+      logger.warn(
+        { module: 'henrik', name, tag, err: fallbackErr },
+        'Match fallback failed for inactive account — surfacing the original error',
+      );
+      throw err;
+    }
+
+    const wanted = name.toLowerCase();
+    const wantedTag = tag.toLowerCase();
+    for (const match of matches) {
+      for (const player of match.players) {
+        if (player.name?.toLowerCase() === wanted && player.tag?.toLowerCase() === wantedTag) {
+          logger.info(
+            { module: 'henrik', name, tag, puuid: player.puuid },
+            'Recovered PUUID from match roster for an account the account endpoint called inactive',
           );
+          return {
+            puuid: player.puuid,
+            name: player.name ?? name,
+            tag: player.tag ?? tag,
+            region: FALLBACK_REGION,
+            // Player cards live on the account record, which is exactly the
+            // thing that failed. Left null; the scanner fills it in later.
+            cardId: null,
+          };
         }
       }
-      return matches;
-    }),
-  });
+    }
+
+    // Genuinely nothing to go on — behave as before.
+    throw err;
+  }
 }
 
 /**

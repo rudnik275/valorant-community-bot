@@ -25,7 +25,9 @@ import { verifyInitData } from './lib/init-data.ts';
 import { sql } from 'drizzle-orm';
 import { users } from './db/schema/users.ts';
 import { makeAvatarCache } from './lib/telegram-avatar.ts';
-import { validateAccount } from './lib/henrik.ts';
+// resolveAccount, not validateAccount: it adds the match-roster fallback for
+// accounts Henrik's account endpoint calls inactive (#352 follow-up).
+import { resolveAccount } from './lib/henrik.ts';
 import { loadAllowedChatIds } from './lib/scope.ts';
 import { scanForPuuid as scanForPuuidBase, startScanLoop } from './scanner/index.ts';
 import { startDetectionListener } from './publisher/detect.ts';
@@ -287,7 +289,7 @@ if (process.env['SCANNER_DISABLED'] !== 'true') {
 
     startRetryPendingOnboardLoop({
       db,
-      validateAccount,
+      validateAccount: resolveAccount,
       scanForPuuid,
       // A nick that turned out not to exist gets cleared, and restrict-grace
       // re-gates the user on its next tick. Telling them why is the whole point:
@@ -318,7 +320,7 @@ if (process.env['SCANNER_DISABLED'] !== 'true') {
 
 const onboardHandler = makeOnboardHandler({
   db,
-  validateAccount,
+  validateAccount: resolveAccount,
   scanForPuuid, // wired in #9 (henrik-scanner-loop)
   ...(bot
     ? {

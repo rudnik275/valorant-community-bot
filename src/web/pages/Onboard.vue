@@ -4,8 +4,8 @@
 
     <p class="text-muted onboard-hint">
       <template v-if="isJoinFlow">
-        Чтобы попасть в чат, введи свой Riot ID. По нему бот находит тебя в матчах —
-        без него статистика не соберётся.
+        Введи свой Riot ID — по нему в чате будет видно, кто ты в игре.
+        Сменишь ник в Valorant, и здесь он обновится сам.
       </template>
       <template v-else>
         Введи своё Riot имя и тег — бот найдёт твой аккаунт и начнёт отслеживать матчи.
@@ -48,6 +48,16 @@
           data-testid="input-tag"
         />
       </div>
+
+      <!--
+        Shown BEFORE any mistake, not just after one. Observed 2026-08-29: a new
+        member guessed his own tag three times in a row and got three refusals
+        before copying it from the client. The advice only helped once it was
+        too late to be advice.
+      -->
+      <p class="text-muted onboard-copy-hint">
+        Скопируй прямо из клиента Valorant — тег легко перепутать.
+      </p>
 
       <p v-if="validationError" class="list-item-dotted list-item-dotted--no onboard-error" data-testid="validation-error">
         {{ validationError }}
@@ -328,6 +338,12 @@ async function onSubmit() {
 
 .onboard-error {
   margin: 0;
+}
+
+.onboard-copy-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 /* Error panel — no extra margin-bottom from .glass-panel default */
