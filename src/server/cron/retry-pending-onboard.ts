@@ -11,7 +11,10 @@
  * - On success → UPDATE riot_puuid, riot_region, riot_name, riot_tag from canonical Henrik
  *   response. Fire-and-forget scanForPuuid.
  * - On HenrikInactiveAccountError → no-op, will retry tomorrow.
- * - On other errors → log warn, no DB change.
+ * - On HenrikNotFoundError → CLEAR riot_name/riot_tag and notify the user; this
+ *   is the settling step for nicks that `onboard` admitted without a verdict
+ *   while Henrik was down. restrict-grace re-gates the row on its next tick.
+ * - On other errors (Henrik-side, no verdict) → log warn, no DB change.
  *
  * No notification to the user on success. No schema migration. No new columns.
  */
@@ -22,6 +25,7 @@ import { users } from '../db/schema/users.ts';
 import {
   type RiotAccount,
   HenrikInactiveAccountError,
+  HenrikNotFoundError,
 } from '../lib/henrik.ts';
 import logger from '../lib/log.ts';
 
@@ -34,6 +38,11 @@ export interface RetryPendingOnboardDeps {
   validateAccount: (name: string, tag: string) => Promise<RiotAccount>;
   /** Fire-and-forget per-puuid scan, already bound to db. Injectable for testing. */
   scanForPuuid: (puuid: string, opts: { detection: boolean }) => Promise<unknown>;
+  /**
+   * Best-effort notice to a user whose pending nick turned out not to exist and
+   * was cleared. Optional — absent ⇒ the row is still cleared, just silently.
+   */
+  onNickCleared?: (telegramId: number, riotName: string, riotTag: string) => Promise<void>;
 }
 
 export async function runRetryPendingOnboardTick(deps: RetryPendingOnboardDeps): Promise<void> {
@@ -81,7 +90,46 @@ export async function runRetryPendingOnboardTick(deps: RetryPendingOnboardDeps):
         );
         continue;
       }
-      // Any other error (not found, rate limit, upstream) — log and skip
+
+      if (err instanceof HenrikNotFoundError) {
+        // Definitive verdict: this nick does not exist. Reachable now that
+        // onboard admits on Henrik-side failures — such a row was never
+        // verified, so it can hold pure typos (or junk typed during an outage).
+        //
+        // Clearing name+tag returns the row to «no nick», which is the state
+        // restrict-grace already understands: it re-restricts on its next tick
+        // and the user is back to entering a nick. Two existing crons compose;
+        // no new column, no migration.
+        //
+        // ONLY on a definitive 404 — never on inactive or Henrik-side errors,
+        // or an outage would wash out legitimate members.
+        await db
+          .update(users)
+          .set({ riot_name: null, riot_tag: null })
+          .where(eq(users.telegram_id, telegram_id));
+
+        logger.warn(
+          { module: 'retry-pending-onboard', telegram_id, riot_name, riot_tag },
+          'Pending nick does not exist — cleared; restrict-grace will re-gate',
+        );
+
+        // Tell them why, or the re-restriction reads as the bot randomly
+        // muting them hours after they were let in.
+        if (deps.onNickCleared) {
+          try {
+            await deps.onNickCleared(telegram_id, riot_name, riot_tag);
+          } catch (notifyErr) {
+            logger.warn(
+              { module: 'retry-pending-onboard', telegram_id, err: notifyErr },
+              'Failed to notify user about cleared nick',
+            );
+          }
+        }
+        continue;
+      }
+
+      // Henrik-side failure (rate limit, upstream, network) — no verdict, so
+      // the row must survive untouched and be retried tomorrow.
       logger.warn(
         { module: 'retry-pending-onboard', telegram_id, riot_name, riot_tag, err },
         'validateAccount failed — skipping user',

@@ -31,6 +31,25 @@ import { getFullRoster, type FullRosterRow, type SqliteDb } from '../db/queries.
 import { renderPlayerName } from './player-render.ts';
 import { agentToEmojiHtml, mapToEmojiHtml } from './valorant-emoji.ts';
 
+/**
+ * Compact-table attribute for the roster table (#352).
+ *
+ * `is_compact` is documented on the STRUCTURED `RichBlockTable` /
+ * `InputRichBlockTable` (Bot API 10.3), and this renderer emits HTML, so the
+ * HTML dialect's spelling of it is not something the reference states. Probed
+ * live on 2026-08-29: `sendRichMessage` accepts `<table compact>` and delivers
+ * the message normally, i.e. the attribute is at worst inert — it cannot break
+ * a trio-event post or push it onto the legacy plain-text fallback.
+ *
+ * Whether it actually tightens the rendering is a visual question left to the
+ * owner (plain vs compact samples sent to their DM). If the two look identical,
+ * delete this constant and its interpolation — nothing else depends on it.
+ *
+ * Deliberately NOT applied anywhere else: the digest moved off tables in #345 /
+ * #346 and stays on flat lines. This is the only table left in production.
+ */
+const COMPACT_ATTR = ' compact';
+
 /** The three realtime events that render as full-roster rich messages (#315). */
 const TRIO_EVENT_TYPES: ReadonlySet<EventType> = new Set<EventType>([
   'giant_slayer',
@@ -312,7 +331,7 @@ export function renderRichTemplate(
   });
 
   const table =
-    '<table><tr><th>Игрок</th><th>Агент · K/D</th></tr>' +
+    `<table${COMPACT_ATTR}><tr><th>Игрок</th><th>Агент · K/D</th></tr>` +
     bodyRows.join('') +
     '</table>';
 

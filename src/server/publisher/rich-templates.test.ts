@@ -137,7 +137,7 @@ describe('renderRichTemplate — table structure & content', () => {
     // names both instead of the group getting the same post twice (owner,
     // 2026-08-09). b1/b2 are the two community players on Blue.
     const html = renderRichTemplate('giant_slayer', ctx({ heroPuuids: ['b1', 'b2'] }))!;
-    const header = html.slice(0, html.indexOf('<table>'));
+    const header = html.slice(0, html.indexOf('<table'));
     expect(header).toContain('Alice#AAA');
     expect(header).toContain('Bob#BBB');
     // Still exactly one title and one description.
@@ -147,13 +147,13 @@ describe('renderRichTemplate — table structure & content', () => {
 
   it('giant_slayer collapses a repeated puuid to one hero line', () => {
     const html = renderRichTemplate('giant_slayer', ctx({ heroPuuids: ['b1', 'b1'] }))!;
-    const header = html.slice(0, html.indexOf('<table>'));
+    const header = html.slice(0, html.indexOf('<table'));
     expect(header.match(/Alice#AAA/g)).toHaveLength(1);
   });
 
   it('giant_slayer skips heroes missing from the roster but keeps the rest', () => {
     const html = renderRichTemplate('giant_slayer', ctx({ heroPuuids: ['ghost', 'b1'] }))!;
-    const header = html.slice(0, html.indexOf('<table>'));
+    const header = html.slice(0, html.indexOf('<table'));
     expect(header).toContain('Alice#AAA');
   });
 

@@ -12,6 +12,19 @@ export interface TelegramUser {
   username?: string;
   first_name: string;
   last_name?: string;
+  /**
+   * Present only when the Mini App was opened via `sendChatJoinRequestWebApp`
+   * (guard-bot flow, Bot API 10.1) — the capability token that lets the bot
+   * resolve THIS join request through `answerChatJoinRequestQuery`.
+   *
+   * Read straight off the validated query string rather than through the
+   * `parse()` helper: `validate()` verifies the HMAC over the WHOLE initData
+   * string, so every parameter in it is authentic once validation passes. That
+   * keeps us independent of whether the installed `@telegram-apps/init-data-node`
+   * knows about this (new) field yet — it does not, and a library bump must not
+   * be a prerequisite for the guard flow.
+   */
+  chat_join_request_query_id?: string;
 }
 
 /**
@@ -30,6 +43,11 @@ export function verifyInitData(initDataRaw: string, botToken: string): TelegramU
       id: user.id,
       first_name: user.first_name,
     };
+    // Safe post-validation read — see the field's doc comment.
+    const queryId = new URLSearchParams(initDataRaw).get('chat_join_request_query_id');
+    if (queryId) {
+      result.chat_join_request_query_id = queryId;
+    }
     if (user.username !== undefined) {
       result.username = user.username;
     }

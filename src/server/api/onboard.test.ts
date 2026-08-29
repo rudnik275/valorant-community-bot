@@ -6,6 +6,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { join } from 'node:path';
 import { makeOnboardHandler } from './onboard.ts';
 import {
+  HenrikError,
   HenrikNotFoundError,
   HenrikInactiveAccountError,
   HenrikRateLimitError,
@@ -199,31 +200,82 @@ describe('POST /api/onboard', () => {
     expect(row.riot_puuid).toBeNull();
   });
 
-  // ── Error: HenrikRateLimitError ──────────────────────────────────────────────
+  // ── Henrik-side failure → admit on trust (#350) ──────────────────────────────
+  //
+  // Owner decision 2026-08-29: a nick is accepted without a verdict ONLY when
+  // Henrik itself failed to give one. Under the guard-bot flow a refusal means
+  // "you don't get into the group", so refusing over someone else's downtime is
+  // the worse failure. `retry-pending-onboard` settles these later.
 
-  it('returns 429 { error: "rate_limited", retry_after } when Henrik rate-limits', async () => {
-    const app = makeApp(db, {
-      validateAccount: vi.fn().mockRejectedValue(new HenrikRateLimitError(30)),
-    });
+  it.each([
+    ['rate limit', new HenrikRateLimitError(30)],
+    ['5xx upstream', new HenrikUpstreamError(503, 'Service Unavailable')],
+    ['network/timeout', new HenrikError('Timeout: fetch aborted')],
+    ['malformed body', new HenrikError('Malformed JSON response from Henrik API')],
+  ])('admits with pending_reason=henrik_unreachable on %s', async (_label, err) => {
+    const app = makeApp(db, { validateAccount: vi.fn().mockRejectedValue(err) });
     const res = await postOnboard(app, { name: 'Player', tag: 'EU1' });
 
-    expect(res.status).toBe(429);
+    expect(res.status).toBe(200);
     const body = await res.json() as Record<string, unknown>;
-    expect(body.error).toBe('rate_limited');
-    expect(body.retry_after).toBe(30);
+    expect(body.status).toBe('ok');
+    expect(body.pending).toBe(true);
+    expect(body.pending_reason).toBe('henrik_unreachable');
+    expect(body.riot_puuid).toBeNull();
   });
 
-  // ── Error: HenrikUpstreamError ───────────────────────────────────────────────
-
-  it('returns 502 { error: "henrik_upstream" } on Henrik 5xx', async () => {
+  it('Henrik-side failure persists the nick so the retry cron can settle it', async () => {
     const app = makeApp(db, {
-      validateAccount: vi.fn().mockRejectedValue(new HenrikUpstreamError(503, 'Service Unavailable')),
+      validateAccount: vi.fn().mockRejectedValue(new HenrikUpstreamError(503, 'down')),
+    });
+    await postOnboard(app, { name: 'OutagePlayer', tag: 'EU1' });
+
+    const row = sqlite
+      .prepare('SELECT riot_name, riot_tag, riot_puuid FROM users WHERE telegram_id = 42')
+      .get() as { riot_name: string | null; riot_tag: string | null; riot_puuid: string | null };
+
+    expect(row.riot_name).toBe('OutagePlayer');
+    expect(row.riot_tag).toBe('EU1');
+    expect(row.riot_puuid).toBeNull();
+  });
+
+  it('distinguishes an inactive account from an unreachable Henrik', async () => {
+    const app = makeApp(db, {
+      validateAccount: vi.fn().mockRejectedValue(new HenrikInactiveAccountError()),
+    });
+    const res = await postOnboard(app, { name: 'InactiveOne', tag: 'EU1' });
+
+    const body = await res.json() as Record<string, unknown>;
+    // Same admit, different provenance: this nick WAS verified to exist.
+    expect(body.pending).toBe(true);
+    expect(body.pending_reason).toBe('inactive');
+  });
+
+  it('does NOT admit when the failure is our own bug rather than Henrik', async () => {
+    // A non-Henrik throw means our code broke. Buying entry with it would turn
+    // every future bug in this handler into an open door.
+    const app = makeApp(db, {
+      validateAccount: vi.fn().mockRejectedValue(new TypeError('cannot read property of undefined')),
     });
     const res = await postOnboard(app, { name: 'Player', tag: 'EU1' });
 
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(500);
+    const row = sqlite
+      .prepare('SELECT riot_name FROM users WHERE telegram_id = 42')
+      .get() as { riot_name: string | null } | undefined;
+    expect(row?.riot_name ?? null).toBeNull();
+  });
+
+  it('still refuses a nick Henrik definitively does not know', async () => {
+    // The one branch that rejects — Henrik answered, the nick is simply wrong.
+    const app = makeApp(db, {
+      validateAccount: vi.fn().mockRejectedValue(new HenrikNotFoundError()),
+    });
+    const res = await postOnboard(app, { name: 'GhostPlayer', tag: 'XX1' });
+
+    expect(res.status).toBe(404);
     const body = await res.json() as Record<string, unknown>;
-    expect(body.error).toBe('henrik_upstream');
+    expect(body.error).toBe('account_not_found');
   });
 
   // ── Error: puuid_already_linked ──────────────────────────────────────────────

@@ -689,7 +689,9 @@ describe('startPublisherLoop', () => {
       // Rich send used; plain send NOT used.
       expect(sendRich).toHaveBeenCalledTimes(1);
       const richHtml = sendRich.mock.calls[0]![1] as string;
-      expect(richHtml).toContain('<table>');
+      // Matched without the closing bracket so the assertion survives table
+      // attributes (the roster table carries `compact`, see #352).
+      expect(richHtml).toContain('<table');
       expect(richHtml).toContain('⚔️ <b>Френдлифаер</b>');
       expect(richHtml).toContain('победа 13:11');
       expect(sendMessage).not.toHaveBeenCalled();
@@ -859,7 +861,7 @@ describe('startPublisherLoop', () => {
       // part above the roster table — because the table lists all ten players
       // anyway, so a whole-message `toContain` would pass without the fix.
       expect(html.match(/💪 <b>Поводил\(ла\) по губам<\/b>/g)).toHaveLength(1);
-      const header = html.slice(0, html.indexOf('<table>'));
+      const header = html.slice(0, html.indexOf('<table'));
       expect(header).toContain('<b>Alice#AAA</b>');
       expect(header).toContain('<b>Bob#BBB</b>');
       // Both rows close out together, on the same message.

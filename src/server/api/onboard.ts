@@ -5,10 +5,9 @@ import { OnboardBodySchema } from '../../shared/schemas/onboard.ts';
 import { users } from '../db/schema/users.ts';
 import {
   validateAccount as defaultValidateAccount,
+  HenrikError,
   HenrikNotFoundError,
   HenrikInactiveAccountError,
-  HenrikRateLimitError,
-  HenrikUpstreamError,
   type RiotAccount,
   type Priority,
 } from '../lib/henrik.ts';
@@ -36,7 +35,25 @@ export interface OnboardHandlerDeps {
   ) => Promise<void>;
   /** Returns allowed Telegram chat IDs — used to lift restrictions after onboard. */
   getAllowedChatIds?: () => Set<number>;
+  /**
+   * Telegram Bot API `answerChatJoinRequestQuery` (Bot API 10.1, guard-bot flow).
+   * Present only in production wiring; absent ⇒ the guard flow degrades to the
+   * owner approving join requests by hand.
+   */
+  answerChatJoinRequestQuery?: (queryId: string, approve: boolean) => Promise<void>;
 }
+
+/**
+ * Why a nick was accepted without a resolved PUUID.
+ *
+ * - `inactive` — Henrik answered and confirmed the account EXISTS, it just has
+ *   no recent match data. The nick is verified.
+ * - `henrik_unreachable` — Henrik never gave a verdict (429 / 5xx / network /
+ *   timeout / malformed response). The nick is UNVERIFIED: we admitted on trust
+ *   because refusing a real friend over someone else's downtime is the worse
+ *   failure. `retry-pending-onboard` is what eventually settles these.
+ */
+export type PendingReason = 'inactive' | 'henrik_unreachable';
 
 /**
  * Factory: returns a Hono handler for POST /api/onboard.
@@ -95,9 +112,40 @@ export function makeOnboardHandler(deps: OnboardHandlerDeps) {
     }
   };
 
+  /**
+   * Guard-bot flow: approve the join request this Mini App session was opened
+   * for, if any. Best-effort by design — a failure here must not turn a valid
+   * nick into an error page. When it fails the request simply stays in Telegram's
+   * pending queue and the owner can approve by hand, which is also exactly what
+   * happens when the group is not configured for a guard bot at all.
+   *
+   * Called BEFORE the backfill scan on the success path: the scan makes
+   * interactive Henrik calls and the lifetime of `chat_join_request_query_id` is
+   * undocumented, so spending it on a scan would be a bad trade.
+   */
+  const admitIfJoinRequest = async (
+    queryId: string | undefined,
+    telegramId: number,
+  ): Promise<void> => {
+    if (!queryId || !deps.answerChatJoinRequestQuery) return;
+    try {
+      await deps.answerChatJoinRequestQuery(queryId, true);
+      logger.info(
+        { module: 'onboard', telegram_id: telegramId },
+        'Join request approved after nick entry',
+      );
+    } catch (err) {
+      logger.warn(
+        { module: 'onboard', telegram_id: telegramId, err },
+        'answerChatJoinRequestQuery failed — request left pending for manual approval',
+      );
+    }
+  };
+
   return async (c: Context) => {
     const telegramUser = c.get('telegramUser');
     const telegramId: number = telegramUser.id;
+    const joinQueryId = telegramUser.chat_join_request_query_id;
 
     // Parse + validate request body
     let body: z.infer<typeof OnboardBodySchema>;
@@ -119,45 +167,57 @@ export function makeOnboardHandler(deps: OnboardHandlerDeps) {
     try {
       account = await validate(name, tag, { priority: 'interactive' });
     } catch (err) {
-      if (err instanceof HenrikInactiveAccountError) {
-        // Save name+tag so the retry cron can auto-link once the account has match data.
-        // No puuid — the row presence with riot_name set is the «engaged» signal.
-        await deps.db
-          .insert(users)
-          .values({ telegram_id: telegramId, riot_name: name, riot_tag: tag })
-          .onConflictDoUpdate({
-            target: users.telegram_id,
-            set: { riot_name: name, riot_tag: tag },
-          });
-        logger.info(
-          { module: 'onboard', telegramId, riot_name: name, riot_tag: tag },
-          'Saved pending onboard (account inactive — will retry via cron)',
-        );
-        // Entering a nick is enough to be a participant — lift read-only now even
-        // though the account is still unresolved (won't stay muted waiting on Henrik).
-        await liftRestrictionIfAny(telegramId);
-        return c.json({
-          status: 'ok',
-          riot_name: name,
-          riot_tag: tag,
-          riot_puuid: null,
-          riot_region: null,
-          pending: true,
-        });
-      }
+      // A definitive "no such account" is NOT a Henrik problem — it is a wrong
+      // nick, and the only branch that refuses. Everything else below accepts.
       if (err instanceof HenrikNotFoundError) {
         return c.json(
           { error: 'account_not_found', message: 'Riot аккаунт не найден' },
           404,
         );
       }
-      if (err instanceof HenrikRateLimitError) {
-        return c.json({ error: 'rate_limited', retry_after: err.retryAfter }, 429);
+
+      // Anything else from Henrik means Henrik failed to give us a verdict:
+      // 429, 5xx, network, timeout, malformed body — all wrapped as HenrikError
+      // (see lib/henrik.ts). Refusing entry over someone else's outage is the
+      // worse failure, so we admit and settle it later via the retry cron.
+      //
+      // A non-Henrik error is OUR bug, not Henrik's — it must NOT buy entry.
+      if (!(err instanceof HenrikError)) {
+        throw err;
       }
-      if (err instanceof HenrikUpstreamError) {
-        return c.json({ error: 'henrik_upstream' }, 502);
-      }
-      throw err;
+
+      const reason: PendingReason = err instanceof HenrikInactiveAccountError
+        ? 'inactive'
+        : 'henrik_unreachable';
+
+      // Save name+tag so the retry cron can auto-link once Henrik answers.
+      // No puuid — the row presence with riot_name set is the «engaged» signal.
+      await deps.db
+        .insert(users)
+        .values({ telegram_id: telegramId, riot_name: name, riot_tag: tag })
+        .onConflictDoUpdate({
+          target: users.telegram_id,
+          set: { riot_name: name, riot_tag: tag },
+        });
+      logger.info(
+        { module: 'onboard', telegramId, riot_name: name, riot_tag: tag, reason, err },
+        'Saved pending onboard — will retry via cron',
+      );
+
+      // Entering a nick is enough to be a participant — lift read-only now even
+      // though the account is still unresolved (won't stay muted waiting on Henrik).
+      await liftRestrictionIfAny(telegramId);
+      await admitIfJoinRequest(joinQueryId, telegramId);
+
+      return c.json({
+        status: 'ok',
+        riot_name: name,
+        riot_tag: tag,
+        riot_puuid: null,
+        riot_region: null,
+        pending: true,
+        pending_reason: reason,
+      });
     }
 
     const { puuid, name: riot_name, tag: riot_tag, region: riot_region, cardId: riot_card_id } = account;
@@ -205,6 +265,8 @@ export function makeOnboardHandler(deps: OnboardHandlerDeps) {
 
     // Auto-unrestrict: if user was previously restricted, lift restriction now
     await liftRestrictionIfAny(telegramId);
+    // Let them in before the scan — see admitIfJoinRequest on why order matters.
+    await admitIfJoinRequest(joinQueryId, telegramId);
 
     // Await backfill scan with interactive priority — onboard is user-facing,
     // we want rank+matches populated before responding. Failures are non-fatal:
