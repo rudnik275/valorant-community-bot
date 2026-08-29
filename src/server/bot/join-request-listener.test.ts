@@ -8,7 +8,11 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import type { Context } from 'grammy';
-import { makeJoinRequestListener, JOIN_REQUEST_WEBAPP_PARAMS } from './join-request-listener.ts';
+import {
+  makeJoinRequestListener,
+  JOIN_REQUEST_WEBAPP_PARAMS,
+  JOIN_REQUEST_ANSWER_PARAMS,
+} from './join-request-listener.ts';
 
 vi.mock('../lib/log.ts', () => ({
   default: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -101,6 +105,24 @@ describe('JOIN_REQUEST_WEBAPP_PARAMS', () => {
 
     expect(params['web_app_url']).toBe('https://app.example');
     expect(params['web_app']).toBeUndefined();
+  });
+
+  it('sends result as a bare string, never an object', () => {
+    // Probed 2026-08-29 with Guard Mode on: every object form answers
+    // "invalid query result specified"; the bare string passes result
+    // validation. Wrapping it again would silently break every admission.
+    const params = JOIN_REQUEST_ANSWER_PARAMS('q-1', true);
+
+    expect(params['result']).toBe('approve');
+    expect(typeof params['result']).toBe('string');
+    expect(params['approve']).toBeUndefined();
+  });
+
+  it('uses decline, not reject, for the negative outcome', () => {
+    // BotFather's Guard Mode blurb says "approve, reject, or queue", but the
+    // API rejects `reject` outright — the accepted members are approve /
+    // decline / queue.
+    expect(JOIN_REQUEST_ANSWER_PARAMS('q-1', false)['result']).toBe('decline');
   });
 
   it('carries the query id under both candidate names', () => {
