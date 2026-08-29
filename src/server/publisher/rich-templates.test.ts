@@ -66,7 +66,7 @@ describe('renderRichTemplate — table structure & content', () => {
     expect(html).not.toBeNull();
     // Count player <tr> rows: total rows minus header minus separators.
     const trCount = (html!.match(/<tr>/g) ?? []).length;
-    // 10 players + 1 header + 1 mid-team separator (giant_slayer) = 12
+    // 10 player rows + one header row per team table = 12
     expect(trCount).toBe(12);
     // Every participant name appears.
     for (const name of ['Alice', 'Bob', 'Carol', 'Frank', 'Jack']) {
@@ -206,40 +206,102 @@ describe('renderRichTemplate — table structure & content', () => {
 });
 
 describe('renderRichTemplate — team grouping & separators', () => {
-  it('giant_slayer / match_comeback use a NEUTRAL separator (no team names)', () => {
+  it('giant_slayer / match_comeback split the fives into two tables, unnamed', () => {
     for (const type of ['giant_slayer', 'match_comeback'] as const) {
       const html = renderRichTemplate(type, ctx())!;
-      // Exactly one full-width separator between the two fives.
-      const seps = (html.match(/<td colspan="2">/g) ?? []).length;
-      expect(seps).toBe(1);
-      // No "Команда" label for these.
+      // One table per five, replacing the old blank full-width separator row.
+      expect((html.match(/<table/g) ?? []).length).toBe(2);
+      expect(html).not.toContain('colspan');
+      // These events never named their teams and still don't.
       expect(html).not.toContain('Команда');
     }
   });
 
-  it('community_clash labels both teams «Команда А/Б» via colspan separators', () => {
+  it('community_clash names each team as text ABOVE its own table', () => {
+    // The name used to be a row inside the table. It is a caption now, and each
+    // five gets its own table with its own header (owner, 2026-08-29).
     const html = renderRichTemplate('community_clash', ctx({ winnerTeamId: 'Blue', teamScores: { Blue: { won: 13, lost: 11 }, Red: { won: 11, lost: 13 } } }))!;
-    const seps = (html.match(/<td colspan="2">/g) ?? []).length;
-    expect(seps).toBe(2); // one per team
-    expect(html).toContain('Команда А');
-    expect(html).toContain('Команда Б');
+
+    expect((html.match(/<table/g) ?? []).length).toBe(2);
+    expect((html.match(/<th>Игрок<\/th>/g) ?? []).length).toBe(2);
+    expect(html).not.toContain('colspan');
+
+    // Each label precedes its table, and Б comes after А's table.
+    const aIdx = html.indexOf('<b>Команда А</b>');
+    const firstTable = html.indexOf('<table');
+    const bIdx = html.indexOf('<b>Команда Б</b>');
+    const secondTable = html.indexOf('<table', firstTable + 1);
+    expect(aIdx).toBeLessThan(firstTable);
+    expect(bIdx).toBeGreaterThan(firstTable);
+    expect(bIdx).toBeLessThan(secondTable);
   });
 
-  it('community_clash marks the winner with a medal + "победа X:Y" score', () => {
+  it('community_clash keeps the table plain — the outcome is stated above it', () => {
+    // The medal and the score used to sit on the winning team's separator row,
+    // which is how the result ended up buried mid-table. Owner, 2026-08-29:
+    // outcome and score go on top, the table below stays a table.
     const html = renderRichTemplate('community_clash', ctx({ winnerTeamId: 'Blue', teamScores: { Blue: { won: 13, lost: 11 }, Red: { won: 11, lost: 13 } } }))!;
-    expect(html).toContain('🥇');
-    expect(html).toContain('победа 13:11');
-    // The losing team's separator carries no "победа".
-    // Count occurrences of "победа" — exactly one (winner only).
-    const wins = (html.match(/победа/g) ?? []).length;
-    expect(wins).toBe(1);
+
+    // Nothing about the result survives below the description.
+    const belowDesc = html.slice(html.indexOf('<table'));
+    expect(belowDesc).not.toContain('🥇');
+    expect(belowDesc).not.toContain('победа');
+    expect(belowDesc).not.toContain('13:11');
+    // The captions still say which five is which.
+    expect(html).toContain('<b>Команда А</b>');
+    expect(html).toContain('<b>Команда Б</b>');
   });
 
-  it('community_clash without team scores still marks the winner (score omitted)', () => {
+  it('community_clash states the outcome and score under the title', () => {
+    // The result used to be readable only off the winner's separator row,
+    // halfway down a ten-row table. It belongs in the sentence that says what
+    // happened — same treatment match_comeback got in #348.
+    const html = renderRichTemplate('community_clash', ctx({
+      winnerTeamId: 'Blue',
+      teamScores: { Blue: { won: 13, lost: 11 }, Red: { won: 11, lost: 13 } },
+    }))!;
+
+    expect(html).toContain('Команда А выиграла 13:11.');
+    // Above the table, not inside it.
+    expect(html.indexOf('Команда А выиграла')).toBeLessThan(html.indexOf('<table'));
+  });
+
+  it('community_clash names the winning side by its table letter', () => {
+    // The letter comes from the team's position in the table, so the sentence
+    // and the separator row can never disagree about who «Команда Б» is.
+    const html = renderRichTemplate('community_clash', ctx({
+      winnerTeamId: 'Red',
+      teamScores: { Blue: { won: 11, lost: 13 }, Red: { won: 13, lost: 11 } },
+    }))!;
+
+    expect(html).toContain('Команда Б выиграла 13:11.');
+  });
+
+  it('community_clash without scores still states who won', () => {
     const html = renderRichTemplate('community_clash', ctx({ winnerTeamId: 'Blue' }))!;
-    expect(html).toContain('🥇');
-    expect(html).toContain('победа');
-    expect(html).not.toContain('победа 13'); // no numeric score
+    expect(html).toContain('Победила команда А.');
+  });
+
+  it('community_clash states a draw with its score', () => {
+    // A draw and "we have no idea" both arrive as winnerTeamId null — the
+    // detector leaves it null for result === 'draw' as well as when it cannot
+    // work out the player's team. Having scores is what proves it was a real
+    // tied match.
+    const html = renderRichTemplate('community_clash', ctx({
+      winnerTeamId: null,
+      teamScores: { Blue: { won: 12, lost: 12 }, Red: { won: 12, lost: 12 } },
+    }))!;
+
+    expect(html).toContain('Ничья 12:12.');
+    expect(html.indexOf('Ничья')).toBeLessThan(html.indexOf('<table'));
+  });
+
+  it('community_clash says nothing about the outcome when there is no winner', () => {
+    // Pre-#315 payloads carry neither winner nor scores; the message must still
+    // render rather than claim a result it does not have.
+    const html = renderRichTemplate('community_clash', ctx({ winnerTeamId: null }))!;
+    expect(html).not.toContain('выиграла');
+    expect(html).not.toContain('Победила команда');
   });
 
   it('community_clash draw (winnerTeamId null) marks no winner', () => {

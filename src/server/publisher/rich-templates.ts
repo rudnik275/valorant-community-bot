@@ -5,14 +5,18 @@
  * Each renders a SINGLE rich HTML message with the approved format:
  *
  *   [эмодзи] <b>Заголовок</b>
- *   <i>описание</i>
- *   <table>  Игрок | Агент · K/D   — ALL 10 participants, split into two teams
- *     [team-separator row, colspan=2 — team name, or blank between the fives]
- *     … 5 rows …
- *     [team-separator row]
- *     … 5 rows …
- *   </table>
+ *   <i>описание — for community_clash this also carries the outcome + score</i>
+ *   [<b>Команда А</b> — plain text, community_clash only]
+ *   <table>  Игрок | Агент · K/D  ·  5 rows
+ *   [<b>Команда Б</b>]
+ *   <table>  Игрок | Агент · K/D  ·  5 rows
  *   [map-emoji] <a href="…">Карта</a>
+ *
+ * ONE TABLE PER TEAM, each with its own header (owner, 2026-08-29). It used to
+ * be a single table whose fives were divided by a full-width `colspan=2` row —
+ * carrying the team name for community_clash, blank for the other two. Two
+ * tables read better and let the team name be ordinary text above its table
+ * instead of a row inside it.
  *
  * The renderer returns `null` when the data is incomplete (no roster rows, or
  * any participant missing tier/kills/deaths — pre-#315 rows). `null` ⇒ the
@@ -23,7 +27,6 @@
  *   - `<table>/<tr>/<th>/<td>` render as tables; `<tg-emoji>` survives inside
  *     cells; `<details><summary>` renders collapsible; raw `\n` collapses
  *     browser-style so block markup / `<br>` is used — no raw newlines here.
- *   - `colspan` on a `<td>` merges columns for the team-separator rows.
  */
 
 import type { EventType } from './types.ts';
@@ -204,11 +207,6 @@ function playerRow(row: FullRosterRow): string {
   return `<tr><td>${name}</td><td>${agentKd(row)}</td></tr>`;
 }
 
-/** A full-width separator row spanning both columns. */
-function separatorRow(label: string): string {
-  return `<tr><td colspan="2">${label}</td></tr>`;
-}
-
 /**
  * Every participant must have tier/kills/deaths for a complete table. Any null
  * ⇒ incomplete (pre-#315 roster) ⇒ caller falls back to legacy text.
@@ -252,23 +250,64 @@ function matchLinkLine(ctx: RichTemplateContext): string {
   return `<br>${icon ? `${icon} ` : ''}${anchor}`;
 }
 
+/** The letter a team is shown under, by its position in the table. */
+function teamLetter(index: number): string {
+  return index === 0 ? 'А' : index === 1 ? 'Б' : String(index + 1);
+}
+
 /**
- * community_clash separator label for a team: «Команда А/Б», with a winner
- * mark + score on the winning team's separator, plain on the other.
+ * community_clash outcome sentence — how the match ended and with what score —
+ * placed in the description under the title.
+ *
+ * The result used to live only on the winning team's separator row, halfway
+ * down a ten-row table: you had to scroll past five players to find out who
+ * won (owner, 2026-08-29). The whole outcome goes above the table now and the
+ * table below it stays plain — same treatment match_comeback got in #348.
+ *
+ * Three endings, all stated here:
+ *   - one side won      → «Команда Б выиграла 13:7.»
+ *   - the match tied    → «Ничья 12:12.»
+ *   - nothing is known  → '' (the message still renders, it just claims nothing)
+ *
+ * A draw and a missing result look identical in `winnerTeamId` — both are null,
+ * since the detector leaves it null for `result === 'draw'` AND when it cannot
+ * work out the player's team. `teamScores` is what separates them: present ⇒ we
+ * really did see a tied match; absent ⇒ we know nothing and must say nothing.
+ * Old pre-#315 payloads carry neither and fall into the silent case.
  */
-function clashTeamLabel(
-  teamId: string,
-  index: number,
+function clashOutcome(
+  teams: Array<{ teamId: string; rows: FullRosterRow[] }>,
   ctx: RichTemplateContext,
 ): string {
-  const letter = index === 0 ? 'А' : index === 1 ? 'Б' : String(index + 1);
-  const base = `Команда ${letter}`;
-  if (ctx.winnerTeamId && teamId === ctx.winnerTeamId) {
-    const score = ctx.teamScores?.[teamId];
-    const scorePart = score ? ` — победа ${score.won}:${score.lost}` : ' — победа';
-    return `🥇 <b>${base}${scorePart}</b>`;
+  if (ctx.winnerTeamId) {
+    const index = teams.findIndex((t) => t.teamId === ctx.winnerTeamId);
+    // A winner we can't place in the table can't be named — stay silent rather
+    // than guess a letter.
+    if (index < 0) return '';
+
+    const letter = teamLetter(index);
+    const score = ctx.teamScores?.[ctx.winnerTeamId];
+    return score
+      ? `Команда ${letter} выиграла ${score.won}:${score.lost}.`
+      : `Победила команда ${letter}.`;
   }
-  return base;
+
+  const firstTeam = teams[0];
+  const score = firstTeam ? ctx.teamScores?.[firstTeam.teamId] : undefined;
+  // Either side's numbers describe a draw equally well — they are equal.
+  return score ? `Ничья ${score.won}:${score.lost}.` : '';
+}
+
+/**
+ * community_clash separator label: just «Команда А/Б».
+ *
+ * Deliberately carries no medal and no score. Both used to sit here, which is
+ * how the result ended up buried mid-table; the outcome now lives in one place
+ * above the table (see `clashOutcome`) and this row only says which five is
+ * which.
+ */
+function clashTeamLabel(index: number): string {
+  return `Команда ${teamLetter(index)}`;
 }
 
 /**
@@ -313,29 +352,29 @@ export function renderRichTemplate(
   // The other trio events have no single subject, so no hero line for them.
   const hero = eventType === 'giant_slayer' ? heroLines(ctx) : '';
 
-  const desc = describe(eventType, ctx);
+  // The clash outcome needs the team ORDER (to say «Команда Б»), which only
+  // exists once the roster is grouped — so it is appended here rather than
+  // built inside `describe`, which sees the context but not the grouping.
+  const outcome = eventType === 'community_clash' ? clashOutcome(teams, ctx) : '';
+  const desc = [describe(eventType, ctx), outcome].filter(Boolean).join(' ');
   const descLine = desc ? `<br><i>${esc(desc)}</i>` : '';
 
-  // Build table body: team A rows, separator, team B rows, separator between.
-  const bodyRows: string[] = [];
-  teams.forEach((t, i) => {
-    if (eventType === 'community_clash') {
-      bodyRows.push(separatorRow(clashTeamLabel(t.teamId, i, ctx)));
-    } else if (i > 0) {
-      // giant_slayer / match_comeback: a BLANK full-width row between the two
-      // fives — no team names, and no dash either (owner, 2026-08-04: the
-      // «———» read as a stray artefact). First team needs no leading row.
-      bodyRows.push(separatorRow(''));
-    }
-    for (const row of t.rows) bodyRows.push(playerRow(row));
+  // One table PER TEAM, each with its own header, rather than a single table
+  // split by full-width separator rows (owner, 2026-08-29 — reads better).
+  //
+  // community_clash puts the team name above its table as ordinary text, not
+  // as a row inside it. The other two events never named their teams, and this
+  // is not the place to start: they simply get two tables where they used to
+  // have one blank separator row doing the same job.
+  const teamBlocks = teams.map((t, i) => {
+    const label = eventType === 'community_clash'
+      ? `<br><b>${esc(clashTeamLabel(i))}</b>`
+      : '';
+    const rows = t.rows.map(playerRow).join('');
+    return `${label}<table${COMPACT_ATTR}><tr><th>Игрок</th><th>Агент · K/D</th></tr>${rows}</table>`;
   });
 
-  const table =
-    `<table${COMPACT_ATTR}><tr><th>Игрок</th><th>Агент · K/D</th></tr>` +
-    bodyRows.join('') +
-    '</table>';
-
-  return `${title}${hero}${descLine}${table}${matchLinkLine(ctx)}`;
+  return `${title}${hero}${descLine}${teamBlocks.join('')}${matchLinkLine(ctx)}`;
 }
 
 /**
