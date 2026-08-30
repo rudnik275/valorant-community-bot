@@ -31,7 +31,7 @@
 
 import type { EventType } from './types.ts';
 import { getFullRoster, type FullRosterRow, type SqliteDb } from '../db/queries.ts';
-import { renderPlayerName, isolateBidi } from './player-render.ts';
+import { renderPlayerName } from './player-render.ts';
 import { agentToEmojiHtml, mapToEmojiHtml } from './valorant-emoji.ts';
 
 /**
@@ -204,13 +204,19 @@ function playerRow(row: FullRosterRow): string {
     // Agent is shown in the SECOND column (not next to the name) per spec, so
     // it is intentionally omitted from renderPlayerName here.
   });
+  // `dir="ltr"` on every cell, and it has to be on the CELL.
+  //
   // Riot IDs are arbitrary user text and some are right-to-left. One Arabic
-  // nick in a roster flipped an ENTIRE table in the group on 2026-08-29 —
-  // «Игрок» and «Агент · K/D» swapped sides and the table stopped matching the
-  // one above it. A table is a directional container, so the cell isolates its
-  // contents: the name still renders in its own direction, it just cannot drag
-  // the layout with it.
-  return `<tr><td>${isolateBidi(name)}</td><td>${agentKd(row)}</td></tr>`;
+  // nick flipped an ENTIRE table in the group on 2026-08-29 — «Игрок» and
+  // «Агент · K/D» swapped sides — because Telegram takes a table's direction
+  // from its first column.
+  //
+  // Established by sending thirteen variants to the owner's DM and looking:
+  // Unicode bidi controls (FSI…PDI, LRM either side of the name) are ignored
+  // or stripped, and `dir` on the `<table>` is ignored too. `dir` on each
+  // `<td>` works. `<code>`/`<a>` wrappers also work but change how the name
+  // looks, which is too high a price for a layout fix.
+  return `<tr><td dir="ltr">${name}</td><td dir="ltr">${agentKd(row)}</td></tr>`;
 }
 
 /**
@@ -305,15 +311,42 @@ function clashOutcome(
 }
 
 /**
- * community_clash separator label: just «Команда А/Б».
+ * community_clash caption: just «Команда А/Б».
  *
  * Deliberately carries no medal and no score. Both used to sit here, which is
  * how the result ended up buried mid-table; the outcome now lives in one place
- * above the table (see `clashOutcome`) and this row only says which five is
+ * above the table (see `clashOutcome`) and the caption only says which five is
  * which.
  */
 function clashTeamLabel(index: number): string {
   return `Команда ${teamLetter(index)}`;
+}
+
+/**
+ * Caption above a team's table.
+ *
+ * giant_slayer and match_comeback are about US beating someone, so their sides
+ * have names worth using: «Наши» and «Соперники» (owner, 2026-08-30). The team
+ * holding community players is ours.
+ *
+ * community_clash keeps «Команда А/Б» because the whole premise of that event
+ * is friends on BOTH sides — there is no "them" to point at.
+ *
+ * Falls back to «Команда А/Б» whenever "ours" is ambiguous: no team has a
+ * community player, or both do. Better a neutral label than confidently
+ * calling the wrong five «Наши».
+ */
+function teamCaption(
+  eventType: EventType,
+  teams: Array<{ teamId: string; rows: FullRosterRow[] }>,
+  index: number,
+): string {
+  if (eventType === 'community_clash') return clashTeamLabel(index);
+
+  const communityTeams = teams.filter((t) => t.rows.some((r) => r.is_community));
+  if (communityTeams.length !== 1) return clashTeamLabel(index);
+
+  return teams[index]!.rows.some((r) => r.is_community) ? 'Наши' : 'Соперники';
 }
 
 /**
@@ -378,9 +411,7 @@ export function renderRichTemplate(
     // (owner, 2026-08-29). Later captions follow a `</table>`, a block element
     // that already brings its own vertical gap. Hence the asymmetry.
     const lead = i === 0 ? '<br><br>' : '<br>';
-    const label = eventType === 'community_clash'
-      ? `${lead}<b>${esc(clashTeamLabel(i))}</b>`
-      : '';
+    const label = `${lead}<b>${esc(teamCaption(eventType, teams, i))}</b>`;
     const rows = t.rows.map(playerRow).join('');
     return `${label}<table${COMPACT_ATTR}><tr><th>Игрок</th><th>Агент · K/D</th></tr>${rows}</table>`;
   });

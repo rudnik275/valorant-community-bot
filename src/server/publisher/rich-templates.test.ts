@@ -74,7 +74,7 @@ describe('renderRichTemplate — table structure & content', () => {
     }
   });
 
-  it('isolates a right-to-left nick so it cannot flip the table', () => {
+  it('pins cell direction so a right-to-left nick cannot flip the table', () => {
     // Seen in prod 2026-08-29: one Arabic nick in the second five flipped that
     // whole table — «Игрок» and «Агент · K/D» swapped sides and it stopped
     // matching the table above it. The name is fine; it just must not drag the
@@ -83,19 +83,18 @@ describe('renderRichTemplate — table structure & content', () => {
     roster[9] = row({ riot_puuid: 'r5', team: 'Red', name: 'عادل', tag: '2208', kills: 11, deaths: 16 });
     const html = renderRichTemplate('community_clash', ctx({ roster }))!;
 
-    // FSI … PDI around the cell's name.
-    expect(html).toContain('<td>⁨');
-    expect(html).toContain('⁩</td>');
-    // The Arabic name is still there, just fenced in.
+    // dir on the CELL — the lever that actually works (see playerRow).
+    expect(html).toContain('<td dir="ltr">');
+    // The Arabic name is still there, unmodified.
     expect(html).toContain('عادل#2208');
   });
 
-  it('leaves latin and cyrillic nicks isolated too — one code path, no special cases', () => {
-    // The isolate is applied per cell, not per script: a rule that only fires
-    // for "foreign-looking" names is a rule nobody can reason about.
+  it('marks every cell, not just the ones that look foreign', () => {
+    // A rule that fires on script detection is one nobody can reason about,
+    // and every cell is equally a container boundary.
     const html = renderRichTemplate('giant_slayer', ctx())!;
-    const cells = (html.match(/<td>⁨/g) ?? []).length;
-    expect(cells).toBe(10);
+    const cells = (html.match(/<td dir="ltr">/g) ?? []).length;
+    expect(cells).toBe(20); // 10 players × 2 columns
   });
 
   it('has a two-column header: Игрок | Агент · K/D', () => {
@@ -239,6 +238,41 @@ describe('renderRichTemplate — team grouping & separators', () => {
       // These events never named their teams and still don't.
       expect(html).not.toContain('Команда');
     }
+  });
+
+  it('giant_slayer / match_comeback caption the sides «Наши» and «Соперники»', () => {
+    // Owner, 2026-08-30. These events are about US beating someone, so the
+    // sides have names worth using. The community five is ours; in the fixture
+    // that is Blue (Alice + Bob).
+    for (const type of ['giant_slayer', 'match_comeback'] as const) {
+      const html = renderRichTemplate(type, ctx())!;
+      expect(html).toContain('<b>Наши</b>');
+      expect(html).toContain('<b>Соперники</b>');
+      // «Наши» comes first because Blue is first in the roster.
+      expect(html.indexOf('<b>Наши</b>')).toBeLessThan(html.indexOf('<b>Соперники</b>'));
+    }
+  });
+
+  it('falls back to neutral captions when «ours» is ambiguous', () => {
+    // Community players on BOTH sides — calling either five «Наши» would be a
+    // coin flip, so neither gets called that.
+    const roster = fullRoster();
+    roster[5] = row({ riot_puuid: 'r1', team: 'Red', name: 'Frank', tag: 'FFF', is_community: true, kills: 16, deaths: 18 });
+    const html = renderRichTemplate('giant_slayer', ctx({ roster }))!;
+
+    expect(html).not.toContain('Наши');
+    expect(html).not.toContain('Соперники');
+    expect(html).toContain('<b>Команда А</b>');
+    expect(html).toContain('<b>Команда Б</b>');
+  });
+
+  it('community_clash never says «Наши» — friends are on both sides by definition', () => {
+    const html = renderRichTemplate('community_clash', ctx({ winnerTeamId: 'Blue' }))!;
+    // Checked on the CAPTION, not the whole message: the description of this
+    // event legitimately opens with «Наши сошлись друг против друга…».
+    expect(html).not.toContain('<b>Наши</b>');
+    expect(html).not.toContain('<b>Соперники</b>');
+    expect(html).toContain('<b>Команда А</b>');
   });
 
   it('community_clash names each team as text ABOVE its own table', () => {
