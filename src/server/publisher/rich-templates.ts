@@ -31,7 +31,7 @@
 
 import type { EventType } from './types.ts';
 import { getFullRoster, type FullRosterRow, type SqliteDb } from '../db/queries.ts';
-import { renderPlayerName } from './player-render.ts';
+import { renderPlayerName, isolateBidi } from './player-render.ts';
 import { agentToEmojiHtml, mapToEmojiHtml } from './valorant-emoji.ts';
 
 /**
@@ -204,7 +204,13 @@ function playerRow(row: FullRosterRow): string {
     // Agent is shown in the SECOND column (not next to the name) per spec, so
     // it is intentionally omitted from renderPlayerName here.
   });
-  return `<tr><td>${name}</td><td>${agentKd(row)}</td></tr>`;
+  // Riot IDs are arbitrary user text and some are right-to-left. One Arabic
+  // nick in a roster flipped an ENTIRE table in the group on 2026-08-29 —
+  // «Игрок» and «Агент · K/D» swapped sides and the table stopped matching the
+  // one above it. A table is a directional container, so the cell isolates its
+  // contents: the name still renders in its own direction, it just cannot drag
+  // the layout with it.
+  return `<tr><td>${isolateBidi(name)}</td><td>${agentKd(row)}</td></tr>`;
 }
 
 /**
