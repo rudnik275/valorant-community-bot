@@ -74,6 +74,30 @@ describe('renderRichTemplate — table structure & content', () => {
     }
   });
 
+  it('isolates a right-to-left nick so it cannot flip the table', () => {
+    // Seen in prod 2026-08-29: one Arabic nick in the second five flipped that
+    // whole table — «Игрок» and «Агент · K/D» swapped sides and it stopped
+    // matching the table above it. The name is fine; it just must not drag the
+    // container's direction along.
+    const roster = fullRoster();
+    roster[9] = row({ riot_puuid: 'r5', team: 'Red', name: 'عادل', tag: '2208', kills: 11, deaths: 16 });
+    const html = renderRichTemplate('community_clash', ctx({ roster }))!;
+
+    // FSI … PDI around the cell's name.
+    expect(html).toContain('<td>⁨');
+    expect(html).toContain('⁩</td>');
+    // The Arabic name is still there, just fenced in.
+    expect(html).toContain('عادل#2208');
+  });
+
+  it('leaves latin and cyrillic nicks isolated too — one code path, no special cases', () => {
+    // The isolate is applied per cell, not per script: a rule that only fires
+    // for "foreign-looking" names is a rule nobody can reason about.
+    const html = renderRichTemplate('giant_slayer', ctx())!;
+    const cells = (html.match(/<td>⁨/g) ?? []).length;
+    expect(cells).toBe(10);
+  });
+
   it('has a two-column header: Игрок | Агент · K/D', () => {
     const html = renderRichTemplate('giant_slayer', ctx())!;
     expect(html).toContain('<th>Игрок</th><th>Агент · K/D</th>');
