@@ -24,38 +24,6 @@ function esc(s: string): string {
     .replace(/'/g, '&#39;');
 }
 
-/**
- * U+2068 FIRST STRONG ISOLATE / U+2069 POP DIRECTIONAL ISOLATE.
- *
- * Written as escapes rather than literals: these characters are invisible in an
- * editor, and the next person to touch the line would delete them unaware.
- */
-const FSI = '\u2068';
-const PDI = '\u2069';
-
-/**
- * Wrap user-supplied text in a Unicode bidi isolate.
- *
- * Riot IDs are arbitrary user text and some are written right-to-left. Such a
- * name leaks its direction into whatever contains it: on 2026-08-29 one Arabic
- * nick in a roster flipped an ENTIRE table in the group — «Игрок» and
- * «Агент · K/D» swapped sides, and that table looked nothing like the one above
- * it. The names rendered fine; the container did not.
- *
- * FSI … PDI is exactly the tool for this. The name still renders in its own
- * natural direction, so Arabic reads as Arabic, but it cannot influence the
- * direction of the row, table or message around it.
- *
- * Exported rather than applied inside `renderPlayerName`: only a DIRECTIONAL
- * container is at risk, and wrapping every name everywhere would put invisible
- * characters into every message and every assertion about one. Table cells call
- * it; flat prose lines, where a stray flip is cosmetic rather than structural,
- * deliberately do not.
- */
-export function isolateBidi(s: string): string {
-  return `${FSI}${s}${PDI}`;
-}
-
 export interface RenderPlayerNameOptions {
   /** Riot display name (unescaped). */
   name: string;
