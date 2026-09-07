@@ -3,6 +3,9 @@
  *
  *   /test_digest [N]          — preview the weekly digest for the last N days
  *                               (default 7). Sent only to the owner's DM.
+ *   /test_daily_digest [N]    — preview the DAILY digest (the 23:00 post) for
+ *                               the last N days (default 1). Owner's DM only,
+ *                               no DB writes.
  *   /test_runtime_events [N]  — replay each realtime event from the last N days
  *                               (default 2) as separate messages to the owner's
  *                               DM. Pure read from detected_events — no
@@ -23,6 +26,7 @@ import { detectedEvents } from '../db/schema/detected_events.ts';
 import { users } from '../db/schema/users.ts';
 import { matchRosters } from '../db/schema/match_rosters.ts';
 import { buildDigest } from '../digest/build.ts';
+import { buildDailyAceDigest } from '../digest-daily/build.ts';
 import {
   renderGroupedTemplate,
   type EventSubject,
@@ -51,6 +55,7 @@ export interface TestCommandsDeps {
 }
 
 const DEFAULT_DIGEST_DAYS = 7;
+const DEFAULT_DAILY_DIGEST_DAYS = 1;
 const DEFAULT_EVENTS_DAYS = 2;
 const MIN_DAYS = 1;
 const MAX_DAYS = 30;
@@ -129,6 +134,59 @@ export function makeTestDigestHandler(deps: TestCommandsDeps): MiddlewareFn<Cont
       }
     } catch (err) {
       logger.error({ module: 'test_commands', cmd: 'test_digest', err }, 'Preview digest failed');
+      try {
+        await sendExempt(deps.bot.api, fromId!, `<i>Ошибка: ${(err as Error).message ?? 'unknown'}</i>`, HTML_OPTS);
+      } catch {
+        // swallow — already in error path
+      }
+    }
+  };
+}
+
+/**
+ * `/test_daily_digest [N]` — owner-only preview of the PRODUCTION daily digest
+ * (#365). Builds it for the last N days (default 1 — the 23:00 post uses a
+ * trailing 24h window) WITHOUT touching persistent state and sends
+ * `result.richHtml` — the exact Rich Message the group gets — to the owner's
+ * DM. A window with no aces or knives says so in one line.
+ *
+ * Same contract as `/test_digest`: any error is replied as text, and the raw
+ * rich send is owner-DM-only (`chat_id` = `ctx.from.id`, verified by
+ * `isOwner()`).
+ */
+export function makeTestDailyDigestHandler(deps: TestCommandsDeps): MiddlewareFn<Context> {
+  return async (ctx: Context): Promise<void> => {
+    const fromId = ctx.from?.id;
+    if (!isOwner(fromId)) return; // silent ignore
+
+    const days = parseDaysArg(ctx.message?.text, DEFAULT_DAILY_DIGEST_DAYS);
+    const windowEnd = Date.now();
+    const windowStart = windowEnd - days * 86400000;
+
+    logger.info(
+      { module: 'test_commands', cmd: 'test_daily_digest', owner_id: fromId, days },
+      'Building preview daily digest',
+    );
+
+    try {
+      const result = await buildDailyAceDigest({ db: deps.db, windowStart, windowEnd });
+
+      const header = `<i>--- Preview: дневной дайджест за последние ${days} дн. ---</i>`;
+      // sendExempt: destination is the owner's own DM, verified by isOwner() above.
+      await sendExempt(deps.bot.api, fromId!, header, HTML_OPTS);
+
+      if (result.richHtml) {
+        await sendRichMessageHtml(deps.bot.api, fromId!, result.richHtml);
+      } else {
+        await sendExempt(
+          deps.bot.api,
+          fromId!,
+          '<i>(нет эйсов и ножей за это окно)</i>',
+          HTML_OPTS,
+        );
+      }
+    } catch (err) {
+      logger.error({ module: 'test_commands', cmd: 'test_daily_digest', err }, 'Preview daily digest failed');
       try {
         await sendExempt(deps.bot.api, fromId!, `<i>Ошибка: ${(err as Error).message ?? 'unknown'}</i>`, HTML_OPTS);
       } catch {

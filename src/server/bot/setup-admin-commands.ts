@@ -24,6 +24,7 @@ import logger from '../lib/log.ts';
 export const ADMIN_COMMANDS: ReadonlyArray<{ command: string; description: string }> = [
   { command: 'congrats', description: 'Поздравить игрока за сегодняшние матчи' },
   { command: 'test_digest', description: 'Превью еженедельного дайджеста' },
+  { command: 'test_daily_digest', description: 'Превью дневного дайджеста' },
   { command: 'test_runtime_events', description: 'Переиграть realtime-события' },
 ];
 

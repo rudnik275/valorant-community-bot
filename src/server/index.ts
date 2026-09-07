@@ -13,7 +13,12 @@ import {
   JOIN_REQUEST_ANSWER_PARAMS,
   type RawJoinRequestApi,
 } from './bot/join-request-listener.ts';
-import { makeTestDigestHandler, makeTestDigestImageHandler, makeTestRuntimeEventsHandler } from './bot/test-commands.ts';
+import {
+  makeTestDigestHandler,
+  makeTestDailyDigestHandler,
+  makeTestDigestImageHandler,
+  makeTestRuntimeEventsHandler,
+} from './bot/test-commands.ts';
 import { makeCongratsHandler, makeCongratsCallbackHandler } from './bot/congrats-command.ts';
 import { setupAdminCommandsForOwner } from './bot/setup-admin-commands.ts';
 import { isAllowedChat } from './lib/scope.ts';
@@ -93,6 +98,7 @@ if (botToken) {
   // Admin-only preview commands. Gated internally by isOwner() (TELEGRAM_OWNER_ID).
   bot.command('test_digest', makeTestDigestHandler({ db, bot }));
   bot.command('test_digest_image', makeTestDigestImageHandler({ db, bot, getOpenAIKey }));
+  bot.command('test_daily_digest', makeTestDailyDigestHandler({ db, bot }));
   bot.command('test_runtime_events', makeTestRuntimeEventsHandler({ db, bot }));
   // Admin: /congrats <nickname> → preview-then-confirm post of yesterday's
   // matches for the matched player to the primary chat.
