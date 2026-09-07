@@ -81,8 +81,11 @@ interface Tally {
  * per knife kill). Legacy rows that predate it fall back to the scalar counters
  * the detectors also write (`total_aces` / `count`); a row with neither
  * contributes 0 rather than throwing.
+ *
+ * Exported because the DAILY digest (`digest-daily/build.ts`) counts by the
+ * same rule since 2026-09-07 — a day's `×N` must add up to the week's number.
  */
-function readOccurrences(eventType: 'ace' | 'knife_kill', payloadJson: string): number {
+export function readOccurrences(eventType: 'ace' | 'knife_kill', payloadJson: string): number {
   let payload: Record<string, unknown>;
   try {
     payload = JSON.parse(payloadJson) as Record<string, unknown>;

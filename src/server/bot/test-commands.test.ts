@@ -8,6 +8,7 @@ import {
   OWNER_TELEGRAM_ID,
   parseDaysArg,
   makeTestDigestHandler,
+  makeTestDailyDigestHandler,
   makeTestRuntimeEventsHandler,
   collapseGroupableEvents,
 } from './test-commands.ts';
@@ -95,6 +96,17 @@ describe('admin gate (non-owner is silently ignored)', () => {
     const db = makeMockDb();
     const handler = makeTestRuntimeEventsHandler({ db, bot: bot as never });
     const ctx = { from: { id: 99999 }, message: { text: '/test_runtime_events 2' } };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await handler(ctx as any, async () => {});
+    expect(db.select).not.toHaveBeenCalled();
+    expect(bot.api.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('test_daily_digest handler: non-owner triggers no DB query and no send', async () => {
+    const bot = makeMockBot();
+    const db = makeMockDb();
+    const handler = makeTestDailyDigestHandler({ db, bot: bot as never });
+    const ctx = { from: { id: 99999 }, message: { text: '/test_daily_digest 3' } };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await handler(ctx as any, async () => {});
     expect(db.select).not.toHaveBeenCalled();
@@ -234,5 +246,118 @@ describe('collapseGroupableEvents', () => {
       { ...baseEv, event_type: 'match_comeback', riot_puuid: 'b', match_id: null, detected_at: 110 },
     ];
     expect(collapseGroupableEvents(events)).toHaveLength(2);
+  });
+});
+
+describe('/test_daily_digest preview (#365)', () => {
+  const MIGRATIONS_FOLDER = join(process.cwd(), 'drizzle');
+
+  function makeTestDb() {
+    const sqlite = new Database(':memory:');
+    sqlite.exec('PRAGMA foreign_keys=OFF;');
+    const db = drizzle(sqlite);
+    migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
+    return { db, sqlite };
+  }
+
+  function makeMockBot() {
+    return {
+      api: {
+        sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+        raw: { sendRichMessage: vi.fn().mockResolvedValue({ message_id: 2 }) },
+      },
+    };
+  }
+
+  /** Two aces an hour ago for one community player, so a 1-day window is non-empty. */
+  function seedAces(sqlite: Database.Database): void {
+    const puuid = 'puuid-ace';
+    const at = Date.now() - 3_600_000;
+    sqlite
+      .prepare(`INSERT INTO users (telegram_id, riot_puuid, riot_name, riot_tag, joined_at) VALUES (?, ?, ?, ?, ?)`)
+      .run(1001, puuid, 'Ace', 'ACE', Date.now());
+    sqlite
+      .prepare(
+        `INSERT INTO match_records
+         (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result, rounds_played, kill_events_compact)
+         VALUES (?, 'm1', ?, 'Ascent', 'Jett', 15, 10, 0, 'win', 20, '[]')`,
+      )
+      .run(puuid, at);
+    sqlite
+      .prepare(
+        `INSERT INTO detected_events (event_type, riot_puuid, match_id, payload_json, detected_at, status)
+         VALUES ('ace', ?, 'm1', ?, ?, 'silent')`,
+      )
+      .run(puuid, JSON.stringify({ rounds: [2, 7], rounds_won: [2] }), at);
+  }
+
+  const ownerCtx = (text: string) => ({ from: { id: OWNER_TELEGRAM_ID }, message: { text } });
+
+  it('sends the header, then the production Rich Message, to the owner DM', async () => {
+    const { db, sqlite } = makeTestDb();
+    try {
+      seedAces(sqlite);
+      const bot = makeMockBot();
+      const handler = makeTestDailyDigestHandler({ db, bot: bot as never });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await handler(ownerCtx('/test_daily_digest') as any, async () => {});
+
+      expect(bot.api.sendMessage.mock.calls.map((c) => [c[0], c[1]])).toEqual([
+        [OWNER_TELEGRAM_ID, '<i>--- Preview: дневной дайджест за последние 1 дн. ---</i>'],
+      ]);
+      const rich = bot.api.raw.sendRichMessage.mock.calls;
+      expect(rich).toHaveLength(1);
+      const arg = rich[0]![0] as { chat_id: number; rich_message: { html: string } };
+      expect(arg.chat_id).toBe(OWNER_TELEGRAM_ID);
+      expect(arg.rich_message.html).toBe(
+        '<h2>🍿 Daily Ace/Knife</h2><h3>🎯 Aces</h3><ul><li><b>Ace#ACE</b> ×2</li></ul>',
+      );
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it('honours the day-count argument', async () => {
+    const { db, sqlite } = makeTestDb();
+    try {
+      const bot = makeMockBot();
+      const handler = makeTestDailyDigestHandler({ db, bot: bot as never });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await handler(ownerCtx('/test_daily_digest 5') as any, async () => {});
+      expect(bot.api.sendMessage.mock.calls[0]![1]).toBe(
+        '<i>--- Preview: дневной дайджест за последние 5 дн. ---</i>',
+      );
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it('says so in one line when the window holds no aces or knives', async () => {
+    const { db, sqlite } = makeTestDb();
+    try {
+      const bot = makeMockBot();
+      const handler = makeTestDailyDigestHandler({ db, bot: bot as never });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await handler(ownerCtx('/test_daily_digest') as any, async () => {});
+
+      const texts = bot.api.sendMessage.mock.calls.map((c) => c[1] as string);
+      expect(texts).toEqual([
+        '<i>--- Preview: дневной дайджест за последние 1 дн. ---</i>',
+        '<i>(нет эйсов и ножей за это окно)</i>',
+      ]);
+      expect(bot.api.raw.sendRichMessage).not.toHaveBeenCalled();
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it('replies the error text instead of failing silently', async () => {
+    const bot = makeMockBot();
+    const db = { select: vi.fn(() => { throw new Error('boom'); }) };
+    const handler = makeTestDailyDigestHandler({ db, bot: bot as never });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await handler(ownerCtx('/test_daily_digest') as any, async () => {});
+    const texts = bot.api.sendMessage.mock.calls.map((c) => c[1] as string);
+    expect(texts).toEqual(['<i>Ошибка: boom</i>']);
   });
 });

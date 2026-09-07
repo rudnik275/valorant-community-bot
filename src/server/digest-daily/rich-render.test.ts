@@ -1,231 +1,137 @@
 import { describe, it, expect } from 'vitest';
-import { renderRichDailyDigest, type RichDailyRow } from './rich-render.ts';
-import { renderPlayerName, richMatchLink } from '../publisher/player-render.ts';
+import {
+  buildDailyModel,
+  renderRichDailyDigest,
+  type DailyDigestModel,
+  type DailyOccurrence,
+} from './rich-render.ts';
+import { renderPlayerName } from '../publisher/player-render.ts';
 
-const TRACKER = (id: string) => `https://tracker.gg/valorant/match/${id}`;
+const TITLE = '<h2>🍿 Daily Ace/Knife</h2>';
 
-function aceRow(overrides: Partial<RichDailyRow> = {}): RichDailyRow {
-  return {
-    eventType: 'ace',
-    riotName: 'Ace',
-    riotTag: 'ACE',
-    agent: 'Jett',
-    rank: 'Diamond 3',
-    map: 'Ascent',
-    matchId: 'm1',
-    round0: 2, // → round 3
-    won: true,
-    detectedAt: 1_000,
-    ...overrides,
-  };
+function occ(overrides: Partial<DailyOccurrence> = {}): DailyOccurrence {
+  return { eventType: 'ace', name: 'Ace', tag: 'ACE', count: 1, ...overrides };
 }
 
-function knifeRow(overrides: Partial<RichDailyRow> = {}): RichDailyRow {
-  return {
-    eventType: 'knife_kill',
-    riotName: 'Knifer',
-    riotTag: 'KNF',
-    agent: 'Reyna',
-    rank: 'Gold 1',
-    map: 'Bind',
-    matchId: 'k1',
-    round0: 12, // → round 13
-    won: false,
-    detectedAt: 2_000,
-    ...overrides,
-  };
-}
+describe('buildDailyModel', () => {
+  it('folds one occurrence into one standing', () => {
+    expect(buildDailyModel([occ()])).toEqual({
+      aces: [{ name: 'Ace', tag: 'ACE', count: 1 }],
+      knives: [],
+    });
+  });
+
+  it('sums a player across several events (matches) of the same type', () => {
+    const model = buildDailyModel([occ({ count: 2 }), occ({ count: 1 })]);
+    expect(model.aces).toEqual([{ name: 'Ace', tag: 'ACE', count: 3 }]);
+  });
+
+  it('keeps aces and knives of the same player apart', () => {
+    const model = buildDailyModel([occ(), occ({ eventType: 'knife_kill', count: 2 })]);
+    expect(model.aces).toEqual([{ name: 'Ace', tag: 'ACE', count: 1 }]);
+    expect(model.knives).toEqual([{ name: 'Ace', tag: 'ACE', count: 2 }]);
+  });
+
+  it('sorts by count descending, ties in first-appearance order', () => {
+    const model = buildDailyModel([
+      occ({ name: 'First', count: 1 }),
+      occ({ name: 'Big', count: 3 }),
+      occ({ name: 'Second', count: 1 }),
+    ]);
+    expect(model.aces.map((s) => s.name)).toEqual(['Big', 'First', 'Second']);
+  });
+
+  it('treats a different tag as a different player', () => {
+    const model = buildDailyModel([occ({ tag: 'A' }), occ({ tag: 'B' })]);
+    expect(model.aces).toHaveLength(2);
+  });
+
+  it('drops zero-count occurrences', () => {
+    expect(buildDailyModel([occ({ count: 0 })])).toEqual({ aces: [], knives: [] });
+  });
+});
 
 describe('renderRichDailyDigest', () => {
-  it('renders the header as an <h2>', () => {
-    const html = renderRichDailyDigest([aceRow()]);
-    expect(html).toContain('<h2>🍿 Эйсы и ножи за предыдущие 24 часа</h2>');
+  const nick = (name: string, tag: string) => renderPlayerName({ name, tag, isCommunity: true });
+
+  it('renders the title as an <h2>, a section as <h3> + bullet list', () => {
+    const html = renderRichDailyDigest({ aces: [{ name: 'Ace', tag: 'ACE', count: 1 }], knives: [] });
+    expect(html).toBe(`${TITLE}<h3>🎯 Aces</h3><ul><li>${nick('Ace', 'ACE')}</li></ul>`);
   });
 
-  it('emits NO legend at all — 🏆/💀 on the round markers speak for themselves', () => {
-    const html = renderRichDailyDigest([aceRow(), knifeRow()]);
-    expect(html).not.toContain('Легенда');
-    expect(html).not.toContain('<details');
-    expect(html).not.toContain('<blockquote');
-    expect(html).not.toContain('без победы в раунде');
-    expect(html).not.toContain('с победой в раунде');
+  it('bold Name#Tag via the global helper — no rank icon, no agent icon', () => {
+    const html = renderRichDailyDigest({ aces: [{ name: 'Ace', tag: 'ACE', count: 1 }], knives: [] });
+    expect(html).toContain('<li><b>Ace#ACE</b></li>');
+    expect(html).not.toContain('<tg-emoji');
   });
 
-  it('emits NO table markup at all — the layout is flat lines', () => {
-    const html = renderRichDailyDigest([aceRow(), knifeRow()]);
-    expect(html).not.toContain('<table');
-    expect(html).not.toContain('<tr>');
-    expect(html).not.toContain('<td>');
-    expect(html).not.toContain('<th>');
-  });
-
-  it('renders the Эйсы section as an <h3> followed by flat lines', () => {
-    const html = renderRichDailyDigest([aceRow()]);
-    expect(html).toContain('<h3>🎯 Эйсы</h3>');
-  });
-
-  it('renders the Ножи section as an <h3> followed by flat lines', () => {
-    const html = renderRichDailyDigest([knifeRow()]);
-    expect(html).toContain('<h3>🔪 Ножи</h3>');
-  });
-
-  it('renders one line per player+match as `ник · 🗺 Карта (N🏆)`', () => {
-    const html = renderRichDailyDigest([aceRow()]);
-    const player = renderPlayerName({
-      name: 'Ace',
-      tag: 'ACE',
-      isCommunity: true,
-      rank: 'Diamond 3',
-      agent: 'Jett',
+  it('appends ×N for more than one, never ×1', () => {
+    const html = renderRichDailyDigest({
+      aces: [
+        { name: 'Three', tag: 'T', count: 3 },
+        { name: 'One', tag: 'O', count: 1 },
+      ],
+      knives: [],
     });
-    const match = richMatchLink({ url: TRACKER('m1'), mapName: 'Ascent' });
-    expect(html).toContain(`${player} · ${match} (3🏆)`);
-    // No «раунд»/«раунды» label — the brackets hang off the map name.
+    expect(html).toContain('<li><b>Three#T</b> ×3</li>');
+    expect(html).toContain('<li><b>One#O</b></li>');
+    expect(html.match(/×/g)?.length).toBe(1);
+  });
+
+  it('renders the knife section after the ace section', () => {
+    const html = renderRichDailyDigest({
+      aces: [{ name: 'A', tag: 'A', count: 1 }],
+      knives: [{ name: 'K', tag: 'K', count: 2 }],
+    });
+    expect(html).toBe(
+      `${TITLE}<h3>🎯 Aces</h3><ul><li>${nick('A', 'A')}</li></ul>` +
+        `<h3>🔪 Knives</h3><ul><li>${nick('K', 'K')} ×2</li></ul>`,
+    );
+  });
+
+  it('omits an empty section entirely', () => {
+    const knivesOnly: DailyDigestModel = { aces: [], knives: [{ name: 'K', tag: 'K', count: 1 }] };
+    const html = renderRichDailyDigest(knivesOnly);
+    expect(html).not.toContain('Aces');
+    expect(html).toContain('<h3>🔪 Knives</h3>');
+  });
+
+  it('carries no map, no link, no round numbers, no legend, no table', () => {
+    const html = renderRichDailyDigest({
+      aces: [{ name: 'A', tag: 'A', count: 2 }],
+      knives: [{ name: 'A', tag: 'A', count: 1 }],
+    });
+    expect(html).not.toContain('<a ');
+    expect(html).not.toContain('tracker.gg');
+    expect(html).not.toContain('🏆');
+    expect(html).not.toContain('💀');
     expect(html).not.toContain('раунд');
+    expect(html).not.toContain('<table');
+    expect(html).not.toContain('<blockquote');
   });
 
-  it('links the map name itself (tg-emoji stays OUTSIDE the anchor in rich messages)', () => {
-    const html = renderRichDailyDigest([aceRow()]);
-    expect(html).toContain('<a href="https://tracker.gg/valorant/match/m1">Ascent</a>');
-    // The map icon must not sit inside the anchor — that kills the link in rich.
-    expect(html).not.toMatch(/<a href="[^"]*"><tg-emoji/);
-  });
-
-  it('collapses several rounds of the same player+match onto ONE line, ascending', () => {
-    const html = renderRichDailyDigest([
-      aceRow({ round0: 6, won: false }),
-      aceRow({ round0: 2, won: true }),
-      aceRow({ round0: 10, won: true }),
-    ]);
-    expect(html).toContain('(3🏆 | 7💀 | 11🏆)');
-    // The nick is printed once, not once per round.
-    expect(html.match(/Ace#ACE/g)?.length).toBe(1);
-  });
-
-  it('marks a multi-ace match with a bold ×N next to the nick', () => {
-    const html = renderRichDailyDigest([
-      aceRow({ round0: 2, won: true }),
-      aceRow({ round0: 6, won: false }),
-      aceRow({ round0: 10, won: true }),
-    ]);
-    expect(html).toContain('<b>×3</b> ·');
-    // ×N sits on the nick side of the separator, not on the match.
-    expect(html.indexOf('<b>×3</b>')).toBeLessThan(html.indexOf('Ascent'));
-  });
-
-  it('marks a two-knife match the same way', () => {
-    const html = renderRichDailyDigest([
-      knifeRow({ round0: 3, won: true }),
-      knifeRow({ round0: 9, won: false }),
-    ]);
-    expect(html).toContain('<b>×2</b> ·');
-    expect(html).toContain('(4🏆 | 10💀)');
-  });
-
-  it('never prints ×1 — a single occurrence carries no multiplier', () => {
-    const html = renderRichDailyDigest([aceRow(), knifeRow()]);
-    expect(html).not.toContain('×');
-  });
-
-  it('counts the multiplier per match, not per player across matches', () => {
-    // Same player: two aces on m1, one on m2 → ×2 on the first line only.
-    const html = renderRichDailyDigest([
-      aceRow({ matchId: 'm1', map: 'Ascent', round0: 1, won: true }),
-      aceRow({ matchId: 'm1', map: 'Ascent', round0: 5, won: true }),
-      aceRow({ matchId: 'm2', map: 'Bind', round0: 3, won: true }),
-    ]);
-    expect(html.match(/×\d+/g)).toEqual(['×2']);
-    expect(html.indexOf('×2')).toBeLessThan(html.indexOf('Bind'));
-  });
-
-  it('renders 💀 N for a lost round and 🏆 N for a won round', () => {
-    const html = renderRichDailyDigest([
-      aceRow({ matchId: 'w1', round0: 0, won: true }),
-      aceRow({ matchId: 'l1', round0: 5, won: false }),
-    ]);
-    expect(html).toContain('(1🏆)');
-    expect(html).toContain('(6💀)');
-  });
-
-  it('renders a bare round number (no emoji) when the outcome is unknown', () => {
-    const html = renderRichDailyDigest([aceRow({ round0: 3, won: null })]);
-    expect(html).toContain('(4)');
-    expect(html).not.toContain('4🏆');
-    expect(html).not.toContain('4💀');
-  });
-
-  it('drops the rank icon when rank is null but keeps the agent icon (renderPlayerName contract)', () => {
-    const html = renderRichDailyDigest([aceRow({ rank: null })]);
-    const player = renderPlayerName({
-      name: 'Ace',
-      tag: 'ACE',
-      isCommunity: true,
-      rank: null,
-      agent: 'Jett',
+  it('contains NO raw newline — rich HTML collapses them', () => {
+    const html = renderRichDailyDigest({
+      aces: [{ name: 'A', tag: 'A', count: 1 }, { name: 'B', tag: 'B', count: 1 }],
+      knives: [{ name: 'A', tag: 'A', count: 1 }],
     });
-    expect(html).toContain(player);
-    // No rank prefix present in the player's own fragment.
-    expect(player).not.toContain('💎');
-  });
-
-  it('groups lines of the same player adjacently, keeping input (chronological) order within a player', () => {
-    // Two players interleaved on input; grouping must make each player's lines adjacent.
-    const rows: RichDailyRow[] = [
-      aceRow({ riotName: 'Alpha', riotTag: 'A', matchId: 'a1', round0: 0, detectedAt: 1 }),
-      aceRow({ riotName: 'Beta', riotTag: 'B', matchId: 'b1', round0: 1, detectedAt: 2 }),
-      aceRow({ riotName: 'Alpha', riotTag: 'A', matchId: 'a2', round0: 4, detectedAt: 3 }),
-    ];
-    const html = renderRichDailyDigest(rows);
-    const posA1 = html.indexOf('/match/a1');
-    const posA2 = html.indexOf('/match/a2');
-    const posB1 = html.indexOf('/match/b1');
-    expect(posA1).toBeGreaterThanOrEqual(0);
-    expect(posA2).toBeGreaterThan(posA1);
-    // Beta's single line is NOT between Alpha's two lines.
-    expect(posB1).toBeGreaterThan(posA2);
-    // Within Alpha, chronological order preserved (round 1 before round 5).
-    expect(html.indexOf('(1🏆)')).toBeLessThan(html.indexOf('(5🏆)'));
-  });
-
-  it('separates lines with <br> (never a raw newline)', () => {
-    const html = renderRichDailyDigest([
-      aceRow({ riotName: 'Alpha', riotTag: 'A', matchId: 'a1' }),
-      aceRow({ riotName: 'Beta', riotTag: 'B', matchId: 'b1' }),
-    ]);
-    expect(html).toContain(')<br>');
-  });
-
-  it('omits the Ножи section entirely when there are no knife events', () => {
-    const html = renderRichDailyDigest([aceRow()]);
-    expect(html).toContain('<h3>🎯 Эйсы</h3>');
-    expect(html).not.toContain('<h3>🔪 Ножи</h3>');
-  });
-
-  it('omits the Эйсы section entirely when there are no ace events', () => {
-    const html = renderRichDailyDigest([knifeRow()]);
-    expect(html).toContain('<h3>🔪 Ножи</h3>');
-    expect(html).not.toContain('<h3>🎯 Эйсы</h3>');
-  });
-
-  it('renders both sections when both event types are present', () => {
-    const html = renderRichDailyDigest([aceRow(), knifeRow()]);
-    expect(html).toContain('<h3>🎯 Эйсы</h3>');
-    expect(html).toContain('<h3>🔪 Ножи</h3>');
-    // Эйсы section precedes Ножи section.
-    expect(html.indexOf('🎯 Эйсы')).toBeLessThan(html.indexOf('🔪 Ножи'));
-  });
-
-  it('keeps ace and knife rounds of the same player+match on separate section lines', () => {
-    const html = renderRichDailyDigest([
-      aceRow({ riotName: 'Both', riotTag: 'B', matchId: 'same', round0: 1, won: true }),
-      knifeRow({ riotName: 'Both', riotTag: 'B', matchId: 'same', round0: 8, won: false }),
-    ]);
-    expect(html).toContain('(2🏆)');
-    expect(html).toContain('(9💀)');
-  });
-
-  it('never emits a raw newline (rich HTML collapses \\n browser-style)', () => {
-    const html = renderRichDailyDigest([aceRow(), knifeRow(), aceRow({ round0: 9, won: null })]);
     expect(html).not.toContain('\n');
+  });
+
+  it('HTML-escapes the nick', () => {
+    const html = renderRichDailyDigest({ aces: [{ name: '<b>x</b>', tag: '<i>', count: 1 }], knives: [] });
+    expect(html).toContain('<li><b>&lt;b&gt;x&lt;/b&gt;#&lt;i&gt;</b></li>');
+    expect(html).not.toContain('<b>x</b>');
+  });
+
+  it('renders the model in the order it was given (sorting is buildDailyModel\'s job)', () => {
+    const html = renderRichDailyDigest({
+      aces: [
+        { name: 'Z', tag: 'Z', count: 1 },
+        { name: 'A', tag: 'A', count: 1 },
+      ],
+      knives: [],
+    });
+    expect(html.indexOf('Z#Z')).toBeLessThan(html.indexOf('A#A'));
   });
 });

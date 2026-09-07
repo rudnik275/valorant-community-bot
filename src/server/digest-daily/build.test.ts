@@ -459,12 +459,13 @@ describe('buildDailyAceDigest', () => {
     });
   });
 
-  // ─── Rich Message rendering (#315) ──────────────────────────────────────────
+  // ─── Rich Message rendering (#315 / #365) ──────────────────────────────────
   //
   // The legacy `text` field (and every assertion above) stays byte-identical.
-  // These tests exercise the PARALLEL `richHtml` field: structure, sections
-  // omitted when empty, rank sourced from match_records.rank_after, and the
-  // no-raw-`\n` contract. Deep structure/grouping is covered in rich-render.test.ts.
+  // These tests exercise the PARALLEL `richHtml` field — the per-player count
+  // lists the group actually sees: what is NOT there (rank, agent, map, link,
+  // rounds), how counting works against the DB payloads, and the no-raw-`\n`
+  // contract. Pure model/markup detail is covered in rich-render.test.ts.
   describe('richHtml (rich rendering)', () => {
     /** Seed a match row that also carries a per-match rank (rank_after). */
     function seedRankedMatch(
@@ -492,85 +493,117 @@ describe('buildDailyAceDigest', () => {
       expect(result.richHtml).toBeNull();
     });
 
-    it('returns a non-null richHtml alongside text when events exist', async () => {
+    it('renders the title, the Aces heading and one bullet per player', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'Ace', riotTag: 'ACE' });
       seedRankedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW, map: 'Ascent', agent: 'Jett', rankAfter: 'Diamond 3' });
       seedAceEvent(sqlite, { puuid: 'p1', matchId: 'm1', detectedAt: IN_WINDOW, rounds: [2], roundsWon: [2] });
 
       const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
       expect(result.text).not.toBeNull();
-      expect(result.richHtml).not.toBeNull();
-      const html = result.richHtml!;
-      expect(html).toContain('<h2>🍿 Эйсы и ножи за предыдущие 24 часа</h2>');
-      expect(html).toContain('<h3>🎯 Эйсы</h3>');
-      expect(html).not.toContain('<table');
-      expect(html).toContain('(3🏆)');
-      // Match link icon points at the tracker URL.
-      expect(html).toContain('href="https://tracker.gg/valorant/match/m1"');
+      expect(result.richHtml).toBe(
+        '<h2>🍿 Daily Ace/Knife</h2><h3>🎯 Aces</h3><ul><li><b>Ace#ACE</b></li></ul>',
+      );
     });
 
-    it('includes the per-match rank icon (from rank_after) in the player cell', async () => {
+    it('shows NO rank icon, NO agent icon, NO map and NO match link — even when all are known', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'Ranked', riotTag: 'RK' });
-      seedRankedMatch(sqlite, { puuid: 'p1', matchId: 'rk1', startedAt: IN_WINDOW, agent: 'Jett', rankAfter: 'Diamond 3' });
+      seedRankedMatch(sqlite, { puuid: 'p1', matchId: 'rk1', startedAt: IN_WINDOW, map: 'Ascent', agent: 'Jett', rankAfter: 'Diamond 3' });
       seedAceEvent(sqlite, { puuid: 'p1', matchId: 'rk1', detectedAt: IN_WINDOW, rounds: [0], roundsWon: [0] });
 
       const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
-      const expectedPlayer = renderPlayerName({
-        name: 'Ranked',
-        tag: 'RK',
-        isCommunity: true,
-        rank: 'Diamond 3',
-        agent: 'Jett',
-      });
-      // rank icon present (Diamond 3 tg-emoji) inside the rendered player fragment.
-      expect(expectedPlayer).toContain('💎');
-      expect(result.richHtml!).toContain(expectedPlayer);
+      const html = result.richHtml!;
+      expect(html).toContain('<b>Ranked#RK</b>');
+      expect(html).not.toContain('<tg-emoji');
+      expect(html).not.toContain('💎');
+      expect(html).not.toContain(agentToEmojiHtml('Jett'));
+      expect(html).not.toContain(mapToEmojiHtml('Ascent'));
+      expect(html).not.toContain('Ascent');
+      expect(html).not.toContain('tracker.gg');
+      expect(html).not.toContain('🏆');
+      expect(html).not.toContain('(');
+      // The nick is exactly the global helper's bare form.
+      expect(html).toContain(renderPlayerName({ name: 'Ranked', tag: 'RK', isCommunity: true }));
     });
 
-    it('omits the rank icon when rank_after is NULL (not a blocker)', async () => {
-      seedUser(sqlite, 1, 'p1', { riotName: 'NoRank', riotTag: 'NR' });
-      seedRankedMatch(sqlite, { puuid: 'p1', matchId: 'nr1', startedAt: IN_WINDOW, agent: 'Jett', rankAfter: null });
-      seedAceEvent(sqlite, { puuid: 'p1', matchId: 'nr1', detectedAt: IN_WINDOW, rounds: [0], roundsWon: [0] });
+    it('counts aces per aced round: rounds [0, 3] → ×2', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'MultiAce', riotTag: 'MA' });
+      seedRankedMatch(sqlite, { puuid: 'p1', matchId: 'mx', startedAt: IN_WINDOW });
+      seedAceEvent(sqlite, { puuid: 'p1', matchId: 'mx', detectedAt: IN_WINDOW, rounds: [0, 3], roundsWon: [0] });
 
       const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
-      const expectedPlayer = renderPlayerName({
-        name: 'NoRank',
-        tag: 'NR',
-        isCommunity: true,
-        rank: null,
-        agent: 'Jett',
-      });
-      expect(result.richHtml!).toContain(expectedPlayer);
-      expect(expectedPlayer).not.toContain('💎');
+      expect(result.richHtml!).toContain('<li><b>MultiAce#MA</b> ×2</li>');
     });
 
-    it('omits the Ножи section when only ace events exist (and vice versa)', async () => {
+    it('counts knives per KILL, not per round: rounds [5, 5] → ×2 (the legacy text dedupes to one line)', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'DoubleKnife', riotTag: 'DK' });
+      seedRankedMatch(sqlite, { puuid: 'p1', matchId: 'dk', startedAt: IN_WINDOW });
+      seedKnifeEvent(sqlite, { puuid: 'p1', matchId: 'dk', detectedAt: IN_WINDOW, rounds: [5, 5], roundsWon: [5] });
+
+      const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
+      expect(result.richHtml!).toContain('<h3>🔪 Knives</h3><ul><li><b>DoubleKnife#DK</b> ×2</li></ul>');
+      // …while the legacy text still lists the round once.
+      expect(result.text!.match(/🔪 \d{2}:\d{2} <b>DoubleKnife#DK<\/b>/g)?.length).toBe(1);
+    });
+
+    it('sums one player across several matches into a single bullet', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Busy', riotTag: 'BZ' });
+      seedRankedMatch(sqlite, { puuid: 'p1', matchId: 'b1', startedAt: IN_WINDOW, map: 'Sunset' });
+      seedRankedMatch(sqlite, { puuid: 'p1', matchId: 'b2', startedAt: IN_WINDOW + 1000, map: 'Ascent' });
+      seedKnifeEvent(sqlite, { puuid: 'p1', matchId: 'b1', detectedAt: IN_WINDOW, rounds: [11], roundsWon: [11] });
+      seedKnifeEvent(sqlite, { puuid: 'p1', matchId: 'b2', detectedAt: IN_WINDOW + 1000, rounds: [3, 9], roundsWon: [] });
+
+      const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
+      const html = result.richHtml!;
+      expect(html).toContain('<li><b>Busy#BZ</b> ×3</li>');
+      expect(html.match(/Busy#BZ/g)?.length).toBe(1);
+    });
+
+    it('sorts bullets by count desc, ties in detection order', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'First', riotTag: 'F' });
+      seedUser(sqlite, 2, 'p2', { riotName: 'Big', riotTag: 'B' });
+      seedUser(sqlite, 3, 'p3', { riotName: 'Second', riotTag: 'S' });
+      seedRankedMatch(sqlite, { puuid: 'p1', matchId: 'f1', startedAt: IN_WINDOW });
+      seedRankedMatch(sqlite, { puuid: 'p2', matchId: 'g1', startedAt: IN_WINDOW + 1000 });
+      seedRankedMatch(sqlite, { puuid: 'p3', matchId: 's1', startedAt: IN_WINDOW + 2000 });
+      seedAceEvent(sqlite, { puuid: 'p1', matchId: 'f1', detectedAt: IN_WINDOW, rounds: [0], roundsWon: [0] });
+      seedAceEvent(sqlite, { puuid: 'p2', matchId: 'g1', detectedAt: IN_WINDOW + 1000, rounds: [0, 4, 8], roundsWon: [0] });
+      seedAceEvent(sqlite, { puuid: 'p3', matchId: 's1', detectedAt: IN_WINDOW + 2000, rounds: [0], roundsWon: [0] });
+
+      const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
+      expect(result.richHtml!).toContain(
+        '<ul><li><b>Big#B</b> ×3</li><li><b>First#F</b></li><li><b>Second#S</b></li></ul>',
+      );
+    });
+
+    it('omits the Knives section when only ace events exist (and vice versa)', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'AceOnly', riotTag: 'AO' });
-      seedRankedMatch(sqlite, { puuid: 'p1', matchId: 'ao1', startedAt: IN_WINDOW, agent: 'Jett' });
+      seedRankedMatch(sqlite, { puuid: 'p1', matchId: 'ao1', startedAt: IN_WINDOW });
       seedAceEvent(sqlite, { puuid: 'p1', matchId: 'ao1', detectedAt: IN_WINDOW, rounds: [0], roundsWon: [0] });
 
       const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
       const html = result.richHtml!;
-      expect(html).toContain('<h3>🎯 Эйсы</h3>');
-      expect(html).not.toContain('<h3>🔪 Ножи</h3>');
+      expect(html).toContain('<h3>🎯 Aces</h3>');
+      expect(html).not.toContain('Knives');
     });
 
-    it('renders both sections when both ace and knife events exist', async () => {
+    it('renders both sections, Aces first, when both event types exist', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'Both', riotTag: 'BO' });
-      seedRankedMatch(sqlite, { puuid: 'p1', matchId: 'ba', startedAt: IN_WINDOW, agent: 'Jett' });
-      seedRankedMatch(sqlite, { puuid: 'p1', matchId: 'bk', startedAt: IN_WINDOW, agent: 'Reyna' });
-      seedAceEvent(sqlite, { puuid: 'p1', matchId: 'ba', detectedAt: IN_WINDOW, rounds: [0], roundsWon: [0] });
-      seedKnifeEvent(sqlite, { puuid: 'p1', matchId: 'bk', detectedAt: IN_WINDOW + 1000, rounds: [12], roundsWon: [] });
+      seedRankedMatch(sqlite, { puuid: 'p1', matchId: 'ba', startedAt: IN_WINDOW });
+      seedRankedMatch(sqlite, { puuid: 'p1', matchId: 'bk', startedAt: IN_WINDOW + 1000 });
+      seedKnifeEvent(sqlite, { puuid: 'p1', matchId: 'bk', detectedAt: IN_WINDOW, rounds: [12], roundsWon: [] });
+      seedAceEvent(sqlite, { puuid: 'p1', matchId: 'ba', detectedAt: IN_WINDOW + 1000, rounds: [0], roundsWon: [0] });
 
       const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
-      const html = result.richHtml!;
-      expect(html).toContain('<h3>🎯 Эйсы</h3>');
-      expect(html).toContain('<h3>🔪 Ножи</h3>');
+      expect(result.richHtml).toBe(
+        '<h2>🍿 Daily Ace/Knife</h2>' +
+          '<h3>🎯 Aces</h3><ul><li><b>Both#BO</b></li></ul>' +
+          '<h3>🔪 Knives</h3><ul><li><b>Both#BO</b></li></ul>',
+      );
     });
 
     it('produces richHtml with NO raw newline', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'NL', riotTag: 'NL' });
-      seedRankedMatch(sqlite, { puuid: 'p1', matchId: 'nl1', startedAt: IN_WINDOW, agent: 'Jett', rankAfter: 'Gold 1' });
+      seedRankedMatch(sqlite, { puuid: 'p1', matchId: 'nl1', startedAt: IN_WINDOW, rankAfter: 'Gold 1' });
       seedAceEvent(sqlite, { puuid: 'p1', matchId: 'nl1', detectedAt: IN_WINDOW, rounds: [0, 3], roundsWon: [0] });
 
       const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });

@@ -28,13 +28,21 @@
  * historical rows and is not read here.
  *
  * The `text` field above is the LEGACY plain-text rendering (kept byte-for-byte
- * as the fallback). Since #315 the builder ALSO returns `richHtml` — the same
- * per-round data rendered as a Rich Message (h2 + separate 🎯 Эйсы / 🔪 Ножи
- * sections of flat `ник · 🗺 Карта (3🏆 | 7💀)` lines, grouped by player; the
- * striped tables and the Легенда accordion are gone since 2026-08-24) via
- * `./rich-render.ts`. NOTE the legend below is the LEGACY TEXT one and stays.
- * The post path (scheduled-digest.ts step 6) tries `richHtml` via
- * `sendRichMessage` first and falls back to `text` on any error.
+ * as the send-failure fallback). Since #315 the builder ALSO returns `richHtml`
+ * — what the group actually sees. Since 2026-09-07 (#365) that is two bullet
+ * lists of per-player COUNTS, nothing else:
+ *
+ *   <h2>🍿 Daily Ace/Knife</h2>
+ *   <h3>🎯 Aces</h3>   • <b>Ник#Тег</b> ×3  • <b>Ник#Тег</b>
+ *   <h3>🔪 Knives</h3> • <b>Ник#Тег</b> ×2
+ *
+ * Counts follow the weekly leaderboards (`../digest/ace-knife.ts`
+ * `readOccurrences`): one per aced round / one per knife kill, straight from
+ * each event's `rounds` array — NOT the deduped per-round entries the legacy
+ * text lists (two knife kills in one round are ×2 here, one line there). The
+ * rendering lives in `./rich-render.ts`. NOTE the legend below is the LEGACY
+ * TEXT one and stays. The post path (scheduled-digest.ts step 6) tries
+ * `richHtml` via `sendRichMessage` first and falls back to `text` on any error.
  *
  * Both `text` and `richHtml` are null exactly when no qualifying events exist.
  * Format and rationale: see ADR 0003 (legacy) and issue #315 (rich).
@@ -47,7 +55,8 @@ import { matchRecords } from '../db/schema/match_records.ts';
 import { esc } from '../publisher/templates.ts';
 import { agentToEmojiHtml, mapToEmojiHtml } from '../publisher/valorant-emoji.ts';
 import { decodeKillEvents, decodeRounds } from '../lib/match-codec.ts';
-import { renderRichDailyDigest, type RichDailyRow } from './rich-render.ts';
+import { readOccurrences } from '../digest/ace-knife.ts';
+import { buildDailyModel, renderRichDailyDigest, type DailyOccurrence } from './rich-render.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
@@ -75,9 +84,10 @@ export interface BuildDailyDigestDeps {
 export interface BuildDailyDigestResult {
   text: string | null; // null when zero qualifying events (legacy plain-text fallback)
   /**
-   * Rich Message HTML (#315) rendered from the same per-round data. `null`
-   * exactly when `text` is null (zero qualifying events). The daily post path
-   * tries this via `sendRichMessage` first, falling back to `text` on any error.
+   * Rich Message HTML (#315) — the per-player count lists (see the module
+   * header). `null` exactly when `text` is null (zero qualifying events). The
+   * daily post path tries this via `sendRichMessage` first, falling back to
+   * `text` on any error.
    */
   richHtml: string | null;
   includedEventIds: number[];
@@ -94,7 +104,6 @@ interface Row {
   riotTag: string | null;
   map: string | null;
   agent: string | null;
-  rank: string | null;
   roundsCompactJson: string | null;
   killEventsCompactJson: string | null;
 }
@@ -103,8 +112,6 @@ interface Line {
   riotName: string;
   riotTag: string;
   agent: string;
-  /** Player's rank in this match (Henrik tier name). null ⇒ rank unknown. */
-  rank: string | null;
   map: string | null;
   matchId: string;
   rounds: number[]; // 0-indexed, deduped, ascending
@@ -121,8 +128,6 @@ interface Entry {
   riotName: string;
   riotTag: string;
   agent: string;
-  /** Player's rank in this match (Henrik tier name). null ⇒ rank unknown. */
-  rank: string | null;
   map: string | null;
   matchId: string;
 }
@@ -180,7 +185,6 @@ function rowToLine(row: Row): Line {
     riotName: row.riotName ?? row.puuid,
     riotTag: row.riotTag ?? '',
     agent: row.agent ?? '',
-    rank: row.rank,
     map: row.map,
     matchId: row.matchId,
     rounds: sortedRounds,
@@ -199,7 +203,6 @@ function lineToEntries(line: Line): Entry[] {
     riotName: line.riotName,
     riotTag: line.riotTag,
     agent: line.agent,
-    rank: line.rank,
     map: line.map,
     matchId: line.matchId,
   }));
@@ -233,7 +236,6 @@ export async function buildDailyAceDigest(
       riotTag: users.riot_tag,
       map: matchRecords.map,
       agent: matchRecords.agent,
-      rank: matchRecords.rank_after,
       roundsCompactJson: matchRecords.rounds_compact,
       killEventsCompactJson: matchRecords.kill_events_compact,
     })
@@ -270,30 +272,19 @@ export async function buildDailyAceDigest(
     return 0;
   });
 
+  // Rich model: one occurrence per event row, in detection order (the query
+  // sorts by detected_at), counted by the weekly rule — see the module header.
+  const occurrences: DailyOccurrence[] = typedRows.map((row) => ({
+    eventType: row.eventType,
+    name: row.riotName ?? row.puuid,
+    tag: row.riotTag ?? '',
+    count: readOccurrences(row.eventType, row.payloadJson),
+  }));
+
   return {
     text: renderDailyDigestText(entries),
-    richHtml: renderRichDailyDigest(entries.map(entryToRichRow)),
+    richHtml: renderRichDailyDigest(buildDailyModel(occurrences)),
     includedEventIds: typedRows.map((r) => r.id),
-  };
-}
-
-/**
- * Map a per-round `Entry` (legacy internal shape) to a `RichDailyRow` for the
- * rich renderer. Preserves the globally-sorted order the entries already carry;
- * the rich renderer regroups by player while keeping this chronological order.
- */
-function entryToRichRow(e: Entry): RichDailyRow {
-  return {
-    eventType: e.type,
-    riotName: e.riotName,
-    riotTag: e.riotTag,
-    agent: e.agent,
-    rank: e.rank,
-    map: e.map,
-    matchId: e.matchId,
-    round0: e.round0,
-    won: e.won,
-    detectedAt: e.detectedAt,
   };
 }
 
