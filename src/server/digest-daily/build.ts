@@ -80,6 +80,14 @@ export interface BuildDailyDigestResult {
    * tries this via `sendRichMessage` first, falling back to `text` on any error.
    */
   richHtml: string | null;
+  /**
+   * The per-round rows `richHtml` was rendered from, in the same order —
+   * empty exactly when `richHtml` is null. Exposed for the owner's
+   * `/test_daily_digest` preview, which renders the same rows through the
+   * prototype layouts of `./rich-variants.ts` (#365). The publish path never
+   * reads this.
+   */
+  rows: RichDailyRow[];
   includedEventIds: number[];
 }
 
@@ -250,7 +258,7 @@ export async function buildDailyAceDigest(
     .orderBy(detectedEvents.detected_at);
 
   if (rows.length === 0) {
-    return { text: null, richHtml: null, includedEventIds: [] };
+    return { text: null, richHtml: null, rows: [], includedEventIds: [] };
   }
 
   const typedRows = rows as Row[];
@@ -260,7 +268,7 @@ export async function buildDailyAceDigest(
   }
 
   if (entries.length === 0) {
-    return { text: null, richHtml: null, includedEventIds: [] };
+    return { text: null, richHtml: null, rows: [], includedEventIds: [] };
   }
 
   entries.sort((a, b) => {
@@ -270,9 +278,11 @@ export async function buildDailyAceDigest(
     return 0;
   });
 
+  const richRows = entries.map(entryToRichRow);
   return {
     text: renderDailyDigestText(entries),
-    richHtml: renderRichDailyDigest(entries.map(entryToRichRow)),
+    richHtml: renderRichDailyDigest(richRows),
+    rows: richRows,
     includedEventIds: typedRows.map((r) => r.id),
   };
 }

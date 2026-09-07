@@ -44,6 +44,14 @@ export interface RenderPlayerNameOptions {
    * agent icon dropped.
    */
   agent?: string | null;
+  /**
+   * Drop the `#Tag` half and render the bare display name. Off by default —
+   * `Name#Tag` is the global rule. Exists for layouts where the tag is pure
+   * noise next to a name everyone in the group already knows (the daily
+   * digest prototypes, #365); a layout that turns this on has decided the
+   * tag adds nothing on that particular line.
+   */
+  hideTag?: boolean;
 }
 
 /**
@@ -56,7 +64,7 @@ export interface RenderPlayerNameOptions {
  * unrecognised — this function never blocks on missing match data.
  */
 export function renderPlayerName(opts: RenderPlayerNameOptions): string {
-  const { name, tag, isCommunity, rank, agent } = opts;
+  const { name, tag, isCommunity, rank, agent, hideTag } = opts;
 
   const rankEmoji = rankToEmojiHtml(rank ?? undefined);
   const rankPart = rankEmoji ? `${rankEmoji} ` : '';
@@ -64,7 +72,7 @@ export function renderPlayerName(opts: RenderPlayerNameOptions): string {
   const agentEmoji = agentToEmojiHtml(agent ?? undefined);
   const agentPart = agentEmoji ? ` ${agentEmoji}` : '';
 
-  const nameTag = esc(`${name}#${tag}`);
+  const nameTag = esc(hideTag ? name : `${name}#${tag}`);
   const namePart = isCommunity ? `<b>${nameTag}</b>` : nameTag;
 
   return `${rankPart}${namePart}${agentPart}`;
@@ -75,6 +83,14 @@ export interface MatchLinkOptions {
   url: string;
   /** Map name for this match (e.g. "Ascent"). Omit/unknown ⇒ no map emoji. */
   mapName?: string | null;
+  /**
+   * Rich-only: drop the map emoji and link the bare map name. Default `true`
+   * (icon shown). A layout that already leads the link with its own marker
+   * (the 🎯/🔪 tallies of the daily digest prototypes) turns this off so the
+   * line does not stack two icons in front of one word. Ignored by
+   * `matchLink` — classic messages always carry the icon inside the anchor.
+   */
+  icon?: boolean;
 }
 
 /**
@@ -115,7 +131,7 @@ export function matchLinkIcon(opts: MatchLinkOptions): string {
  */
 export function richMatchLink(opts: MatchLinkOptions): string {
   const { url, mapName } = opts;
-  const icon = mapToEmojiHtml(mapName ?? undefined);
+  const icon = opts.icon === false ? '' : mapToEmojiHtml(mapName ?? undefined);
   const label = mapName ? esc(mapName) : 'матч';
   return `${icon ? `${icon} ` : ''}<a href="${esc(url)}">${label}</a>`;
 }

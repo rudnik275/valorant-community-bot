@@ -568,6 +568,29 @@ describe('buildDailyAceDigest', () => {
       expect(html).toContain('<h3>🔪 Ножи</h3>');
     });
 
+    it('exposes the per-round rows richHtml was rendered from, empty when null (#365)', async () => {
+      const empty = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
+      expect(empty.rows).toEqual([]);
+
+      seedUser(sqlite, 1, 'p1', { riotName: 'Ace', riotTag: 'ACE' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', map: 'Ascent', agent: 'Jett' });
+      seedAceEvent(sqlite, { puuid: 'p1', matchId: 'm1', detectedAt: IN_WINDOW, rounds: [2, 6], roundsWon: [2] });
+
+      const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
+      expect(result.rows).toHaveLength(2); // one row per round
+      expect(result.rows[0]).toMatchObject({
+        eventType: 'ace',
+        riotName: 'Ace',
+        riotTag: 'ACE',
+        agent: 'Jett',
+        map: 'Ascent',
+        matchId: 'm1',
+        round0: 2,
+        won: true,
+      });
+      expect(result.rows[1]).toMatchObject({ round0: 6, won: false });
+    });
+
     it('produces richHtml with NO raw newline', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'NL', riotTag: 'NL' });
       seedRankedMatch(sqlite, { puuid: 'p1', matchId: 'nl1', startedAt: IN_WINDOW, agent: 'Jett', rankAfter: 'Gold 1' });

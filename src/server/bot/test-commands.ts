@@ -3,6 +3,11 @@
  *
  *   /test_digest [N]          — preview the weekly digest for the last N days
  *                               (default 7). Sent only to the owner's DM.
+ *   /test_daily_digest [N] [A|B|C]
+ *                             — preview the DAILY digest for the last N days
+ *                               (default 1) in the production layout plus the
+ *                               prototype layouts A/B/C (#365), or in the one
+ *                               layout named. Owner's DM only, no DB writes.
  *   /test_runtime_events [N]  — replay each realtime event from the last N days
  *                               (default 2) as separate messages to the owner's
  *                               DM. Pure read from detected_events — no
@@ -23,6 +28,14 @@ import { detectedEvents } from '../db/schema/detected_events.ts';
 import { users } from '../db/schema/users.ts';
 import { matchRosters } from '../db/schema/match_rosters.ts';
 import { buildDigest } from '../digest/build.ts';
+import { buildDailyAceDigest } from '../digest-daily/build.ts';
+import {
+  DAILY_VARIANTS,
+  DAILY_VARIANT_LABELS,
+  parseDailyVariant,
+  renderDailyVariant,
+  type DailyVariant,
+} from '../digest-daily/rich-variants.ts';
 import {
   renderGroupedTemplate,
   type EventSubject,
@@ -51,6 +64,7 @@ export interface TestCommandsDeps {
 }
 
 const DEFAULT_DIGEST_DAYS = 7;
+const DEFAULT_DAILY_DIGEST_DAYS = 1;
 const DEFAULT_EVENTS_DAYS = 2;
 const MIN_DAYS = 1;
 const MAX_DAYS = 30;
@@ -129,6 +143,110 @@ export function makeTestDigestHandler(deps: TestCommandsDeps): MiddlewareFn<Cont
       }
     } catch (err) {
       logger.error({ module: 'test_commands', cmd: 'test_digest', err }, 'Preview digest failed');
+      try {
+        await sendExempt(deps.bot.api, fromId!, `<i>Ошибка: ${(err as Error).message ?? 'unknown'}</i>`, HTML_OPTS);
+      } catch {
+        // swallow — already in error path
+      }
+    }
+  };
+}
+
+/** Parsed `/test_daily_digest [N] [A|B|C]` arguments. */
+export interface DailyDigestArgs {
+  days: number;
+  /** null ⇒ every layout (production + all prototypes). */
+  variant: DailyVariant | null;
+}
+
+/**
+ * Parse `/test_daily_digest [N] [A|B|C]`. The two arguments are positional but
+ * order-free: a token that parses as an integer is the day count, a token that
+ * names a variant is the variant, anything else is ignored. So `/cmd 3 B`,
+ * `/cmd B 3`, `/cmd b` and `/cmd` all do what they look like.
+ */
+export function parseDailyDigestArgs(text: string | undefined): DailyDigestArgs {
+  let days = DEFAULT_DAILY_DIGEST_DAYS;
+  let variant: DailyVariant | null = null;
+  const tokens = (text ?? '').replace(/^\/\S+\s*/, '').trim().split(/\s+/).filter(Boolean);
+  for (const tok of tokens) {
+    const v = parseDailyVariant(tok);
+    if (v) {
+      variant = v;
+      continue;
+    }
+    if (/^-?\d+$/.test(tok)) days = parseDaysArg(`/x ${tok}`, DEFAULT_DAILY_DIGEST_DAYS);
+  }
+  return { days, variant };
+}
+
+/**
+ * `/test_daily_digest [N] [A|B|C]` — owner-only preview of the DAILY digest
+ * (#365). Builds the digest for the last N days (default 1 — the production
+ * window is a trailing 24h) WITHOUT touching persistent state, then sends to
+ * the owner's DM, each preceded by an italic caption:
+ *
+ *   - the production layout (`result.richHtml` — exactly what 23:00 posts),
+ *   - prototype A, B, C from `digest-daily/rich-variants.ts`,
+ *
+ * or only the one layout named. A window with no aces/knives says so in one
+ * line instead of rendering anything. Any error is replied as text — a
+ * preview must never fail silently. Raw rich sends are owner-DM-only:
+ * `chat_id` is `ctx.from.id`, verified by `isOwner()` — same risk-model as
+ * `sendExempt`.
+ */
+export function makeTestDailyDigestHandler(deps: TestCommandsDeps): MiddlewareFn<Context> {
+  return async (ctx: Context): Promise<void> => {
+    const fromId = ctx.from?.id;
+    if (!isOwner(fromId)) return; // silent ignore
+
+    const { days, variant } = parseDailyDigestArgs(ctx.message?.text);
+    const windowEnd = Date.now();
+    const windowStart = windowEnd - days * 86400000;
+
+    logger.info(
+      { module: 'test_commands', cmd: 'test_daily_digest', owner_id: fromId, days, variant },
+      'Building preview daily digest',
+    );
+
+    try {
+      const result = await buildDailyAceDigest({ db: deps.db, windowStart, windowEnd });
+
+      const header = `<i>--- Preview: дневной дайджест за последние ${days} дн. ---</i>`;
+      // sendExempt: destination is the owner's own DM, verified by isOwner() above.
+      await sendExempt(deps.bot.api, fromId!, header, HTML_OPTS);
+
+      if (!result.richHtml || result.rows.length === 0) {
+        await sendExempt(
+          deps.bot.api,
+          fromId!,
+          '<i>(нет эйсов и ножей за это окно)</i>',
+          HTML_OPTS,
+        );
+        return;
+      }
+
+      const previews: Array<{ caption: string; html: string }> = [];
+      if (variant === null) {
+        previews.push({ caption: 'Текущий формат', html: result.richHtml });
+      }
+      for (const v of variant === null ? DAILY_VARIANTS : [variant]) {
+        previews.push({
+          caption: `Вариант ${v} — ${DAILY_VARIANT_LABELS[v]}`,
+          html: renderDailyVariant(v, result.rows),
+        });
+      }
+
+      for (const [i, p] of previews.entries()) {
+        // sendExempt / sendRichMessageHtml: owner's own DM, verified above.
+        await sendExempt(deps.bot.api, fromId!, `<i>${p.caption}</i>`, HTML_OPTS);
+        await sendRichMessageHtml(deps.bot.api, fromId!, p.html);
+        if (i < previews.length - 1) {
+          await new Promise((r) => setTimeout(r, RUNTIME_EVENT_SEND_DELAY_MS));
+        }
+      }
+    } catch (err) {
+      logger.error({ module: 'test_commands', cmd: 'test_daily_digest', err }, 'Preview daily digest failed');
       try {
         await sendExempt(deps.bot.api, fromId!, `<i>Ошибка: ${(err as Error).message ?? 'unknown'}</i>`, HTML_OPTS);
       } catch {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderPlayerName, matchLink, matchLinkIcon } from './player-render.ts';
+import { renderPlayerName, matchLink, matchLinkIcon, richMatchLink } from './player-render.ts';
 import { rankToEmojiHtml } from './rank-emoji.ts';
 import { agentToEmojiHtml, mapToEmojiHtml } from './valorant-emoji.ts';
 
@@ -170,5 +170,46 @@ describe('matchLinkIcon (deprecated alias of matchLink)', () => {
   it('HTML-escapes the url', () => {
     const output = matchLinkIcon({ url: 'https://example.com/"><script>alert(1)</script>' });
     expect(output).not.toContain('<script>');
+  });
+});
+
+describe('renderPlayerName — hideTag', () => {
+  it('drops the #tag but keeps bold, rank and agent', () => {
+    const out = renderPlayerName({
+      name: 'Player',
+      tag: 'TAG',
+      isCommunity: true,
+      rank: 'Diamond 3',
+      agent: 'Jett',
+      hideTag: true,
+    });
+    expect(out).toBe(`${rankToEmojiHtml('Diamond 3')} <b>Player</b> ${agentToEmojiHtml('Jett')}`);
+    expect(out).not.toContain('#');
+  });
+
+  it('still escapes the bare name', () => {
+    expect(renderPlayerName({ name: 'a<b', tag: 'T', isCommunity: false, hideTag: true })).toBe('a&lt;b');
+  });
+
+  it('is off by default — Name#Tag stays the rule', () => {
+    expect(renderPlayerName({ name: 'Player', tag: 'TAG', isCommunity: true })).toContain('Player#TAG');
+  });
+});
+
+describe('richMatchLink', () => {
+  const url = 'https://tracker.gg/valorant/match/m1';
+
+  it('puts the map emoji OUTSIDE the anchor and links the bare name', () => {
+    const icon = mapToEmojiHtml('Ascent');
+    expect(icon).not.toBe('');
+    expect(richMatchLink({ url, mapName: 'Ascent' })).toBe(`${icon} <a href="${url}">Ascent</a>`);
+  });
+
+  it('icon:false drops the map emoji entirely', () => {
+    expect(richMatchLink({ url, mapName: 'Ascent', icon: false })).toBe(`<a href="${url}">Ascent</a>`);
+  });
+
+  it('falls back to «матч» when the map is unknown', () => {
+    expect(richMatchLink({ url })).toBe(`<a href="${url}">матч</a>`);
   });
 });
