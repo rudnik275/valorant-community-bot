@@ -27,6 +27,7 @@ import { users } from '../db/schema/users.ts';
 import { matchRosters } from '../db/schema/match_rosters.ts';
 import { buildDigest } from '../digest/build.ts';
 import { buildDailyAceDigest } from '../digest-daily/build.ts';
+import { sendDailyDigest } from '../digest-daily/send.ts';
 import {
   renderGroupedTemplate,
   type EventSubject,
@@ -147,11 +148,11 @@ export function makeTestDigestHandler(deps: TestCommandsDeps): MiddlewareFn<Cont
  * `/test_daily_digest [N]` — owner-only preview of the PRODUCTION daily digest
  * (#365). Builds it for the last N days (default 1 — the 23:00 post uses a
  * trailing 24h window) WITHOUT touching persistent state and sends
- * `result.richHtml` — the exact Rich Message the group gets — to the owner's
+ * `result.text` — the exact HTML message the group gets — to the owner's
  * DM. A window with no aces or knives says so in one line.
  *
- * Same contract as `/test_digest`: any error is replied as text, and the raw
- * rich send is owner-DM-only (`chat_id` = `ctx.from.id`, verified by
+ * Same contract as `/test_digest`: any error is replied as text, and the
+ * preview send is owner-DM-only (`chat_id` = `ctx.from.id`, verified by
  * `isOwner()`).
  */
 export function makeTestDailyDigestHandler(deps: TestCommandsDeps): MiddlewareFn<Context> {
@@ -175,8 +176,8 @@ export function makeTestDailyDigestHandler(deps: TestCommandsDeps): MiddlewareFn
       // sendExempt: destination is the owner's own DM, verified by isOwner() above.
       await sendExempt(deps.bot.api, fromId!, header, HTML_OPTS);
 
-      if (result.richHtml) {
-        await sendRichMessageHtml(deps.bot.api, fromId!, result.richHtml);
+      if (result.text) {
+        await sendDailyDigest(result.text, (chunk) => sendExempt(deps.bot.api, fromId!, chunk, HTML_OPTS));
       } else {
         await sendExempt(
           deps.bot.api,
