@@ -42,11 +42,12 @@ export async function sendDailyDigest(
   const chunks = splitDailyDigest(text);
   const deliver = async (chunk: string) => {
     if (sendRich) {
-      const html = chunk.split('\n\n').map((block) =>
-        block === '🍿 Эйсы и ножи за предыдущие 24 часа'
-          ? `<h2>${block}</h2>`
-          : `<p>${block.replaceAll('\n', '<br>')}</p>`,
-      ).join('');
+      const title = '🍿 Эйсы и ножи за предыдущие 24 часа';
+      const hasTitle = chunk.startsWith(`${title}\n\n`);
+      const body = hasTitle ? chunk.slice(title.length + 2) : chunk;
+      // Telegram does not give <p> blocks a blank-line margin. Preserve every
+      // body newline explicitly: section gaps become <br><br>, row breaks <br>.
+      const html = `${hasTitle ? `<h2>${title}</h2>` : ''}${body.replaceAll('\n', '<br>')}`;
       try {
         return await sendRich(html);
       } catch (err) {

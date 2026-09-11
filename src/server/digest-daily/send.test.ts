@@ -11,12 +11,12 @@ describe('sendDailyDigest', () => {
     expect(send.mock.calls).toEqual([[text]]);
   });
 
-  it('uses h2 only for the main heading and separates plain section headings from rows', async () => {
+  it('uses h2 only for the main heading and uses explicit blank lines after both section headings and between sections', async () => {
     const send = vi.fn();
     const rich = vi.fn().mockResolvedValue({ message_id: 9 });
     const text = `🍿 Эйсы и ножи за предыдущие 24 часа\n\n🎯 Эйсы\n\n${row(1)}\n\n🔪 Ножи\n\n${row(2)}`;
     expect(await sendDailyDigest(text, send, rich)).toEqual({ message_id: 9 });
-    expect(rich).toHaveBeenCalledWith(`<h2>🍿 Эйсы и ножи за предыдущие 24 часа</h2><p>🎯 Эйсы</p><p>${row(1)}</p><p>🔪 Ножи</p><p>${row(2)}</p>`);
+    expect(rich).toHaveBeenCalledWith(`<h2>🍿 Эйсы и ножи за предыдущие 24 часа</h2>🎯 Эйсы<br><br>${row(1)}<br><br>🔪 Ножи<br><br>${row(2)}`);
     expect(send).not.toHaveBeenCalled();
   });
 

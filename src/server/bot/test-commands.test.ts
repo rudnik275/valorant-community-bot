@@ -312,7 +312,7 @@ describe('/test_daily_digest preview (#365)', () => {
       const payload = rich[0]![0] as { chat_id: number; rich_message: { html: string } };
       expect(payload.chat_id).toBe(OWNER_TELEGRAM_ID);
       const html = payload.rich_message.html;
-      expect(html).toContain('<h2>🍿 Эйсы и ножи за предыдущие 24 часа</h2><p>🎯 Эйсы</p><p>- ');
+      expect(html).toContain('<h2>🍿 Эйсы и ножи за предыдущие 24 часа</h2>🎯 Эйсы<br><br>- ');
       expect(html.match(/<b>Ace#ACE<\/b>/g)).toHaveLength(2);
       expect(html).toMatch(/<a href="https:\/\/tracker.gg\/valorant\/match\/m1"><tg-emoji/);
     } finally {
