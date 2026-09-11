@@ -293,7 +293,7 @@ describe('/test_daily_digest preview (#365)', () => {
 
   const ownerCtx = (text: string) => ({ from: { id: OWNER_TELEGRAM_ID }, message: { text } });
 
-  it('sends the header, then the production Rich Message, to the owner DM', async () => {
+  it('sends the production HTML with linked emoji to the owner DM', async () => {
     const { db, sqlite } = makeTestDb();
     try {
       seedAces(sqlite);
@@ -302,16 +302,18 @@ describe('/test_daily_digest preview (#365)', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await handler(ownerCtx('/test_daily_digest') as any, async () => {});
 
-      expect(bot.api.sendMessage.mock.calls.map((c) => [c[0], c[1]])).toEqual([
-        [OWNER_TELEGRAM_ID, '<i>--- Preview: дневной дайджест за последние 1 дн. ---</i>'],
+      const messages = bot.api.sendMessage.mock.calls;
+      expect(messages).toHaveLength(2);
+      expect(messages[0]!.slice(0, 2)).toEqual([
+        OWNER_TELEGRAM_ID, '<i>--- Preview: дневной дайджест за последние 1 дн. ---</i>',
       ]);
-      const rich = bot.api.raw.sendRichMessage.mock.calls;
-      expect(rich).toHaveLength(1);
-      const arg = rich[0]![0] as { chat_id: number; rich_message: { html: string } };
-      expect(arg.chat_id).toBe(OWNER_TELEGRAM_ID);
-      expect(arg.rich_message.html).toBe(
-        '<h2>🍿 Daily Ace/Knife</h2><h3>🎯 Aces</h3><ul><li><b>Ace#ACE</b> ×2</li></ul>',
-      );
+      expect(messages[1]![0]).toBe(OWNER_TELEGRAM_ID);
+      const html = messages[1]![1] as string;
+      expect(html).toContain('🍿 Эйсы и ножи за предыдущие 24 часа\n\n🎯 Эйсы\n');
+      expect(html.match(/<b>Ace#ACE<\/b>/g)).toHaveLength(2);
+      expect(html).toMatch(/<a href="https:\/\/tracker.gg\/valorant\/match\/m1"><tg-emoji/);
+      expect(messages[1]![2]).toMatchObject({ parse_mode: 'HTML' });
+      expect(bot.api.raw.sendRichMessage).not.toHaveBeenCalled();
     } finally {
       sqlite.close();
     }

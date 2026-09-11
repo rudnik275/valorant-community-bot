@@ -288,11 +288,7 @@ if (process.env['SCANNER_DISABLED'] !== 'true') {
       startDailyDigestLoop({
         db,
         sendMessage: (chatId, text, opts) => safeSendMessage(bot!.api, chatId, text, opts as never),
-        // Rich Message send (#315): the daily digest posts as a rich message
-        // (Эйсы/Ножи tables), falling back to `sendMessage` (legacy text) on any
-        // error. Destination is TELEGRAM_PRIMARY_CHAT_ID (the already-authorised
-        // group) — same exempt risk-model as the digest text send.
-        sendRichMessage: (chatId, html) => sendRichMessageHtml(bot!.api, chatId, html),
+        // Classic HTML keeps the custom agent/map emoji link tappable.
         getPrimaryChatId: () => primaryChatId,
       });
     } else {
