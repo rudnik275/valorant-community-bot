@@ -1,3 +1,5 @@
+import { isAmbiguousSendFailure } from '../lib/telegram-send.ts';
+
 const MAX_MESSAGE_LENGTH = 4096;
 
 /** Count visible UTF-16 units; decode after removing tags so escaped nick text stays text. */
@@ -35,9 +37,25 @@ function splitDailyDigest(text: string): string[] {
 export async function sendDailyDigest(
   text: string,
   send: (chunk: string) => Promise<{ message_id: number }>,
+  sendRich?: (html: string) => Promise<{ message_id: number }>,
 ): Promise<{ message_id: number }> {
   const chunks = splitDailyDigest(text);
-  let result = await send(chunks[0]!);
-  for (const chunk of chunks.slice(1)) result = await send(chunk);
+  const deliver = async (chunk: string) => {
+    if (sendRich) {
+      const html = chunk.split('\n\n').map((block) =>
+        block === '🍿 Эйсы и ножи за предыдущие 24 часа'
+          ? `<h2>${block}</h2>`
+          : `<p>${block.replaceAll('\n', '<br>')}</p>`,
+      ).join('');
+      try {
+        return await sendRich(html);
+      } catch (err) {
+        if (isAmbiguousSendFailure(err)) throw err;
+      }
+    }
+    return send(chunk);
+  };
+  let result = await deliver(chunks[0]!);
+  for (const chunk of chunks.slice(1)) result = await deliver(chunk);
   return result;
 }

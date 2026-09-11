@@ -88,6 +88,15 @@ describe('runDailyDigestNow', () => {
     });
   });
 
+  it('uses the rich heading on scheduled delivery when the rich sender is wired', async () => {
+    const sendRichMessage = vi.fn().mockResolvedValue({ message_id: 17 });
+    await runDailyDigestNow({ db, sendMessage, sendRichMessage, getPrimaryChatId: () => -100123456789 });
+    expect(sendRichMessage).toHaveBeenCalledWith(-100123456789,
+      expect.stringContaining('<h2>🍿 Эйсы и ножи за предыдущие 24 часа</h2>'));
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(getDailyRunRow(sqlite, getKyivDate())?.posted_message_id).toBe(17);
+  });
+
   it('sends a long digest in complete rows and records the run after the final part', async () => {
     const { buildDailyAceDigest } = await import('./build.ts');
     const text = '🍿 Эйсы и ножи за предыдущие 24 часа\n\n🔪 Ножи\n' +

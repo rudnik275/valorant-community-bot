@@ -288,7 +288,7 @@ if (process.env['SCANNER_DISABLED'] !== 'true') {
       startDailyDigestLoop({
         db,
         sendMessage: (chatId, text, opts) => safeSendMessage(bot!.api, chatId, text, opts as never),
-        // Classic HTML keeps the custom agent/map emoji link tappable.
+        sendRichMessage: (chatId, html) => sendRichMessageHtml(bot!.api, chatId, html),
         getPrimaryChatId: () => primaryChatId,
       });
     } else {

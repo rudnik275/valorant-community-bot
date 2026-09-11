@@ -303,17 +303,18 @@ describe('/test_daily_digest preview (#365)', () => {
       await handler(ownerCtx('/test_daily_digest') as any, async () => {});
 
       const messages = bot.api.sendMessage.mock.calls;
-      expect(messages).toHaveLength(2);
+      expect(messages).toHaveLength(1);
       expect(messages[0]!.slice(0, 2)).toEqual([
         OWNER_TELEGRAM_ID, '<i>--- Preview: дневной дайджест за последние 1 дн. ---</i>',
       ]);
-      expect(messages[1]![0]).toBe(OWNER_TELEGRAM_ID);
-      const html = messages[1]![1] as string;
-      expect(html).toContain('🍿 Эйсы и ножи за предыдущие 24 часа\n\n🎯 Эйсы\n');
+      const rich = bot.api.raw.sendRichMessage.mock.calls;
+      expect(rich).toHaveLength(1);
+      const payload = rich[0]![0] as { chat_id: number; rich_message: { html: string } };
+      expect(payload.chat_id).toBe(OWNER_TELEGRAM_ID);
+      const html = payload.rich_message.html;
+      expect(html).toContain('<h2>🍿 Эйсы и ножи за предыдущие 24 часа</h2><p>🎯 Эйсы</p><p>- ');
       expect(html.match(/<b>Ace#ACE<\/b>/g)).toHaveLength(2);
       expect(html).toMatch(/<a href="https:\/\/tracker.gg\/valorant\/match\/m1"><tg-emoji/);
-      expect(messages[1]![2]).toMatchObject({ parse_mode: 'HTML' });
-      expect(bot.api.raw.sendRichMessage).not.toHaveBeenCalled();
     } finally {
       sqlite.close();
     }
