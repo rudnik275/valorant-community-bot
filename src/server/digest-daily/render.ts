@@ -43,7 +43,7 @@ export function renderDailyDigest(events: DailyEvent[]): string {
     const rows = [...players.values()].sort((a, b) => b.count - a.count).flatMap((group) =>
       group.events.flatMap((event) => Array.from({ length: event.count }, () => renderEvent(event))),
     );
-    if (rows.length) sections.push([heading, ...rows].join('\n'));
+    if (rows.length) sections.push([heading, '', ...rows].join('\n'));
   }
   return sections.join('\n\n');
 }

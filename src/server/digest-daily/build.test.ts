@@ -232,11 +232,11 @@ describe('buildDailyAceDigest', () => {
   it('renders the exact plain headings and a rank/name plus linked match icons per ace', async () => {
     seedUser(sqlite, 1, 'p1', { riotName: 'Ace', riotTag: 'ACE' });
     seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW });
-    sqlite.prepare("UPDATE match_records SET rank_before = 'Diamond 3', rank_after = 'Ascendant 1'").run();
+    sqlite.prepare("UPDATE match_records SET rank_before = NULL, rank_after = 'Diamond 3'").run();
     const id = seedAceEvent(sqlite, { puuid: 'p1', matchId: 'm1', detectedAt: IN_WINDOW });
     const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
     expect(result).toEqual({
-      text: '🍿 Эйсы и ножи за предыдущие 24 часа\n\n🎯 Эйсы\n- ' +
+      text: '🍿 Эйсы и ножи за предыдущие 24 часа\n\n🎯 Эйсы\n\n- ' +
         renderPlayerName({ name: 'Ace', tag: 'ACE', isCommunity: true, rank: 'Diamond 3' }) +
         ` <a href="https://tracker.gg/valorant/match/m1">${agentToEmojiHtml('Jett')}/${mapToEmojiHtml('Ascent')}</a>`,
       includedEventIds: [id],
@@ -275,7 +275,7 @@ describe('buildDailyAceDigest', () => {
     const ace = seedAceEvent(sqlite, { puuid: 'p1', matchId: 'm1', detectedAt: IN_WINDOW + 1, rounds: [0, 3] });
     const { text, includedEventIds } = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
     const row = `- <b>Both#T</b> <a href="https://tracker.gg/valorant/match/m1">${agentToEmojiHtml('Jett')}/${mapToEmojiHtml('Ascent')}</a>`;
-    expect(text).toBe(`🍿 Эйсы и ножи за предыдущие 24 часа\n\n🎯 Эйсы\n${row}\n${row}\n\n🔪 Ножи\n${row}\n${row}`);
+    expect(text).toBe(`🍿 Эйсы и ножи за предыдущие 24 часа\n\n🎯 Эйсы\n\n${row}\n${row}\n\n🔪 Ножи\n\n${row}\n${row}`);
     expect(includedEventIds).toEqual([knife, ace]);
   });
 
@@ -294,13 +294,13 @@ describe('buildDailyAceDigest', () => {
     seedUser(sqlite, 1, 'p1', { riotName: '<Ace&>', riotTag: '"T' });
     seedKnifeEvent(sqlite, { puuid: 'p1', matchId: 'm"&', detectedAt: IN_WINDOW, rounds: [2], roundsWon: [] });
     const { text } = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
-    expect(text).toBe('🍿 Эйсы и ножи за предыдущие 24 часа\n\n🔪 Ножи\n- <b>&lt;Ace&amp;&gt;#&quot;T</b> <a href="https://tracker.gg/valorant/match/m&quot;&amp;">🦸/⛰️</a>');
+    expect(text).toBe('🍿 Эйсы и ножи за предыдущие 24 часа\n\n🔪 Ножи\n\n- <b>&lt;Ace&amp;&gt;#&quot;T</b> <a href="https://tracker.gg/valorant/match/m&quot;&amp;">🦸/⛰️</a>');
   });
 
   it('omits unknown ranks and uses linked fallback icons for unknown agents and maps', async () => {
     seedUser(sqlite, 1, 'p1');
     seedMatch(sqlite, { puuid: 'p1', matchId: 'unknown', agent: 'Future agent', map: 'Future map' });
-    sqlite.prepare("UPDATE match_records SET rank_before = 'Future rank'").run();
+    sqlite.prepare("UPDATE match_records SET rank_after = 'Future rank'").run();
     seedAceEvent(sqlite, { puuid: 'p1', matchId: 'unknown', detectedAt: IN_WINDOW });
     const { text } = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
     expect(text).toContain('- <b>Player1#TAG</b> <a href="https://tracker.gg/valorant/match/unknown">🦸/⛰️</a>');

@@ -11,6 +11,30 @@ describe('sendDailyDigest', () => {
     expect(send.mock.calls).toEqual([[text]]);
   });
 
+  it('uses h2 only for the main heading and separates plain section headings from rows', async () => {
+    const send = vi.fn();
+    const rich = vi.fn().mockResolvedValue({ message_id: 9 });
+    const text = `🍿 Эйсы и ножи за предыдущие 24 часа\n\n🎯 Эйсы\n\n${row(1)}\n\n🔪 Ножи\n\n${row(2)}`;
+    expect(await sendDailyDigest(text, send, rich)).toEqual({ message_id: 9 });
+    expect(rich).toHaveBeenCalledWith(`<h2>🍿 Эйсы и ножи за предыдущие 24 часа</h2><p>🎯 Эйсы</p><p>${row(1)}</p><p>🔪 Ножи</p><p>${row(2)}</p>`);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back after an ambiguous rich send failure', async () => {
+    const send = vi.fn();
+    const failure = new Error('network timeout');
+    const rich = vi.fn().mockRejectedValue(failure);
+    await expect(sendDailyDigest(row(1), send, rich)).rejects.toBe(failure);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the same rows only when Telegram explicitly rejects rich HTML', async () => {
+    const send = vi.fn().mockResolvedValue({ message_id: 1 });
+    const rich = vi.fn().mockRejectedValue({ error_code: 400 });
+    await sendDailyDigest(row(1), send, rich);
+    expect(send).toHaveBeenCalledWith(row(1));
+  });
+
   it('splits 150 rows into sequential messages by parsed UTF-16 length, keeping every row and link intact', async () => {
     const rows = Array.from({ length: 150 }, (_, i) => row(i));
     const text = ['🍿 Эйсы и ножи за предыдущие 24 часа', '', '🎯 Эйсы', ...rows].join('\n');

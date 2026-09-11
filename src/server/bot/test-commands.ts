@@ -177,7 +177,11 @@ export function makeTestDailyDigestHandler(deps: TestCommandsDeps): MiddlewareFn
       await sendExempt(deps.bot.api, fromId!, header, HTML_OPTS);
 
       if (result.text) {
-        await sendDailyDigest(result.text, (chunk) => sendExempt(deps.bot.api, fromId!, chunk, HTML_OPTS));
+        await sendDailyDigest(
+          result.text,
+          (chunk) => sendExempt(deps.bot.api, fromId!, chunk, HTML_OPTS),
+          (html) => sendRichMessageHtml(deps.bot.api, fromId!, html),
+        );
       } else {
         await sendExempt(
           deps.bot.api,

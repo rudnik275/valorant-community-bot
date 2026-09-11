@@ -39,6 +39,7 @@ import {
   type DigestSpec,
   type DigestWindow,
   type SendMessage,
+  type SendRichMessage,
 } from '../lib/scheduled-digest.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -47,6 +48,7 @@ type AnyDb = any;
 export interface DailyDigestLoopDeps {
   db: AnyDb;
   sendMessage: SendMessage;
+  sendRichMessage?: SendRichMessage;
   getPrimaryChatId?: () => number;
   intervalCron?: string; // default '0 23 * * *' Europe/Kyiv
 }
@@ -138,7 +140,8 @@ function depsForRun(deps: DailyDigestLoopDeps) {
   return {
     db: deps.db,
     sendMessage: (chatId: number, text: string, opts?: Parameters<SendMessage>[2]) =>
-      sendDailyDigest(text, (chunk) => deps.sendMessage(chatId, chunk, opts)),
+      sendDailyDigest(text, (chunk) => deps.sendMessage(chatId, chunk, opts),
+        deps.sendRichMessage ? (html) => deps.sendRichMessage!(chatId, html) : undefined),
     getPrimaryChatId: deps.getPrimaryChatId ?? (() => 0),
   };
 }

@@ -58,7 +58,7 @@ export async function buildDailyAceDigest(deps: BuildDailyDigestDeps): Promise<B
       riotTag: users.riot_tag,
       map: matchRecords.map,
       agent: matchRecords.agent,
-      rank: matchRecords.rank_before,
+      rank: matchRecords.rank_after,
     })
     .from(detectedEvents)
     .leftJoin(users, eq(users.riot_puuid, detectedEvents.riot_puuid))
