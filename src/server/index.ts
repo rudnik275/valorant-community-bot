@@ -110,6 +110,7 @@ if (botToken) {
   bot.on('chat_member', makeChatMemberListener({
     ...makeGateDeps(bot.api),
     isAllowedChat,
+    rebuildRecords: rebuildAllRecords,
     // Nick-gate: a fresh joiner without a nick is gated immediately — and told
     // why, since the guard bot is not the only way into the group (manual
     // approval and direct adds skip it entirely).

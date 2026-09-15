@@ -5,7 +5,7 @@
  * Fires when a user joins, leaves, is kicked, promoted, demoted, or restricted.
  *
  * - STATUSES_IN: UPSERTs a skeleton user row (preserves riot_puuid + last_message_at).
- * - STATUSES_OUT: Hard-deletes the user row.
+ * - STATUSES_OUT: Purges the user and all PUUID-keyed history in FK-safe order.
  * - Bot users are always ignored.
  * - Scope-guarded by isAllowedChat (same pattern as listener.ts).
  *
@@ -27,6 +27,7 @@ import { eq, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import type { LibSQLDatabase } from 'drizzle-orm/libsql';
 import logger from '../lib/log.ts';
+import { purgePlayer } from '../db/purge-player.ts';
 import { users } from '../db/schema/users.ts';
 import { gateMember, type MemberGateDeps, type RestrictChatMember } from '../gate/member-gate.ts';
 
@@ -39,6 +40,8 @@ type IsAllowedChat = (id: number) => boolean;
 export interface ChatMemberListenerDeps {
   db: AnyDb;
   isAllowedChat: IsAllowedChat;
+  /** Rebuild derived records after a linked player's history is removed. */
+  rebuildRecords?: (db: AnyDb) => Promise<void>;
   /**
    * Telegram Bot API: restrict a chat member. Optional — when absent, on-join
    * read-only restriction is skipped (membership tracking still works).
@@ -130,13 +133,51 @@ export function makeChatMemberListener(deps: ChatMemberListenerDeps) {
           await restrictOnJoinIfNoNick(deps, chat.id, u.id);
         }
       } else {
-        // Hard delete — match_records + detected_events are puuid-keyed, no FK fan-out
-        await deps.db.delete(users).where(eq(users.telegram_id, u.id));
+        const [member]: Array<{ riot_puuid: string | null }> = await deps.db
+          .select({ riot_puuid: users.riot_puuid })
+          .from(users)
+          .where(eq(users.telegram_id, u.id))
+          .limit(1);
+        const riotPuuid = member?.riot_puuid ?? null;
 
+        // Linked history has FKs back to users. A bare users DELETE is rejected
+        // by SQLite and leaves the old Riot identity behind, so departures must
+        // use the same FK-safe purge as the daily membership reconciler.
+        const counts = await purgePlayer(deps.db, {
+          telegramId: u.id,
+          riotPuuid,
+        });
+
+        const derivedHistoryChanged =
+          counts.allTimeRecords + counts.weeklyRecords + counts.matchRecords > 0;
         logger.debug(
-          { event: 'chat_member_left', user_id: u.id, chat_id: chat.id, status },
-          'User left/kicked — deleted row',
+          {
+            event: 'chat_member_left',
+            user_id: u.id,
+            chat_id: chat.id,
+            status,
+            riot_puuid: riotPuuid,
+            ...counts,
+          },
+          'User left/kicked — purged player data',
         );
+
+        if (derivedHistoryChanged && deps.rebuildRecords) {
+          try {
+            await deps.rebuildRecords(deps.db);
+          } catch (err) {
+            logger.error(
+              {
+                event: 'chat_member_records_rebuild_error',
+                user_id: u.id,
+                chat_id: chat.id,
+                riot_puuid: riotPuuid,
+                err,
+              },
+              'Player data purged, but records rebuild failed',
+            );
+          }
+        }
       }
     } catch (err) {
       logger.error(
