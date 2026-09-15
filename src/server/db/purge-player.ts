@@ -100,9 +100,9 @@ export interface SweepOrphanCounts {
 /**
  * Delete rows in the puuid-keyed tables whose riot_puuid is no longer present in
  * `users` — orphans left behind when a member row was removed WITHOUT going through
- * purgePlayer (e.g. the live chat-member listener's bare `DELETE FROM users`, which
- * intentionally leaves records untouched). This is the daily janitor that guarantees
- * records only ever reflect current members, regardless of how a user was removed.
+ * purgePlayer (for example, historical or out-of-band database changes). This is the
+ * daily janitor that guarantees records only ever reflect current members, regardless
+ * of how a user was removed.
  *
  * Deletes match_records too, so a subsequent records rebuild cannot resurrect a
  * departed player from their surviving match history.

@@ -11,11 +11,15 @@ import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } 
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import Database from 'better-sqlite3';
+import { Hono } from 'hono';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { makeChatMemberListener } from './chat-member-listener.ts';
+import { makeMeHandler } from '../api/me.ts';
+import { makeOnboardHandler } from '../api/onboard.ts';
 import { users } from '../db/schema/users.ts';
 import { READONLY_PERMISSIONS } from '../gate/member-gate.ts';
+import type { RiotAccount } from '../lib/henrik.ts';
 import logger from '../lib/log.ts';
 
 vi.mock('../lib/log.ts', () => ({
@@ -217,6 +221,109 @@ describe('makeChatMemberListener', () => {
     const rows = db.select().from(users).where(eq(users.telegram_id, 107)).all();
     expect(rows).toHaveLength(0);
   });
+
+  it.each([
+    ['left', undefined],
+    ['kicked', undefined],
+    ['restricted', false],
+  ])(
+    'status=%s with linked history → purges player data and a rejoin starts fresh',
+    async (status, isMember) => {
+      const rebuildRecords = vi.fn().mockResolvedValue(undefined);
+      const handler = makeChatMemberListener({ db, isAllowedChat, rebuildRecords });
+
+      sqlite.exec(`
+        INSERT INTO users
+          (telegram_id, telegram_username, riot_puuid, riot_name, riot_tag, onboarded_at)
+        VALUES
+          (112, 'oleg', 'puuid-old', 'Грецкий', 'OLD', 1700000000000);
+        INSERT INTO match_records
+          (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result,
+           rounds_played, kill_events_compact)
+        VALUES
+          ('puuid-old', 'match-old', 1700000000000, 'Ascent', 'Sova', 20, 10, 5,
+           'win', 24, '[]');
+        INSERT INTO detected_events
+          (event_type, riot_puuid, match_id, payload_json, status)
+        VALUES
+          ('ace', 'puuid-old', 'match-old', '{}', 'pending');
+        INSERT INTO all_time_records
+          (record_type, weapon, riot_puuid, value, match_id, achieved_at)
+        VALUES
+          ('kills_match', '', 'puuid-old', 20, 'match-old', 1700000000000);
+        INSERT INTO weekly_records
+          (record_type, week_iso, riot_puuid, value)
+        VALUES
+          ('mvp_count_week', '2026-W37', 'puuid-old', 1);
+      `);
+
+      await handler(
+        makeCtx(makeChatMember(112, status, {
+          username: 'oleg',
+          ...(isMember !== undefined ? { is_member: isMember } : {}),
+        })) as never,
+      );
+
+      expect(sqlite.prepare(`SELECT * FROM users WHERE telegram_id=112`).all()).toHaveLength(0);
+      expect(sqlite.prepare(`SELECT * FROM match_records WHERE riot_puuid='puuid-old'`).all()).toHaveLength(0);
+      expect(sqlite.prepare(`SELECT * FROM detected_events WHERE riot_puuid='puuid-old'`).all()).toHaveLength(0);
+      expect(sqlite.prepare(`SELECT * FROM all_time_records WHERE riot_puuid='puuid-old'`).all()).toHaveLength(0);
+      expect(sqlite.prepare(`SELECT * FROM weekly_records WHERE riot_puuid='puuid-old'`).all()).toHaveLength(0);
+      expect(rebuildRecords).toHaveBeenCalledOnce();
+
+      const telegramUser = {
+        id: 112,
+        first_name: 'Oleg',
+        username: 'oleg',
+        chat_join_request_query_id: 'join-query-112',
+      };
+      const newAccount: RiotAccount = {
+        puuid: 'puuid-new',
+        name: 'NewOleg',
+        tag: 'NEW',
+        region: 'eu',
+        cardId: null,
+      };
+      const approveJoinRequest = vi.fn().mockResolvedValue(undefined);
+      const app = new Hono();
+      app.use('/api/*', async (c, next) => {
+        c.set('telegramUser', telegramUser);
+        await next();
+      });
+      app.get('/api/me', makeMeHandler({ db }));
+      app.post('/api/onboard', makeOnboardHandler({
+        db,
+        validateAccount: vi.fn().mockResolvedValue(newAccount),
+        scanForPuuid: vi.fn().mockResolvedValue(undefined),
+        answerChatJoinRequestQuery: approveJoinRequest,
+      }));
+
+      const meResponse = await app.request('/api/me');
+      expect(await meResponse.json()).toEqual({ onboarded: false, profile: null });
+
+      const onboardResponse = await app.request('/api/onboard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'NewOleg', tag: 'NEW' }),
+      });
+      expect(onboardResponse.status).toBe(200);
+      expect(approveJoinRequest).toHaveBeenCalledWith('join-query-112', true);
+
+      // Telegram emits member after the approved join request. The membership
+      // upsert must preserve the freshly-linked account.
+      await handler(makeCtx(makeChatMember(112, 'member', { username: 'oleg' })) as never);
+
+      const rejoined = sqlite
+        .prepare('SELECT riot_puuid, riot_name, riot_tag, onboarded_at FROM users WHERE telegram_id=112')
+        .get();
+      expect(rejoined).toEqual(expect.objectContaining({
+        riot_puuid: 'puuid-new',
+        riot_name: 'NewOleg',
+        riot_tag: 'NEW',
+      }));
+      expect((rejoined as { onboarded_at: number }).onboarded_at).toBeGreaterThan(0);
+    },
+  );
 
   // Case 8: is_bot=true → ignored regardless of status
   it('is_bot=true → ignored regardless of status', async () => {

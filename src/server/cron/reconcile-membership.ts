@@ -14,9 +14,9 @@
  * 3. Decision: KEEP if PRESENT in any chat. DEPARTED only if at least one call succeeded
  *    AND every successful call said DEPARTED. If all calls UNKNOWN → SKIP (never purge on
  *    inconclusive data).
- * 4. For each departed (unless dryRun): purgePlayer. Then sweep orphaned record rows
- *    whose riot_puuid is no longer in users (left by departures that bypassed purgePlayer,
- *    e.g. the live chat-member listener). Rebuild records once if anything was purged/swept.
+ * 4. For each departed (unless dryRun): purgePlayer. Then sweep historical or
+ *    out-of-band orphaned record rows whose riot_puuid is no longer in users.
+ *    Rebuild records once if anything was purged/swept.
  */
 
 import { Cron } from 'croner';
@@ -201,10 +201,9 @@ export async function runReconcileMembershipTick(
     }
   }
 
-  // Orphan sweep: clean record rows left behind by departures that bypassed
-  // purgePlayer (e.g. the live chat-member listener deletes only the users row,
-  // stranding records). This makes the daily reconcile the single janitor that
-  // keeps records reflecting current members regardless of how a user was removed.
+  // Orphan sweep: clean historical or out-of-band rows left behind by removals
+  // that bypassed purgePlayer. This keeps records reflecting current members
+  // regardless of how a user was removed.
   // Guarded by allMembers.length > 0 so we never wipe records when users is
   // unexpectedly empty (the "not in users" set would otherwise match every row).
   let sweptAny = false;
