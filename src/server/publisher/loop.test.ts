@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { join } from 'node:path';
-import { startPublisherLoop } from './loop.ts';
+import { startPublisherLoop, PUBLISH_MAX_WAIT_MS } from './loop.ts';
 import type { KyivTime } from './loop.ts';
 import { rankToEmojiHtml } from './rank-emoji.ts';
 import { agentToEmojiHtml, mapToEmojiHtml } from './valorant-emoji.ts';
@@ -519,6 +519,9 @@ describe('startPublisherLoop', () => {
       seedUser(sqlite, 1, 'killer-1', { riotName: 'Killer', riotTag: 'KKK' });
       seedUser(sqlite, 2, 'victim-1', { riotName: 'Danya', riotTag: 'UA1' });
       seedTkMatchRecord('killer-1', 'Diamond 3');
+      // The victim is community too — scanned, or the publisher would hold the
+      // match waiting for their scan.
+      seedTkMatchRecord('victim-1', 'Silver 2');
       seedRosterVictim('victim-1', 'Danya', 'UA1', 'Sage', 'Silver 2');
       seedPendingEvent(sqlite, {
         puuid: 'killer-1',
@@ -780,13 +783,13 @@ describe('startPublisherLoop', () => {
   describe('per-match uniqueness', () => {
     const MATCH = 'match-dupes';
 
-    function seedMatchRecord(puuid: string, matchId = MATCH, map = 'Ascent') {
+    function seedMatchRecord(puuid: string, matchId = MATCH, map = 'Ascent', insertedAt = Date.now()) {
       sqlite.prepare(
         `INSERT INTO match_records
            (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result,
-            rounds_played, fall_damage_kills, kill_events_compact)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(puuid, matchId, 1_000, map, 'Jett', 20, 10, 5, 'win', 24, 0, '[]');
+            rounds_played, fall_damage_kills, kill_events_compact, inserted_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(puuid, matchId, 1_000, map, 'Jett', 20, 10, 5, 'win', 24, 0, '[]', insertedAt);
     }
 
     function seedFullRoster(matchId = MATCH) {
@@ -901,6 +904,7 @@ describe('startPublisherLoop', () => {
       // message went out. Repeating the post is exactly the reported spam.
       seedUser(sqlite, 1, 'a1', { riotName: 'Alice', riotTag: 'AAA' });
       seedUser(sqlite, 2, 'a2', { riotName: 'Bob', riotTag: 'BBB' });
+      seedMatchRecord('a1');
       seedMatchRecord('a2');
       seedFullRoster();
       seedPostedEvent({ puuid: 'a1', eventType: 'giant_slayer', matchId: MATCH });
@@ -1100,6 +1104,116 @@ describe('startPublisherLoop', () => {
       expect(text).toContain('<b>Bob#BBB</b>');
       expect(getEventStatus(sqlite, id1)).toBe('posted');
       expect(getEventStatus(sqlite, id2)).toBe('posted');
+    });
+
+    it('holds the event while a community player of the match is still unscanned, then names them too', async () => {
+      // Live 2026-09-30: four friends beat a stronger team on Abyss, the sweep
+      // reached them over 11 minutes, and the message went out after 5 with
+      // one name — the other three were suppressed as stragglers.
+      seedUser(sqlite, 1, 'a1', { riotName: 'Alice', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'a2', { riotName: 'Bob', riotTag: 'BBB' });
+      seedFullRoster();
+      seedMatchRecord('a1');
+      const id1 = seedPendingEvent(sqlite, {
+        puuid: 'a1', eventType: 'giant_slayer', matchId: MATCH,
+        payload: { own: 'Diamond 2', enemy_avg: 'Immortal 1' }, detectedAt: Date.now(),
+      });
+
+      const sendRich = vi.fn().mockResolvedValue({ message_id: 99 });
+      const stop = makeRichLoop(sendRich);
+
+      // Bob is in the lobby but his scan hasn't landed — nothing goes out.
+      await vi.advanceTimersByTimeAsync(2001);
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      expect(sendRich).not.toHaveBeenCalled();
+      expect(sendMessage).not.toHaveBeenCalled();
+      expect(getEventStatus(sqlite, id1)).toBe('pending');
+
+      // His scan lands, with his own giant_slayer.
+      seedMatchRecord('a2');
+      const id2 = seedPendingEvent(sqlite, {
+        puuid: 'a2', eventType: 'giant_slayer', matchId: MATCH,
+        payload: { own: 'Diamond 2', enemy_avg: 'Immortal 1' }, detectedAt: Date.now(),
+      });
+
+      await vi.advanceTimersByTimeAsync(2001);
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+      stop();
+
+      expect(sendRich).toHaveBeenCalledTimes(1);
+      const html = sendRich.mock.calls[0]![1] as string;
+      const header = html.slice(0, html.indexOf('<table'));
+      expect(header).toContain('<b>Alice#AAA</b>');
+      expect(header).toContain('<b>Bob#BBB</b>');
+      expect(getEventStatus(sqlite, id1)).toBe('posted');
+      expect(getEventStatus(sqlite, id2)).toBe('posted');
+    });
+
+    it('gives a just-scanned player the grace period for their detectors to write events', async () => {
+      // A scan lands `match_records` first and writes `detected_events` only
+      // after every detector — including ace's Henrik enrichment — finishes, so
+      // "scanned" alone does not mean the player's event row exists yet.
+      const GRACE = 60_000;
+      seedUser(sqlite, 1, 'a1', { riotName: 'Alice', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'a2', { riotName: 'Bob', riotTag: 'BBB' });
+      seedFullRoster();
+      seedMatchRecord('a1', MATCH, 'Ascent', Date.now() - 2 * GRACE);
+      const id1 = seedPendingEvent(sqlite, {
+        puuid: 'a1', eventType: 'giant_slayer', matchId: MATCH,
+        payload: { own: 'Diamond 2', enemy_avg: 'Immortal 1' }, detectedAt: Date.now() - 2 * GRACE,
+      });
+      // Bob's record is in; his detectors are still running.
+      seedMatchRecord('a2', MATCH, 'Ascent', Date.now());
+
+      const sendRich = vi.fn().mockResolvedValue({ message_id: 99 });
+      const stop = startPublisherLoop({
+        db,
+        sendMessage,
+        sendRichMessage: sendRich,
+        getPrimaryChatId: () => -1001234567890,
+        intervalCron: '* * * * * *',
+        publishGraceMs: GRACE,
+      });
+
+      await vi.advanceTimersByTimeAsync(2001);
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      expect(sendRich).not.toHaveBeenCalled();
+      expect(getEventStatus(sqlite, id1)).toBe('pending');
+
+      const id2 = seedPendingEvent(sqlite, {
+        puuid: 'a2', eventType: 'giant_slayer', matchId: MATCH,
+        payload: { own: 'Diamond 2', enemy_avg: 'Immortal 1' }, detectedAt: Date.now(),
+      });
+
+      await vi.advanceTimersByTimeAsync(GRACE);
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+      stop();
+
+      expect(sendRich).toHaveBeenCalledTimes(1);
+      const header = (sendRich.mock.calls[0]![1] as string).split('<table')[0]!;
+      expect(header).toContain('<b>Alice#AAA</b>');
+      expect(header).toContain('<b>Bob#BBB</b>');
+      expect(getEventStatus(sqlite, id2)).toBe('posted');
+    });
+
+    it('stops waiting for an unscanned player once the event is PUBLISH_MAX_WAIT_MS old', async () => {
+      // A friend whose scans keep failing must not hold the match forever.
+      seedUser(sqlite, 1, 'a1', { riotName: 'Alice', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'a2', { riotName: 'Bob', riotTag: 'BBB' });
+      seedFullRoster();
+      seedMatchRecord('a1');
+      const id1 = seedPendingEvent(sqlite, {
+        puuid: 'a1', eventType: 'giant_slayer', matchId: MATCH,
+        payload: { own: 'Diamond 2', enemy_avg: 'Immortal 1' },
+        detectedAt: Date.now() - PUBLISH_MAX_WAIT_MS,
+      });
+
+      const sendRich = vi.fn().mockResolvedValue({ message_id: 99 });
+      const stop = makeRichLoop(sendRich);
+      await runOneTick(stop);
+
+      expect(sendRich).toHaveBeenCalledTimes(1);
+      expect(getEventStatus(sqlite, id1)).toBe('posted');
     });
 
     it('claims the group BEFORE sending, so a crash cannot repost it', async () => {

@@ -20,8 +20,11 @@
  * «👏 Мы вами гордимся» each posted twice for one match (owner, 2026-08-09).
  *
  * So the loop enforces it at publish time, where the whole picture is visible:
- *   - an event waits {@link PUBLISH_GRACE_MS} before it is eligible, so the
- *     scan sweep that produces its siblings has time to finish;
+ *   - an event is eligible only once every community player in its match's
+ *     roster has been scanned, the latest of them at least
+ *     {@link PUBLISH_GRACE_MS} ago, so all their siblings exist — or once it
+ *     has waited {@link PUBLISH_MAX_WAIT_MS}, so one friend whose scans keep
+ *     failing cannot hold the match back forever;
  *   - all pending siblings then collapse into one message
  *     (`renderGroupedTemplate` lists every player) and are marked posted
  *     together;
@@ -31,9 +34,11 @@
  */
 
 import { Cron } from 'croner';
-import { and, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, lte, or, sql } from 'drizzle-orm';
 import { detectedEvents } from '../db/schema/detected_events.ts';
 import { users } from '../db/schema/users.ts';
+import { matchRecords } from '../db/schema/match_records.ts';
+import { matchRosters } from '../db/schema/match_rosters.ts';
 import { optOuts } from '../db/schema/opt_outs.ts';
 import { decide } from './decide.ts';
 import { renderGroupedTemplate, type EventSubject, type TemplateMatch } from './templates.ts';
@@ -79,27 +84,40 @@ export interface PublisherLoopDeps {
   /** Override cron expression for tests. */
   intervalCron?: string;
   /**
-   * How long an event waits before it may be published. Defaults to
-   * {@link PUBLISH_GRACE_MS}; tests pass 0. See the module header — this is
-   * what gives a match's siblings time to be detected so they can share one
-   * message instead of the later ones being suppressed as duplicates.
+   * How long a scan must have settled before its match's events may be
+   * published. Defaults to {@link PUBLISH_GRACE_MS}; tests pass 0. See the
+   * module header — this is what gives a match's siblings time to be detected
+   * so they can share one message instead of the later ones being suppressed
+   * as duplicates.
    */
   publishGraceMs?: number;
 }
 
 /**
- * How long a detected event waits before the publisher will post it.
+ * How long after a community player's scan the publisher waits before trusting
+ * that the player's events for that match are all written.
  *
- * Community players are scanned one at a time (`scanner/loop.ts` sleeps between
- * users, plus Henrik latency), so the events for one match land spread across a
- * whole scan sweep — a couple of minutes for a ~30-person group. The publisher
- * ticks every minute, so without a wait the first player's event gets posted
- * alone and everyone scanned afterwards is suppressed as a duplicate: no double
- * post, but their names never reach the chat. Five minutes comfortably covers a
- * sweep, and realtime events are already up to 15 minutes old (the scan
- * interval) by the time they exist, so the added delay is not noticeable.
+ * A scan inserts `match_records` first; `detect.ts` writes the player's
+ * `detected_events` only after every detector has run, and ace enrichment calls
+ * Henrik for opponent peaks in between. Applied to the event itself and to the
+ * latest community scan of its match, so a sibling whose record just landed
+ * still gets its row in before the message goes out.
  */
 export const PUBLISH_GRACE_MS = 5 * 60_000;
+
+/**
+ * Longest an event waits for the rest of its match's community players to be
+ * scanned.
+ *
+ * Community players are scanned one at a time and a sweep of ~33 users takes
+ * 15–20 minutes on prod (Henrik latency, not the 2s sleep), so one match's
+ * scans land up to a sweep apart — p90 21 min, p99 36 min over 515 multi-friend
+ * matches (2026-09-30). The fixed 5-minute wait this replaced posted «💪
+ * Поводил(ла) по губам» with one of four heroes; the other three were
+ * suppressed as stragglers. The cap only matters when a friend in the lobby is
+ * never scanned (2 of those 515 matches): the event then goes out without them.
+ */
+export const PUBLISH_MAX_WAIT_MS = 45 * 60_000;
 
 export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
   const { db } = deps;
@@ -129,8 +147,10 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
         return;
       }
 
-      // Step 2: Fetch the oldest pending event that has served its grace period
-      // (young events are left alone so their match's siblings can arrive).
+      // Step 2: Fetch the oldest pending event whose match is fully scanned —
+      // no community player in its roster is unscanned or scanned within the
+      // grace period — or that has waited out PUBLISH_MAX_WAIT_MS. An event
+      // with no roster rows only needs its own grace period.
       const graceMs = deps.publishGraceMs ?? PUBLISH_GRACE_MS;
       const [pendingEvent] = await db
         .select()
@@ -139,6 +159,17 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
           and(
             eq(detectedEvents.status, 'pending'),
             lte(detectedEvents.detected_at, nowMs - graceMs),
+            or(
+              lte(detectedEvents.detected_at, nowMs - PUBLISH_MAX_WAIT_MS),
+              sql`NOT EXISTS (
+                SELECT 1 FROM ${matchRosters} r
+                JOIN ${users} u ON u.riot_puuid = r.riot_puuid
+                LEFT JOIN ${matchRecords} mr
+                  ON mr.match_id = r.match_id AND mr.riot_puuid = r.riot_puuid
+                WHERE r.match_id = ${detectedEvents.match_id}
+                  AND (mr.riot_puuid IS NULL OR mr.inserted_at > ${nowMs - graceMs})
+              )`,
+            ),
           ),
         )
         .orderBy(detectedEvents.detected_at)
