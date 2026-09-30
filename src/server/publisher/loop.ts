@@ -20,8 +20,8 @@
  * «👏 Мы вами гордимся» each posted twice for one match (owner, 2026-08-09).
  *
  * So the loop enforces it at publish time, where the whole picture is visible:
- *   - an event waits {@link PUBLISH_GRACE_MS} before it is eligible, so the
- *     scan sweep that produces its siblings has time to finish;
+ *   - an event waits {@link PUBLISH_GRACE_MS} before it is eligible, so its
+ *     siblings' detection has time to finish;
  *   - all pending siblings then collapse into one message
  *     (`renderGroupedTemplate` lists every player) and are marked posted
  *     together;
@@ -90,14 +90,15 @@ export interface PublisherLoopDeps {
 /**
  * How long a detected event waits before the publisher will post it.
  *
- * Community players are scanned one at a time (`scanner/loop.ts` sleeps between
- * users, plus Henrik latency), so the events for one match land spread across a
- * whole scan sweep — a couple of minutes for a ~30-person group. The publisher
- * ticks every minute, so without a wait the first player's event gets posted
- * alone and everyone scanned afterwards is suppressed as a duplicate: no double
- * post, but their names never reach the chat. Five minutes comfortably covers a
- * sweep, and realtime events are already up to 15 minutes old (the scan
- * interval) by the time they exist, so the added delay is not noticeable.
+ * The first scan that sees a match records it for every community player in
+ * the lobby (`scanner/scan.ts` recordLobbyFriends), so a match's siblings are
+ * born in one pass. Their rows still land a little apart: `detect.ts` writes a
+ * record's events only after all its detectors finish, and ace enrichment calls
+ * Henrik for opponent peaks in between. The publisher ticks every minute, so
+ * without a wait the first player's event could go out alone and the rest be
+ * suppressed as duplicates. It used to be the only thing covering a whole scan
+ * sweep — 15–20 minutes on prod, not the couple of minutes assumed — which is
+ * how «💪 Поводил(ла) по губам» named 1 of 4 heroes (2026-09-30).
  */
 export const PUBLISH_GRACE_MS = 5 * 60_000;
 

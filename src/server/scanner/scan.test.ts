@@ -434,6 +434,87 @@ describe('scanForPuuid', () => {
     expect((emittedRecords[0] as { match_id: string }).match_id).toBe('detect-match-444');
   });
 
+  // ── Community friends in the lobby ──────────────────────────────────────────
+  //
+  // Live 2026-09-30: four friends beat a stronger team on Abyss, the sweep
+  // reached them over 11 minutes, and «💪 Поводил(ла) по губам» went out after 5
+  // naming one — the other three were suppressed as stragglers. The first scan
+  // that sees a match now records it for every community player in it, so all
+  // their events are born together.
+
+  function seedFriend(telegramId: number, puuid: string) {
+    sqlite.exec(`INSERT INTO users (telegram_id, riot_puuid, riot_name, riot_tag, riot_region, joined_at)
+      VALUES (${telegramId}, '${puuid}', 'Friend${telegramId}', 'F${telegramId}', 'eu', ${Date.now()})`);
+  }
+
+  it('records a new match for every community player in the lobby and detects them all at once', async () => {
+    seedUser();
+    seedFriend(222, 'blue-player-1');
+    seedFriend(333, 'red-player-2');
+    fetchMock.mockImplementation(async () =>
+      new Response(JSON.stringify(makeFakeMatchResponseWithFullRoster('lobby-match-1')), { status: 200 }),
+    );
+
+    const emitted: Array<{ riot_puuid: string; match_id: string; result: string }> = [];
+    scannerEvents.on('newRecord', (r) => emitted.push(r));
+
+    await scanForPuuid(db, TARGET_PUUID, { detection: true });
+
+    expect(emitted.map((r) => r.riot_puuid).sort()).toEqual(
+      ['blue-player-1', 'red-player-2', TARGET_PUUID].sort(),
+    );
+    // Each friend's record is their own side of the match, not a copy of ours.
+    expect(emitted.find((r) => r.riot_puuid === 'red-player-2')!.result).toBe('loss');
+    const rows = sqlite
+      .prepare('SELECT riot_puuid FROM match_records WHERE match_id = ?')
+      .all('lobby-match-1');
+    expect(rows).toHaveLength(3); // strangers in the lobby are not recorded
+
+    // The friend's own scan on the next sweep finds the match already done.
+    emitted.length = 0;
+    const friendScan = await scanForPuuid(db, 'blue-player-1', { detection: true });
+    expect(friendScan.newRecords).toHaveLength(0);
+    expect(friendScan.skippedDuplicates).toBe(1);
+    expect(emitted).toHaveLength(0);
+  });
+
+  it('does not re-detect a friend who already has the match recorded', async () => {
+    // A friend's row that predates this scan (their own scan got there first,
+    // or it was written before lobby recording existed) was already detected.
+    seedUser();
+    seedFriend(222, 'blue-player-1');
+    sqlite.exec(`INSERT INTO match_records
+      (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result, rounds_played, kill_events_compact)
+      VALUES ('blue-player-1', 'lobby-match-2', 1700000000000, 'Ascent', 'Jett', 10, 10, 2, 'win', 25, '[]')`);
+    fetchMock.mockImplementation(async () =>
+      new Response(JSON.stringify(makeFakeMatchResponseWithFullRoster('lobby-match-2')), { status: 200 }),
+    );
+
+    const emitted: Array<{ riot_puuid: string }> = [];
+    scannerEvents.on('newRecord', (r) => emitted.push(r));
+
+    await scanForPuuid(db, TARGET_PUUID, { detection: true });
+
+    expect(emitted.map((r) => r.riot_puuid)).toEqual([TARGET_PUUID]);
+  });
+
+  it('onboarding backfill (detection=false) records only the scanned player', async () => {
+    // A friend's row written without detection would make their own scan skip
+    // the match, and their events for it would never fire.
+    seedUser();
+    seedFriend(222, 'blue-player-1');
+    fetchMock.mockImplementation(async () =>
+      new Response(JSON.stringify(makeFakeMatchResponseWithFullRoster('lobby-match-3')), { status: 200 }),
+    );
+
+    await scanForPuuid(db, TARGET_PUUID, { detection: false });
+
+    const rows = sqlite
+      .prepare('SELECT riot_puuid FROM match_records WHERE match_id = ?')
+      .all('lobby-match-3') as Array<{ riot_puuid: string }>;
+    expect(rows.map((r) => r.riot_puuid)).toEqual([TARGET_PUUID]);
+  });
+
   it('does NOT emit newRecord events when detection=false', async () => {
     seedUser();
     fetchMock.mockImplementation(async () => new Response(JSON.stringify(makeFakeMatchResponse('silent-match-555')), { status: 200 }),

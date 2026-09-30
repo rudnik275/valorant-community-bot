@@ -3,7 +3,7 @@
  * records, dedup against existing rows, and insert new ones.
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import {
   getMatches,
   getAccountByPuuid,
@@ -55,7 +55,9 @@ export interface ScanOpts {
  *   to outpace it, which is physically impossible (rounds last 30+ min).
  * - Skips any that already exist in match_records (dedup by (riot_puuid, match_id)).
  * - Inserts new records via UPSERT (onConflictDoNothing).
- * - If detection=true, emits 'newRecord' on scannerEvents for each new record.
+ * - If detection=true, also records each new match for the other community
+ *   players in its lobby (recordLobbyFriends), and emits 'newRecord' on
+ *   scannerEvents for every new record — the target's and the friends'.
  * - Handles HenrikRateLimitError, HenrikNotFoundError, HenrikUpstreamError,
  *   HenrikInactiveAccountError gracefully (log + return empty result).
  *   Re-throws unexpected errors.
@@ -241,10 +243,17 @@ export async function scanForPuuid(
     return { newRecords: [], skippedDuplicates };
   }
 
+  // 6b. Community friends in the same lobbies — see recordLobbyFriends.
+  const newMatches = competitiveMatches.filter((m) =>
+    toInsert.some((r) => r.match_id === m.metadata.match_id));
+  const friendRecords = opts.detection
+    ? await recordLobbyFriends(db, puuid, newMatches)
+    : [];
+
   // 7. Insert new records (UPSERT for safety — onConflictDoNothing on PK)
   await db
     .insert(matchRecords)
-    .values(toInsert)
+    .values([...toInsert, ...friendRecords])
     .onConflictDoNothing();
 
   // 7b. Insert rosters for ALL players in new matches (PK dedupes if same match
@@ -262,17 +271,71 @@ export async function scanForPuuid(
 
   // 8. Emit events if detection mode is enabled
   if (opts.detection) {
-    for (const record of toInsert) {
+    for (const record of [...toInsert, ...friendRecords]) {
       scannerEvents.emit('newRecord', record);
     }
   }
 
   logger.info(
-    { module: 'scanner', puuid, new: toInsert.length, skipped: skippedDuplicates },
+    {
+      module: 'scanner',
+      puuid,
+      new: toInsert.length,
+      friends_new: friendRecords.length,
+      skipped: skippedDuplicates,
+    },
     'scan complete',
   );
 
   return { newRecords: toInsert, skippedDuplicates };
+}
+
+/**
+ * Records for the OTHER community players in `matches` (the scan target's new
+ * matches), for every one who has no row for that match yet.
+ *
+ * Detection is per record, so a match with several friends used to yield their
+ * events one sweep-slot apart — a sweep of ~33 users takes 15–20 minutes — and
+ * the publisher had already posted the first friend's event, suppressing the
+ * rest as stragglers (2026-09-30: «💪 Поводил(ла) по губам» named 1 of 4).
+ * Recording the whole lobby from the first scan that sees the match makes all
+ * their events born in one pass; each friend's own scan later finds the match
+ * done and skips it.
+ *
+ * Detection-mode scans only: a record inserted without its `newRecord` would
+ * be skipped by the friend's own scan, so their events for it would never fire.
+ * Match records only — friends' profiles are NOT touched (see
+ * syncProfileFromMatches for why cross-friend profile updates regress).
+ */
+async function recordLobbyFriends(
+  db: AnyDb,
+  puuid: string,
+  matches: HenrikMatchV4[],
+): Promise<MatchRecordInsert[]> {
+  const lobbyPuuids = [...new Set(matches.flatMap((m) => m.players.map((p) => p.puuid)))]
+    .filter((p) => p !== puuid);
+  if (lobbyPuuids.length === 0) return [];
+
+  const friends = (await db
+    .select({ riot_puuid: users.riot_puuid })
+    .from(users)
+    .where(inArray(users.riot_puuid, lobbyPuuids))) as Array<{ riot_puuid: string }>;
+
+  const records: MatchRecordInsert[] = [];
+  for (const { riot_puuid: friend } of friends) {
+    const theirMatches = matches.filter((m) => m.players.some((p) => p.puuid === friend));
+    const existing = await getExistingMatchIdsForPuuid(
+      db,
+      friend,
+      theirMatches.map((m) => m.metadata.match_id),
+    );
+    for (const m of theirMatches) {
+      if (existing.has(m.metadata.match_id)) continue;
+      const record = deriveMatchRecord(m, friend);
+      if (record) records.push(record);
+    }
+  }
+  return records;
 }
 
 /**
