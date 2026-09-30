@@ -6,6 +6,10 @@
  * in scan.ts, this keeps the per-user recovery window comfortably wider than
  * any realistic ranked session pace.
  *
+ * Sweeps never overlap: a tick that fires while the previous sweep is still
+ * running (a full sweep can outlast the 15-minute interval) is skipped and
+ * logged. This covers both the warm-up run and every cron fire (#379).
+ *
  * Each tick:
  *   1. SELECT all users with riot_puuid IS NOT NULL.
  *   2. For each user, call scanForPuuid with { detection: true }.
@@ -101,18 +105,32 @@ export function startScanLoop(opts: StartScanLoopOpts): () => void {
     }
   }
 
+  // A sweep can outlast the cron interval (prod: 950–1210 s vs 900 s, #379).
+  // Both entry points — the warm-up run and every cron fire — go through this
+  // guard, so a new sweep never starts while the previous one is still running.
+  let inFlight: Promise<void> | null = null;
+
+  function tickIfIdle(): Promise<void> {
+    if (inFlight) {
+      logger.info({ module: 'scanner-loop' }, 'scan tick skipped — previous sweep still running');
+      return Promise.resolve();
+    }
+    inFlight = runTick().finally(() => {
+      inFlight = null;
+    });
+    return inFlight;
+  }
+
   // 60s warm-up delay before first tick, then start cron
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let cronJob: { stop: () => void } | null = null;
 
   const warmUpTimer = setTimeout(() => {
     // Run first tick immediately after warm-up
-    void runTick();
+    void tickIfIdle();
 
     // Then schedule recurring cron
-    cronJob = new Cron(cronExpr, { protect: true }, () => {
-      void runTick();
-    });
+    cronJob = new Cron(cronExpr, { protect: true }, () => tickIfIdle());
 
     logger.info({ module: 'scanner-loop', cron: cronExpr }, 'scanner cron started');
   }, 60_000);

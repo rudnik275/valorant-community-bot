@@ -260,4 +260,45 @@ describe('startScanLoop', () => {
     // NULL first, then oldest (1000), then most recent
     expect(callOrder).toEqual(['puuid-B', 'puuid-C', 'puuid-A']);
   });
+
+  it('never starts a new sweep while the previous one is still running (#379)', async () => {
+    seedUser(1, 'puuid-slow-1');
+    seedUser(2, 'puuid-slow-2');
+
+    // Each scan takes 3 minutes of (fake) time; with 2 users + 2s sleep a sweep
+    // lasts ~6 min — longer than the 1-minute cron interval, like prod's
+    // 950–1210 s sweeps against a 900 s cron.
+    const SCAN_MS = 3 * 60_000;
+    const scanForPuuid = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) =>
+          setTimeout(() => resolve({ newRecords: [], skippedDuplicates: 0 }), SCAN_MS),
+        ),
+    );
+    const callsFor = (puuid: string) => scanForPuuid.mock.calls.filter(([p]) => p === puuid).length;
+
+    const stop = startScanLoop({
+      db,
+      scanForPuuid,
+      intervalCron: '* * * * *', // every minute — fires several times mid-sweep
+    });
+
+    // Warm-up run starts the first sweep
+    await vi.advanceTimersByTimeAsync(60_001);
+    expect(callsFor('puuid-slow-1')).toBe(1);
+
+    // 5 minutes later: several cron fires happened, but the first sweep is
+    // still running (it reached user 2), so no second sweep may have started.
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(callsFor('puuid-slow-1')).toBe(1);
+    expect(callsFor('puuid-slow-2')).toBe(1);
+
+    // First sweep ends at ~60s + 6min + 2s; the next cron fire after that
+    // starts a fresh sweep.
+    await vi.advanceTimersByTimeAsync(130_000);
+    expect(callsFor('puuid-slow-1')).toBe(2);
+    expect(callsFor('puuid-slow-2')).toBe(1);
+
+    stop();
+  });
 });
