@@ -4,7 +4,8 @@ name: Announce
 # change. Runs scripts/launch/announce.ts inside the running container, which
 # reads the bot token from its own env.
 #
-#   gh workflow run announce.yml -f text_b64="$(printf '%s' '<b>…</b>' | base64)" -f silent=1
+#   gh workflow run announce.yml --json < inputs.json
+#   inputs.json: {"text_b64": "<base64 of the Telegram HTML>", "silent": "1"}
 
 on:
   workflow_dispatch:
@@ -30,11 +31,24 @@ jobs:
           [[ "$TEXT_B64" =~ ^[A-Za-z0-9+/=]+$ ]] || { echo "text_b64 is not base64"; exit 1; }
           [[ -z "$SILENT" || "$SILENT" == "1" ]] || { echo 'silent must be empty or "1"'; exit 1; }
 
+      # Same deploy key and host as the CI deploy job.
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@v5
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          SSH_PRIVATE_KEY: "op://valorant-community-bot/valorant-deploy-1p/private key?ssh-format=openssh"
+
       - name: Send from inside the running container
         uses: appleboy/ssh-action@v1
+        env:
+          ANNOUNCE_B64: ${{ inputs.text_b64 }}
+          SILENT: ${{ inputs.silent }}
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          host: 46.62.229.131
+          username: deploy
+          key: ${{ env.SSH_PRIVATE_KEY }}
+          envs: ANNOUNCE_B64,SILENT
           script: |
-            docker exec -e ANNOUNCE_B64='${{ inputs.text_b64 }}' -e SILENT='${{ inputs.silent }}' valorant-bot-app bun run scripts/launch/announce.ts
+            docker exec -e ANNOUNCE_B64="$ANNOUNCE_B64" -e SILENT="$SILENT" valorant-bot-app bun run scripts/launch/announce.ts
