@@ -2,10 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { EVENT_CATEGORY, isRealtimeEvent, isWeeklyEvent, type EventType } from './types.ts';
 
 describe('EVENT_CATEGORY', () => {
-  it('covers all 20 EventType values exactly once', () => {
+  it('covers all 19 EventType values exactly once', () => {
     const allEvents: EventType[] = [
       'ace',
-      'giant_slayer',
       'teamkill',
       'knife_kill',
       'match_comeback',
@@ -28,13 +27,12 @@ describe('EVENT_CATEGORY', () => {
     expect(Object.keys(EVENT_CATEGORY).sort()).toEqual([...allEvents].sort());
   });
 
-  it('has 5 realtime types', () => {
+  it('has 4 realtime types', () => {
     const realtime = Object.entries(EVENT_CATEGORY)
       .filter(([, v]) => v === 'realtime')
       .map(([k]) => k);
     expect(realtime.sort()).toEqual([
       'community_clash',
-      'giant_slayer',
       'match_comeback',
       'return_after_pause',
       'teamkill',
@@ -76,7 +74,7 @@ describe('isRealtimeEvent / isWeeklyEvent', () => {
   it('isRealtimeEvent returns true for realtime types', () => {
     expect(isRealtimeEvent('teamkill')).toBe(true);
     expect(isRealtimeEvent('return_after_pause')).toBe(true);
-    expect(isRealtimeEvent('giant_slayer')).toBe(true);
+    expect(isRealtimeEvent('match_comeback')).toBe(true);
   });
 
   it('isRealtimeEvent returns false for weekly types', () => {
@@ -95,7 +93,7 @@ describe('isRealtimeEvent / isWeeklyEvent', () => {
 
   it('isWeeklyEvent returns false for realtime types', () => {
     expect(isWeeklyEvent('teamkill')).toBe(false);
-    expect(isWeeklyEvent('giant_slayer')).toBe(false);
+    expect(isWeeklyEvent('community_clash')).toBe(false);
   });
 
   it('ace and knife_kill are weekly, not realtime — they feed the weekly leaderboards', () => {

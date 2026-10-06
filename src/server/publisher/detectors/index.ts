@@ -1,7 +1,6 @@
 import type { Detector } from '../types.ts';
 import { aceDetector } from './ace.ts';
 import { winstreakDetector } from './winstreak.ts';
-import { giantSlayerDetector } from './giant-slayer.ts';
 import { returnAfterPauseDetector } from './return-after-pause.ts';
 import { teamkillDetector } from './teamkill.ts';
 import { recordKillsMatchDetector } from './record-kills-match.ts';
@@ -21,7 +20,6 @@ import { recordDiedFirstRoundsDetector } from './record-died-first-rounds.ts';
 export const ALL_DETECTORS: Detector[] = [
   aceDetector,
   winstreakDetector,
-  giantSlayerDetector,
   returnAfterPauseDetector,
   teamkillDetector,
   recordKillsMatchDetector,

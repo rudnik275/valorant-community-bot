@@ -9,7 +9,6 @@ const ALL_EVENT_TYPES: EventType[] = [
   'ace',
   'peak_rank_up',
   'winstreak_10plus',
-  'giant_slayer',
   'return_after_pause',
   'teamkill',
   'record_kills_match',
@@ -44,7 +43,6 @@ const minimalPayloads: Record<EventType, Record<string, unknown>> = {
   ace: {},
   peak_rank_up: {},
   winstreak_10plus: {},
-  giant_slayer: {},
   return_after_pause: {},
   teamkill: {},
   record_kills_match: { value: 30, prev_value: null, prev_puuid: null },
@@ -134,25 +132,6 @@ describe('renderTemplate — payload-specific behavior', () => {
   it('ace: no kill count when round had exactly 5 kills', () => {
     const output = renderTemplate('ace', { weapons_per_round: [['Vandal', 'Vandal', 'Vandal', 'Vandal', 'Vandal']] }, safeUser);
     expect(output).not.toContain('убийств');
-  });
-
-  it('giant_slayer: shows enemy avg rank as emoji (no text) and Поводил по губам text', () => {
-    const output = renderTemplate('giant_slayer', { own: 'Silver 2', enemy_avg: 'Platinum 1', delta: 2 }, safeUser);
-    // #301: ranks → emoji only. Platinum 1 → 🐳 icon, Silver 2 → 🥈 icon.
-    expect(output).toContain('<tg-emoji emoji-id="5264763678711913942">🐳</tg-emoji>');
-    expect(output).not.toContain('Platinum 1');
-    expect(output.toLowerCase()).toContain('поводил(ла) по губам');
-  });
-
-  it('giant_slayer: shows own rank as emoji (no text)', () => {
-    const output = renderTemplate('giant_slayer', { own: 'Silver 2', enemy_avg: 'Platinum 1' }, safeUser);
-    expect(output).toContain('<tg-emoji emoji-id="5265139299371755545">🥈</tg-emoji>');
-    expect(output).not.toContain('Silver 2');
-  });
-
-  it('giant_slayer: includes match link when match_id present', () => {
-    const output = renderTemplate('giant_slayer', { own: 'Gold 1', enemy_avg: 'Diamond 2' }, safeUser, { match_id: 'xyz789' });
-    expect(output).toContain('tracker.gg/valorant/match/xyz789');
   });
 
   it('match_comeback: header is plain (no underline)', () => {
@@ -441,12 +420,12 @@ describe('renderGroupedTemplate — one message per match', () => {
     );
   });
 
-  it('giant_slayer: one title and one link, a line per player', () => {
-    const html = renderGroupedTemplate('giant_slayer', [
-      subject('Alice', { own: 'Diamond 2', enemy_avg: 'Immortal 1' }),
-      subject('Bob', { own: 'Diamond 1', enemy_avg: 'Immortal 1' }),
+  it('return_after_pause: one title and one link, a line per player', () => {
+    const html = renderGroupedTemplate('return_after_pause', [
+      subject('Alice', { days_paused: 14 }),
+      subject('Bob', { days_paused: 90 }),
     ]);
-    expect(html.match(/💪 <u>Поводил\(ла\) по губам<\/u>/g)).toHaveLength(1);
+    expect(html.match(/👋 <b>С возвращением<\/b>/g)).toHaveLength(1);
     expect(html).toContain('<b>Alice#TAG</b>');
     expect(html).toContain('<b>Bob#TAG</b>');
     expect(html.match(/tracker\.gg/g)).toHaveLength(1);

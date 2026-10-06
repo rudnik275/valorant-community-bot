@@ -131,7 +131,7 @@ VALUES
    '[{"round":3,"team_kill":true},{"round":11,"team_kill":true}]');
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 3. Detected events — one of each of the 11 event types, all 'pending'
+-- 3. Detected events — one of each of the 10 event types, all 'pending'
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Payloads match what templates.ts expects.
 -- Each uses a unique match_id so the UNIQUE constraint (match_id, event_type, riot_puuid) is satisfied.
@@ -186,17 +186,7 @@ VALUES (
   'pending'
 );
 
--- 6. giant_slayer
-INSERT OR IGNORE INTO detected_events
-  (event_type, riot_puuid, match_id, payload_json, detected_at, status)
-VALUES (
-  'giant_slayer', 'mock-puuid-5', 'mock-match-echo-01',
-  '{"enemy_avg":"Silver 2","own":"Bronze 2"}',
-  strftime('%s','now')*1000 - 60000*5,
-  'pending'
-);
-
--- 7. comeback (days_paused used by template)
+-- 6. comeback (days_paused used by template)
 INSERT OR IGNORE INTO detected_events
   (event_type, riot_puuid, match_id, payload_json, detected_at, status)
 VALUES (
@@ -206,7 +196,7 @@ VALUES (
   'pending'
 );
 
--- 8. lostrick_9 (antistat)
+-- 7. lostrick_9 (antistat)
 INSERT OR IGNORE INTO detected_events
   (event_type, riot_puuid, match_id, payload_json, detected_at, status)
 VALUES (
@@ -216,7 +206,7 @@ VALUES (
   'pending'
 );
 
--- 9. teamkill (antistat)
+-- 8. teamkill (antistat)
 INSERT OR IGNORE INTO detected_events
   (event_type, riot_puuid, match_id, payload_json, detected_at, status)
 VALUES (
@@ -226,7 +216,7 @@ VALUES (
   'pending'
 );
 
--- 10. fall_damage_death (antistat)
+-- 9. fall_damage_death (antistat)
 INSERT OR IGNORE INTO detected_events
   (event_type, riot_puuid, match_id, payload_json, detected_at, status)
 VALUES (
@@ -236,7 +226,7 @@ VALUES (
   'pending'
 );
 
--- 11. zero_match (antistat)
+-- 10. zero_match (antistat)
 INSERT OR IGNORE INTO detected_events
   (event_type, riot_puuid, match_id, payload_json, detected_at, status)
 VALUES (

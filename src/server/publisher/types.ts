@@ -8,7 +8,6 @@ export type EventType =
   | 'ace'
   | 'peak_rank_up'
   | 'winstreak_10plus'
-  | 'giant_slayer'
   | 'return_after_pause'
   | 'teamkill'
   | 'record_kills_match'
@@ -97,12 +96,11 @@ export type EventCategory = 'realtime' | 'weekly';
  *
  * There is no 'daily' CATEGORY: the category decides only the insert status
  * (weekly ⇒ 'digest-only', out of the realtime queue). `ace` / `knife_kill`
- * are weekly — they feed the Friday leaderboards («кто сколько эйсов сделал»,
+ * are weekly — they feed the Sunday leaderboards («кто сколько эйсов сделал»,
  * see `digest/ace-knife.ts`) AND the restored 23:00 daily post
  * (`digest-daily/build.ts`), which both read the same rows by type + window.
  */
 export const EVENT_CATEGORY: Record<EventType, EventCategory> = {
-  giant_slayer: 'realtime',
   teamkill: 'realtime',
   match_comeback: 'realtime',
   community_clash: 'realtime',

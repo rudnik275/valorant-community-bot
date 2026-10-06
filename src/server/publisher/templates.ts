@@ -10,7 +10,6 @@
  */
 
 import type { EventType } from './types.ts';
-import { rankToEmojiHtml } from './rank-emoji.ts';
 import { agentToEmojiHtml, mapToEmojiHtml, weaponToEmojiHtml } from './valorant-emoji.ts';
 import { renderPlayerName, matchLink as renderMatchLink } from './player-render.ts';
 
@@ -207,11 +206,10 @@ export interface EventSubject {
  * Realtime templates whose body names ONE community player per line.
  *
  * A single match can trigger the same event for several community members —
- * two friends on the winning team both beat a stronger enemy, two of them both
- * teamkilled, three come back from a pause together. Each is its own
- * `detected_events` row, and the loop used to post one message per row: the
- * group got «💪 Поводил(ла) по губам» twice in a row, identical but for the
- * nick (owner, 2026-08-09). Splitting a template into title + per-player
+ * two of them both teamkilled, three come back from a pause together. Each is
+ * its own `detected_events` row, and the loop used to post one message per
+ * row: the group got the same realtime post twice in a row, identical but for
+ * the nick (owner, 2026-08-09). Splitting a template into title + per-player
  * description + shared match link lets the publisher render the whole match as
  * ONE message: title once, one description line per player.
  *
@@ -229,22 +227,6 @@ interface PerHeroTemplate {
 }
 
 const perHeroTemplates: Partial<Record<EventType, PerHeroTemplate>> = {
-  giant_slayer: {
-    title: '💪 <u>Поводил(ла) по губам</u>',
-    describe: (payload, user, match) => {
-      const own = payload['own'] ?? '';
-      const enemy = payload['enemy_avg'] ?? '';
-      // Own + enemy-average rank → emoji only (text dropped, falls back to text
-      // when the tier has no custom emoji). See #301.
-      const ownEmoji = rankToEmojiHtml(own as string);
-      const enemyEmoji = rankToEmojiHtml(enemy as string);
-      const ownStr = ownEmoji ? ` ${ownEmoji}` : (own ? ` (${esc(String(own))})` : '');
-      const enemyStr = enemyEmoji ? ` ${enemyEmoji}` : (enemy ? ` (средний ранг ${esc(String(enemy))})` : '');
-      return `${playerTag(user)}${agentLead(match?.agent)}${ownStr} — выиграл(а) против превосходящего врага${enemyStr}`;
-    },
-    link: (match) => (match?.match_id ? matchLine(match.match_id) : ''),
-  },
-
   return_after_pause: {
     title: '👋 <b>С возвращением</b>',
     describe: (payload, user, match) => {

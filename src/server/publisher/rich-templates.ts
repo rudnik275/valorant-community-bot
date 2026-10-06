@@ -1,6 +1,7 @@
 /**
- * rich-templates.ts — Rich Message (Bot API 10.1+) renderers for the three
- * "trio" realtime events (#315): giant_slayer, match_comeback, community_clash.
+ * rich-templates.ts — Rich Message (Bot API 10.1+) renderers for the realtime
+ * events that show the whole match roster (#315): match_comeback and
+ * community_clash. (#315 had a third, giant_slayer — removed 2026-10-07.)
  *
  * Each renders a SINGLE rich HTML message with the approved format:
  *
@@ -14,7 +15,7 @@
  *
  * ONE TABLE PER TEAM, each with its own header (owner, 2026-08-29). It used to
  * be a single table whose fives were divided by a full-width `colspan=2` row —
- * carrying the team name for community_clash, blank for the other two. Two
+ * carrying the team name for community_clash, blank for match_comeback. Two
  * tables read better and let the team name be ordinary text above its table
  * instead of a row inside it.
  *
@@ -42,7 +43,7 @@ import { agentToEmojiHtml, mapToEmojiHtml } from './valorant-emoji.ts';
  * HTML dialect's spelling of it is not something the reference states. Probed
  * live on 2026-08-29: `sendRichMessage` accepts `<table compact>` and delivers
  * the message normally, i.e. the attribute is at worst inert — it cannot break
- * a trio-event post or push it onto the legacy plain-text fallback.
+ * a roster-event post or push it onto the legacy plain-text fallback.
  *
  * Whether it actually tightens the rendering is a visual question left to the
  * owner (plain vs compact samples sent to their DM). If the two look identical,
@@ -53,16 +54,15 @@ import { agentToEmojiHtml, mapToEmojiHtml } from './valorant-emoji.ts';
  */
 const COMPACT_ATTR = ' compact';
 
-/** The three realtime events that render as full-roster rich messages (#315). */
-const TRIO_EVENT_TYPES: ReadonlySet<EventType> = new Set<EventType>([
-  'giant_slayer',
+/** The realtime events that render as full-roster rich messages (#315). */
+const ROSTER_EVENT_TYPES: ReadonlySet<EventType> = new Set<EventType>([
   'match_comeback',
   'community_clash',
 ]);
 
-/** True when `eventType` is one of the trio events that has a rich renderer. */
-export function isTrioRichEvent(eventType: EventType): boolean {
-  return TRIO_EVENT_TYPES.has(eventType);
+/** True when `eventType` is one of the roster events that has a rich renderer. */
+export function isRosterRichEvent(eventType: EventType): boolean {
+  return ROSTER_EVENT_TYPES.has(eventType);
 }
 
 /** HTML-escape (mirrors esc() in templates.ts / player-render.ts). */
@@ -95,19 +95,6 @@ export interface RichTemplateContext {
   /** community_clash only: per-team round scores for the "победа X:Y" line. */
   teamScores?: TeamScores;
   /**
-   * giant_slayer only: puuids of the players the event fired for, oldest event
-   * first. Used to render a prominent "who this is about" line under the title,
-   * so the message names the giant-slayer(s) instead of leaving them anonymous
-   * among the 10 roster rows.
-   *
-   * A LIST, not one puuid: several community members on the same team can each
-   * beat a stronger enemy in one match, and the publisher folds their events
-   * into a single message rather than posting the same title twice (owner,
-   * 2026-08-09). Ignored for the other trio events (match_comeback = a whole
-   * team; community_clash = no single subject).
-   */
-  heroPuuids?: string[];
-  /**
    * match_comeback only: the deepest deficit the team dug itself out of and the
    * final score, so the description can say «отыгрались с 3:11 до 13:11»
    * instead of a scoreless "из глубокого отставания". The legacy plain template
@@ -129,7 +116,6 @@ export interface ComebackScores {
 
 /** Titles — emoji + verbatim heading text, bold per the approved format. */
 const TITLES: Partial<Record<EventType, string>> = {
-  giant_slayer: '💪 <b>Поводил(ла) по губам</b>',
   match_comeback: '👏 <b>Мы вами гордимся</b>',
   community_clash: '⚔️ <b>Френдлифаер</b>',
 };
@@ -142,8 +128,6 @@ const TITLES: Partial<Record<EventType, string>> = {
  */
 function describe(eventType: EventType, ctx: RichTemplateContext): string {
   switch (eventType) {
-    case 'giant_slayer':
-      return 'Выиграл(а) против превосходящего врага.';
     case 'match_comeback': {
       const s = ctx.comebackScores;
       if (!s) return 'Отыгрались из глубокого отставания и вырвали победу.';
@@ -161,37 +145,6 @@ function agentKd(row: FullRosterRow): string {
   const emoji = agentToEmojiHtml(row.agent);
   const kd = `${row.kills}/${row.deaths}`;
   return emoji ? `${emoji} ${esc(kd)}` : esc(kd);
-}
-
-/**
- * giant_slayer "who this is about" line(s), rendered under the title so the
- * message names its subject(s) instead of leaving them anonymous among the 10
- * roster rows — one line per hero, in the given order. Returns '' when there
- * are no `heroPuuids` or none of them is in the roster (⇒ no line, message
- * still renders). Duplicate puuids collapse to one line.
- *
- * Unlike the table rows, the agent emoji IS kept here (there's no second
- * column to carry it) — mirroring the old plain giant_slayer template which
- * led with the player's tag + agent.
- */
-function heroLines(ctx: RichTemplateContext): string {
-  if (!ctx.heroPuuids || ctx.heroPuuids.length === 0) return '';
-  const seen = new Set<string>();
-  const lines: string[] = [];
-  for (const puuid of ctx.heroPuuids) {
-    if (seen.has(puuid)) continue;
-    seen.add(puuid);
-    const hero = ctx.roster.find((r) => r.riot_puuid === puuid);
-    if (!hero) continue;
-    lines.push(renderPlayerName({
-      name: hero.name ?? '',
-      tag: hero.tag ?? '',
-      isCommunity: hero.is_community,
-      ...(hero.tier ? { rank: hero.tier } : {}),
-      ...(hero.agent ? { agent: hero.agent } : {}),
-    }));
-  }
-  return lines.map((l) => `<br>${l}`).join('');
 }
 
 /** One participant row: `<tr><td>renderPlayerName</td><td>[emoji] K/D</td></tr>`. */
@@ -325,9 +278,9 @@ function clashTeamLabel(index: number): string {
 /**
  * Caption above a team's table.
  *
- * giant_slayer and match_comeback are about US beating someone, so their sides
- * have names worth using: «Наши» and «Соперники» (owner, 2026-08-30). The team
- * holding community players is ours.
+ * match_comeback is about US beating someone, so its sides have names worth
+ * using: «Наши» and «Соперники» (owner, 2026-08-30). The team holding
+ * community players is ours.
  *
  * community_clash keeps «Команда А/Б» because the whole premise of that event
  * is friends on BOTH sides — there is no "them" to point at.
@@ -372,7 +325,7 @@ function readComebackScores(payload: Record<string, unknown>): ComebackScores | 
 }
 
 /**
- * Render one of the three "trio" events as a rich HTML message, or `null` when
+ * Render one of the roster events as a rich HTML message, or `null` when
  * the roster data is incomplete (⇒ legacy plain-text fallback).
  */
 export function renderRichTemplate(
@@ -380,16 +333,11 @@ export function renderRichTemplate(
   ctx: RichTemplateContext,
 ): string | null {
   const title = TITLES[eventType];
-  if (!title) return null; // not a trio event
+  if (!title) return null; // not a roster event
   if (!rosterComplete(ctx.roster)) return null;
 
   const teams = groupByTeam(ctx.roster);
   if (teams.length < 2) return null; // need both fives for the table
-
-  // giant_slayer names its subject(s) on lines under the title (#315 lost the
-  // "who" the old plain template had — the hero was just one of 10 table rows).
-  // The other trio events have no single subject, so no hero line for them.
-  const hero = eventType === 'giant_slayer' ? heroLines(ctx) : '';
 
   // The clash outcome needs the team ORDER (to say «Команда Б»), which only
   // exists once the roster is grouped — so it is appended here rather than
@@ -402,9 +350,8 @@ export function renderRichTemplate(
   // split by full-width separator rows (owner, 2026-08-29 — reads better).
   //
   // community_clash puts the team name above its table as ordinary text, not
-  // as a row inside it. The other two events never named their teams, and this
-  // is not the place to start: they simply get two tables where they used to
-  // have one blank separator row doing the same job.
+  // as a row inside it. match_comeback captions its sides «Наши»/«Соперники»
+  // (see `teamCaption`); it used to have one blank separator row instead.
   const teamBlocks = teams.map((t, i) => {
     // The FIRST caption follows the description — an inline line — so a single
     // <br> only drops it onto the next row and it reads as glued to the result
@@ -416,12 +363,12 @@ export function renderRichTemplate(
     return `${label}<table${COMPACT_ATTR}><tr><th>Игрок</th><th>Агент · K/D</th></tr>${rows}</table>`;
   });
 
-  return `${title}${hero}${descLine}${teamBlocks.join('')}${matchLinkLine(ctx)}`;
+  return `${title}${descLine}${teamBlocks.join('')}${matchLinkLine(ctx)}`;
 }
 
 /**
- * Fetch the full match roster and assemble a rich HTML message for a trio event,
- * or `null` when it can't be rendered richly (not a trio event, no/incomplete
+ * Fetch the full match roster and assemble a rich HTML message for a roster
+ * event, or `null` when it can't be rendered richly (not a roster event, no/incomplete
  * roster, missing both teams). `null` ⇒ publisher falls back to legacy text.
  *
  * Reads participant data from `match_rosters` at RENDER time (the durable
@@ -432,9 +379,9 @@ export async function renderRichEvent(
   db: SqliteDb,
   eventType: EventType,
   payload: Record<string, unknown>,
-  match: { match_id?: string; map?: string; heroPuuids?: string[] },
+  match: { match_id?: string; map?: string },
 ): Promise<string | null> {
-  if (!isTrioRichEvent(eventType)) return null;
+  if (!isRosterRichEvent(eventType)) return null;
   if (!match.match_id) return null;
 
   const roster = await getFullRoster(db, match.match_id);
@@ -443,9 +390,6 @@ export async function renderRichEvent(
     roster,
     ...(match.match_id ? { matchId: match.match_id } : {}),
     ...(match.map ? { map: match.map } : {}),
-    ...(match.heroPuuids && match.heroPuuids.length > 0
-      ? { heroPuuids: match.heroPuuids }
-      : {}),
   };
 
   if (eventType === 'match_comeback') {

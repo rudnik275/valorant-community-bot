@@ -629,17 +629,17 @@ describe('buildDigest', () => {
       expect(result.sectionsIncluded).toContain('winstreak_10plus');
     });
 
-    it('does NOT include ace or giant_slayer in digest (realtime-only)', async () => {
+    it('does NOT include ace or teamkill as bright sections (realtime-only)', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'AcePlayer', riotTag: 'ACE' });
-      seedUser(sqlite, 2, 'p2', { riotName: 'GiantSlayer', riotTag: 'GST' });
+      seedUser(sqlite, 2, 'p2', { riotName: 'Teamkiller', riotTag: 'TK' });
       seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW });
       seedMatch(sqlite, { puuid: 'p2', matchId: 'm2', startedAt: IN_WINDOW });
       seedEvent(sqlite, { puuid: 'p1', matchId: 'm1', eventType: 'ace', detectedAt: IN_WINDOW });
-      seedEvent(sqlite, { puuid: 'p2', matchId: 'm2', eventType: 'giant_slayer', detectedAt: IN_WINDOW + 1000 });
+      seedEvent(sqlite, { puuid: 'p2', matchId: 'm2', eventType: 'teamkill', detectedAt: IN_WINDOW + 1000 });
 
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       expect(result.sectionsIncluded).not.toContain('ace');
-      expect(result.sectionsIncluded).not.toContain('giant_slayer');
+      expect(result.sectionsIncluded).not.toContain('teamkill');
     });
   });
 
