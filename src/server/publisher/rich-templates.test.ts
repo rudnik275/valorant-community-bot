@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { renderRichTemplate, isTrioRichEvent, type RichTemplateContext } from './rich-templates.ts';
+import { renderRichTemplate, isRosterRichEvent, type RichTemplateContext } from './rich-templates.ts';
 import { mapToEmojiHtml } from './valorant-emoji.ts';
 import type { FullRosterRow } from '../db/queries.ts';
 
 /**
- * Pure renderer tests for the #315 "trio" full-roster rich templates. These do
+ * Pure renderer tests for the #315 full-roster rich templates. These do
  * NOT touch the DB (they pass a hand-built roster), so they run everywhere
  * (bun:sqlite / better-sqlite3 ABI issues don't apply). The DB assembly
  * (`renderRichEvent` → `getFullRoster`) is covered in queries.test.ts.
@@ -49,20 +49,19 @@ function ctx(overrides: Partial<RichTemplateContext> = {}): RichTemplateContext 
   return { roster: fullRoster(), matchId: MATCH_ID, map: MAP, ...overrides };
 }
 
-describe('isTrioRichEvent', () => {
-  it('is true only for the three trio events', () => {
-    expect(isTrioRichEvent('giant_slayer')).toBe(true);
-    expect(isTrioRichEvent('match_comeback')).toBe(true);
-    expect(isTrioRichEvent('community_clash')).toBe(true);
-    expect(isTrioRichEvent('teamkill')).toBe(false);
-    expect(isTrioRichEvent('ace')).toBe(false);
-    expect(isTrioRichEvent('return_after_pause')).toBe(false);
+describe('isRosterRichEvent', () => {
+  it('is true only for the roster events', () => {
+    expect(isRosterRichEvent('match_comeback')).toBe(true);
+    expect(isRosterRichEvent('community_clash')).toBe(true);
+    expect(isRosterRichEvent('teamkill')).toBe(false);
+    expect(isRosterRichEvent('ace')).toBe(false);
+    expect(isRosterRichEvent('return_after_pause')).toBe(false);
   });
 });
 
 describe('renderRichTemplate — table structure & content', () => {
   it('renders all 10 participants as rows', () => {
-    const html = renderRichTemplate('giant_slayer', ctx());
+    const html = renderRichTemplate('match_comeback', ctx());
     expect(html).not.toBeNull();
     // Count player <tr> rows: total rows minus header minus separators.
     const trCount = (html!.match(/<tr>/g) ?? []).length;
@@ -92,24 +91,24 @@ describe('renderRichTemplate — table structure & content', () => {
   it('marks every cell, not just the ones that look foreign', () => {
     // A rule that fires on script detection is one nobody can reason about,
     // and every cell is equally a container boundary.
-    const html = renderRichTemplate('giant_slayer', ctx())!;
+    const html = renderRichTemplate('match_comeback', ctx())!;
     const cells = (html.match(/<td dir="ltr">/g) ?? []).length;
     expect(cells).toBe(20); // 10 players × 2 columns
   });
 
   it('has a two-column header: Игрок | Агент · K/D', () => {
-    const html = renderRichTemplate('giant_slayer', ctx())!;
+    const html = renderRichTemplate('match_comeback', ctx())!;
     expect(html).toContain('<th>Игрок</th><th>Агент · K/D</th>');
   });
 
   it('renders K/D in the second column as kills/deaths', () => {
-    const html = renderRichTemplate('giant_slayer', ctx())!;
+    const html = renderRichTemplate('match_comeback', ctx())!;
     expect(html).toContain('21/14'); // Alice
     expect(html).toContain('7/20');  // Jack
   });
 
   it('bolds community players and leaves opponents plain', () => {
-    const html = renderRichTemplate('giant_slayer', ctx())!;
+    const html = renderRichTemplate('match_comeback', ctx())!;
     // Community (Alice) → bold nick#tag
     expect(html).toContain('<b>Alice#AAA</b>');
     expect(html).toContain('<b>Bob#BBB</b>');
@@ -122,7 +121,7 @@ describe('renderRichTemplate — table structure & content', () => {
 
   it('puts the rank emoji on the LEFT of the name (renderPlayerName contract)', () => {
     // Diamond tier resolves to a custom emoji; ensure it precedes the nick.
-    const html = renderRichTemplate('giant_slayer', ctx())!;
+    const html = renderRichTemplate('match_comeback', ctx())!;
     // The tg-emoji for the rank appears before the bold community nick.
     const aliceIdx = html.indexOf('Alice#AAA');
     const emojiBeforeAlice = html.lastIndexOf('<tg-emoji', aliceIdx);
@@ -131,58 +130,8 @@ describe('renderRichTemplate — table structure & content', () => {
   });
 
   it('renders the title bold with the verbatim heading', () => {
-    expect(renderRichTemplate('giant_slayer', ctx())!).toContain('💪 <b>Поводил(ла) по губам</b>');
     expect(renderRichTemplate('match_comeback', ctx())!).toContain('👏 <b>Мы вами гордимся</b>');
     expect(renderRichTemplate('community_clash', ctx())!).toContain('⚔️ <b>Френдлифаер</b>');
-  });
-
-  it('giant_slayer names its subject on a line under the title (heroPuuids)', () => {
-    const html = renderRichTemplate('giant_slayer', ctx({ heroPuuids: ['b1'] }))!;
-    // The hero (Alice, community → bold) is named right after the title,
-    // before the description line.
-    const titleEnd = html.indexOf('</b>') + '</b>'.length;
-    const heroIdx = html.indexOf('<b>Alice#AAA</b>');
-    const descIdx = html.indexOf('<i>Выиграл');
-    expect(heroIdx).toBeGreaterThan(titleEnd);
-    expect(heroIdx).toBeLessThan(descIdx);
-    // A <br> separates the title line from the hero line (rich dialect).
-    expect(html).toContain('</b><br>');
-  });
-
-  it('giant_slayer without heroPuuids renders no hero line (graceful)', () => {
-    const html = renderRichTemplate('giant_slayer', ctx())!;
-    // No hero line: the title flows straight into the description line.
-    expect(html).toContain('Поводил(ла) по губам</b><br><i>');
-  });
-
-  it('giant_slayer names EVERY hero when a match triggered it for several', () => {
-    // Two friends on the same team both beat a stronger enemy — one message
-    // names both instead of the group getting the same post twice (owner,
-    // 2026-08-09). b1/b2 are the two community players on Blue.
-    const html = renderRichTemplate('giant_slayer', ctx({ heroPuuids: ['b1', 'b2'] }))!;
-    const header = html.slice(0, html.indexOf('<table'));
-    expect(header).toContain('Alice#AAA');
-    expect(header).toContain('Bob#BBB');
-    // Still exactly one title and one description.
-    expect(html.match(/💪 <b>Поводил\(ла\) по губам<\/b>/g)).toHaveLength(1);
-    expect(html.match(/<i>Выиграл\(а\) против превосходящего врага\.<\/i>/g)).toHaveLength(1);
-  });
-
-  it('giant_slayer collapses a repeated puuid to one hero line', () => {
-    const html = renderRichTemplate('giant_slayer', ctx({ heroPuuids: ['b1', 'b1'] }))!;
-    const header = html.slice(0, html.indexOf('<table'));
-    expect(header.match(/Alice#AAA/g)).toHaveLength(1);
-  });
-
-  it('giant_slayer skips heroes missing from the roster but keeps the rest', () => {
-    const html = renderRichTemplate('giant_slayer', ctx({ heroPuuids: ['ghost', 'b1'] }))!;
-    const header = html.slice(0, html.indexOf('<table'));
-    expect(header).toContain('Alice#AAA');
-  });
-
-  it('giant_slayer with an unknown heroPuuid renders no hero line', () => {
-    const html = renderRichTemplate('giant_slayer', ctx({ heroPuuids: ['not-in-roster'] }))!;
-    expect(html).toContain('Поводил(ла) по губам</b><br><i>');
   });
 
   it('match_comeback names the score it came back FROM and the final score', () => {
@@ -197,18 +146,11 @@ describe('renderRichTemplate — table structure & content', () => {
     expect(html).toContain('<i>Отыгрались из глубокого отставания и вырвали победу.</i>');
   });
 
-  it('match_comeback / community_clash ignore heroPuuids (no single subject)', () => {
-    const comeback = renderRichTemplate('match_comeback', ctx({ heroPuuids: ['b1'] }))!;
-    expect(comeback).toContain('Мы вами гордимся</b><br><i>');
-    const clash = renderRichTemplate('community_clash', ctx({ heroPuuids: ['b1'], winnerTeamId: 'Blue' }))!;
-    expect(clash).toContain('Френдлифаер</b><br><i>');
-  });
-
   it('renders the description as a plain italic line — no accordion', () => {
-    const html = renderRichTemplate('giant_slayer', ctx())!;
-    expect(html).toContain('<br><i>Выиграл(а) против превосходящего врага.</i>');
-    // The «ℹ️ Что случилось» accordion is gone for every trio event.
-    for (const t of ['giant_slayer', 'match_comeback', 'community_clash'] as const) {
+    const html = renderRichTemplate('match_comeback', ctx())!;
+    expect(html).toContain('<br><i>Отыгрались из глубокого отставания и вырвали победу.</i>');
+    // The «ℹ️ Что случилось» accordion is gone for every roster event.
+    for (const t of ['match_comeback', 'community_clash'] as const) {
       const out = renderRichTemplate(t, ctx({ winnerTeamId: 'Blue' }))!;
       expect(out, t).not.toContain('<details>');
       expect(out, t).not.toContain('Что случилось');
@@ -217,7 +159,7 @@ describe('renderRichTemplate — table structure & content', () => {
   });
 
   it('renders the match link under the table with the icon OUTSIDE the anchor', () => {
-    const html = renderRichTemplate('giant_slayer', ctx())!;
+    const html = renderRichTemplate('match_comeback', ctx())!;
     // A Rich Message will not linkify an <a> that contains a <tg-emoji>, so the
     // map icon sits outside and only the name is the anchor.
     const expected =
@@ -229,28 +171,24 @@ describe('renderRichTemplate — table structure & content', () => {
 });
 
 describe('renderRichTemplate — team grouping & separators', () => {
-  it('giant_slayer / match_comeback split the fives into two tables, unnamed', () => {
-    for (const type of ['giant_slayer', 'match_comeback'] as const) {
-      const html = renderRichTemplate(type, ctx())!;
-      // One table per five, replacing the old blank full-width separator row.
-      expect((html.match(/<table/g) ?? []).length).toBe(2);
-      expect(html).not.toContain('colspan');
-      // These events never named their teams and still don't.
-      expect(html).not.toContain('Команда');
-    }
+  it('match_comeback splits the fives into two tables, unnamed', () => {
+    const html = renderRichTemplate('match_comeback', ctx())!;
+    // One table per five, replacing the old blank full-width separator row.
+    expect((html.match(/<table/g) ?? []).length).toBe(2);
+    expect(html).not.toContain('colspan');
+    // This event never named its teams and still doesn't.
+    expect(html).not.toContain('Команда');
   });
 
-  it('giant_slayer / match_comeback caption the sides «Наши» and «Соперники»', () => {
-    // Owner, 2026-08-30. These events are about US beating someone, so the
-    // sides have names worth using. The community five is ours; in the fixture
-    // that is Blue (Alice + Bob).
-    for (const type of ['giant_slayer', 'match_comeback'] as const) {
-      const html = renderRichTemplate(type, ctx())!;
-      expect(html).toContain('<b>Наши</b>');
-      expect(html).toContain('<b>Соперники</b>');
-      // «Наши» comes first because Blue is first in the roster.
-      expect(html.indexOf('<b>Наши</b>')).toBeLessThan(html.indexOf('<b>Соперники</b>'));
-    }
+  it('match_comeback captions the sides «Наши» and «Соперники»', () => {
+    // Owner, 2026-08-30. This event is about US beating someone, so the sides
+    // have names worth using. The community five is ours; in the fixture that
+    // is Blue (Alice + Bob).
+    const html = renderRichTemplate('match_comeback', ctx())!;
+    expect(html).toContain('<b>Наши</b>');
+    expect(html).toContain('<b>Соперники</b>');
+    // «Наши» comes first because Blue is first in the roster.
+    expect(html.indexOf('<b>Наши</b>')).toBeLessThan(html.indexOf('<b>Соперники</b>'));
   });
 
   it('falls back to neutral captions when «ours» is ambiguous', () => {
@@ -258,7 +196,7 @@ describe('renderRichTemplate — team grouping & separators', () => {
     // coin flip, so neither gets called that.
     const roster = fullRoster();
     roster[5] = row({ riot_puuid: 'r1', team: 'Red', name: 'Frank', tag: 'FFF', is_community: true, kills: 16, deaths: 18 });
-    const html = renderRichTemplate('giant_slayer', ctx({ roster }))!;
+    const html = renderRichTemplate('match_comeback', ctx({ roster }))!;
 
     expect(html).not.toContain('Наши');
     expect(html).not.toContain('Соперники');
@@ -375,31 +313,31 @@ describe('renderRichTemplate — team grouping & separators', () => {
 });
 
 describe('renderRichTemplate — backward-compat / null fallback', () => {
-  it('returns null for a non-trio event type', () => {
+  it('returns null for a non-roster event type', () => {
     expect(renderRichTemplate('teamkill', ctx())).toBeNull();
     expect(renderRichTemplate('ace', ctx())).toBeNull();
   });
 
   it('returns null on an empty roster', () => {
-    expect(renderRichTemplate('giant_slayer', ctx({ roster: [] }))).toBeNull();
+    expect(renderRichTemplate('match_comeback', ctx({ roster: [] }))).toBeNull();
   });
 
   it('returns null when ANY participant is missing tier (pre-#315 rows)', () => {
     const roster = fullRoster();
     roster[3]!.tier = null;
-    expect(renderRichTemplate('giant_slayer', ctx({ roster }))).toBeNull();
+    expect(renderRichTemplate('match_comeback', ctx({ roster }))).toBeNull();
   });
 
   it('returns null when ANY participant is missing kills or deaths', () => {
     const r1 = fullRoster(); r1[5]!.kills = null;
-    expect(renderRichTemplate('giant_slayer', ctx({ roster: r1 }))).toBeNull();
+    expect(renderRichTemplate('match_comeback', ctx({ roster: r1 }))).toBeNull();
     const r2 = fullRoster(); r2[6]!.deaths = null;
-    expect(renderRichTemplate('giant_slayer', ctx({ roster: r2 }))).toBeNull();
+    expect(renderRichTemplate('match_comeback', ctx({ roster: r2 }))).toBeNull();
   });
 
   it('returns null when only one team is present', () => {
     const roster = fullRoster().filter((r) => r.team === 'Blue');
-    expect(renderRichTemplate('giant_slayer', ctx({ roster }))).toBeNull();
+    expect(renderRichTemplate('match_comeback', ctx({ roster }))).toBeNull();
   });
 
   it('never emits a raw newline (rich HTML collapses \\n)', () => {
@@ -412,7 +350,7 @@ describe('renderRichTemplate — HTML escaping', () => {
   it('escapes hostile nick/tag in participant rows', () => {
     const roster = fullRoster();
     roster[2] = row({ riot_puuid: 'x', team: 'Blue', name: '<b>x</b>', tag: '"&', is_community: false, kills: 1, deaths: 1, agent: null });
-    const html = renderRichTemplate('giant_slayer', ctx({ roster }))!;
+    const html = renderRichTemplate('match_comeback', ctx({ roster }))!;
     expect(html).toContain('&lt;b&gt;x&lt;/b&gt;');
     expect(html).not.toContain('<b>x</b>#');
   });

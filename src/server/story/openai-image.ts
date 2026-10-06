@@ -11,7 +11,7 @@
  * Client style mirrors `src/server/lib/henrik.ts`: per-request hard timeout
  * via AbortController + setTimeout cleared in `finally`, `globalThis.fetch`,
  * a typed error base class. NO rate limiter — this is called at most once a
- * week (the Fri 18:45 prepare tick / the `/test_digest_image` owner command).
+ * week (the Sun 18:45 prepare tick / the `/test_digest_image` owner command).
  *
  * The retry/give-up policy lives in the *caller* (the prepare tick: MAX 2
  * attempts, no delay, then give up silently — issue #227 §3). This module

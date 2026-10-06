@@ -9,8 +9,8 @@ export const digestRuns = sqliteTable('digest_runs', {
   posted_message_id: integer('posted_message_id'),
   posted_text: text('posted_text'),
   // ─── Two-phase weekly promo image (#227) ──────────────────────────────────
-  // The Fri 18:45 "prepare" tick builds the digest once and stashes the text
-  // here so the Fri 19:00 "publish" tick posts the *exact same* text the image
+  // The Sun 18:45 "prepare" tick builds the digest once and stashes the text
+  // here so the Sun 19:00 "publish" tick posts the *exact same* text the image
   // was generated from. All nullable: existing [silent-period]/[no_content]
   // marker rows and daily semantics stay valid; the image is best-effort, so
   // a prepared row with story_image_path = NULL is normal (image generation

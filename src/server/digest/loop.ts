@@ -2,7 +2,7 @@
  * loop.ts — Weekly digest adapter over the shared scheduled-digest module.
  *
  * Thin adapter: supplies only what differs for the weekly digest — the
- * cron expression (`0 19 * * 5`, Fri 19:00 Europe/Kyiv), the rolling
+ * cron expression (`WEEKLY_DIGEST_CRON`, Sun 19:00 Europe/Kyiv), the rolling
  * 7-day window + ISO-week dedup key, the `buildDigest` call, and the
  * `digest_runs` persistence. Cron registration, the Silent-period gate,
  * the Healthchecks.io ping, and the idempotency ordering all live in
@@ -32,7 +32,7 @@ import {
   type SendMessage,
   type SendRichMessage,
 } from '../lib/scheduled-digest.ts';
-import { computeWeekIso, shiftKyivCalendarDays } from '../lib/kyiv-week.ts';
+import { computeWeekIso, digestWeekStartFor, WEEKLY_DIGEST_CRON } from '../lib/kyiv-week.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
@@ -68,12 +68,16 @@ export interface DigestNowKyiv {
   nowMs: number;
   /**
    * ISO week string e.g. "2026-W19".
-   * Computed as the ISO week of the publication moment (Friday).
-   * Friday is in the same ISO week as the preceding Monday by ISO 8601 convention.
+   * Computed as the ISO week of the publication moment (Sunday).
+   * Sunday closes its ISO week, which runs from the preceding Monday (ISO 8601).
    * Used as the UNIQUE key in digest_runs to prevent duplicate digests per cycle.
    */
   weekIso: string;
-  /** Window start: the same Kyiv wall-clock time 7 calendar days before weekEnd (167h/168h/169h across DST, ms). */
+  /**
+   * Window start: the same Kyiv wall-clock time 7 calendar days before weekEnd
+   * (167h/168h/169h across DST, ms) — or the last Friday digest, for the first
+   * Sunday window (see `digestWeekStartFor`).
+   */
   weekStart: number;
   /** Window end: the publication moment snapped down to the start of its Kyiv minute (ms). */
   weekEnd: number;
@@ -83,15 +87,16 @@ export interface DigestNowKyiv {
  * Compute rolling 7-day window info anchored to the current moment (publication time).
  *
  * New window logic (post-#149):
- *   weekEnd   = the publication tick (Friday 19:00 Kyiv), snapped to its minute
- *   weekStart = the same wall-clock moment 7 Kyiv calendar days earlier
+ *   weekEnd   = the publication tick (Sunday 19:00 Kyiv), snapped to its minute
+ *   weekStart = the same wall-clock moment 7 Kyiv calendar days earlier (the
+ *               first Sunday window reaches back to the last Friday digest)
  *
  * The window is anchored to the Kyiv wall clock, not to a fixed 7×86_400_000,
  * because the cron itself is local-time — see the comment at the computation.
  *
- * weekIso = ISO week of the publication day (Friday).
- * ISO 8601: Friday is in the same week as the preceding Monday (weeks start Mon).
- * This is used as the UNIQUE key in digest_runs — prevents duplicate digests per Friday cycle.
+ * weekIso = ISO week of the publication day (Sunday).
+ * ISO 8601: Sunday is in the same week as the preceding Monday (weeks start Mon).
+ * This is used as the UNIQUE key in digest_runs — prevents duplicate digests per Sunday cycle.
  *
  * We compute ISO week via Thursday-anchor method (standard ISO 8601 algorithm).
  */
@@ -105,15 +110,10 @@ export function getDigestNowKyiv(nowMs?: number): DigestNowKyiv {
   // rendered twice). `nowMs` stays the true instant — it is what
   // `digest_runs.started_at` and the Silent-period gate read.
   const weekEndMs = Math.floor(ms / 60000) * 60000;
-  // Seven Kyiv CALENDAR days, not 7 × 86_400_000. The cron that fires this is
-  // local-time (`0 19 * * 5`, Europe/Kyiv), so across a DST change consecutive
-  // Fridays are 167h or 169h apart. Subtracting a fixed 7×24h made the spring
-  // window start an hour BEFORE the previous window ended — every event in that
-  // hour rendered in two digests a week apart (the same ace counted twice, the
-  // same promotion announced twice) — and in autumn it left a one-hour hole
-  // that fell out of both. Anchoring to the wall clock makes the window match
-  // the cron's own cadence exactly.
-  const weekStartMs = shiftKyivCalendarDays(weekEndMs, -7);
+  // Seven Kyiv CALENDAR days back, so the window matches the local-time cron's
+  // own cadence across DST — `digestWeekStartFor` explains why, and how the
+  // first Sunday window reaches back to the last Friday digest.
+  const weekStartMs = digestWeekStartFor(weekEndMs);
 
   // ISO week of the publication moment — the UNIQUE dedup key in digest_runs,
   // and (via buildDigest) the `weekly_records.week_iso` this window writes.
@@ -139,7 +139,7 @@ function makeWeeklySpec(deps: DigestLoopDeps): DigestSpec {
 
   return {
     module: 'digest',
-    cron: '0 19 * * 5',
+    cron: WEEKLY_DIGEST_CRON,
     silentPeriodGate: true,
     healthcheckUrl,
     ...(publishOverride ? { publishOverride } : {}),

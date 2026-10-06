@@ -5,15 +5,15 @@
  * prompt — so generation must happen *before* publication. Splitting one
  * weekly cron tick into two:
  *
- *   - PREPARE  (Fri 18:45 Kyiv, new Croner job) — build the digest once,
+ *   - PREPARE  (Sun 18:45 Kyiv, new Croner job) — build the digest once,
  *     stash `prepared_text` + topAgent/topMap in `digest_runs`, generate the
  *     PNG, stash it on disk + record `story_image_path`.
- *   - PUBLISH  (Fri 19:00 Kyiv, the existing weekly cron via the
+ *   - PUBLISH  (Sun 19:00 Kyiv, the existing weekly cron via the
  *     `publishOverride` hook) — post the *saved* `prepared_text` verbatim,
  *     record published-state IMMEDIATELY (mirrors #255), then best-effort
  *     reply the PNG as a photo. Image failure never touches published state.
  *
- * Friday 18:45 and Friday 19:00 are the same ISO week, so `getDigestNowKyiv`
+ * Sunday 18:45 and Sunday 19:00 are the same ISO week, so `getDigestNowKyiv`
  * yields the same `weekIso` → the prepare→publish handoff key is stable
  * (validated by the prototype, see src/server/story/NOTES.md).
  *
@@ -32,6 +32,7 @@ import { digestRuns } from '../db/schema/digest_runs.ts';
 import { buildDigest } from './build.ts';
 import { isAmbiguousSendFailure } from '../lib/telegram-send.ts';
 import { getDigestNowKyiv, type DigestNowKyiv } from './loop.ts';
+import { WEEKLY_DIGEST_PREPARE_CRON } from '../lib/kyiv-week.ts';
 import { runStoryGeneration } from '../story/run.ts';
 import { isPublishingEnabled } from '../lib/silent-period.ts';
 import type { SendMessage, SendRichMessage } from '../lib/scheduled-digest.ts';
@@ -95,7 +96,7 @@ export interface PrepareLoopDeps {
   getOpenAIKey: () => string;
   /** Injectable now-in-Kyiv (test). Defaults to getDigestNowKyiv. */
   getNowKyiv?: () => DigestNowKyiv;
-  /** Prepare cron expression. Default `45 18 * * 5` Europe/Kyiv. */
+  /** Prepare cron expression. Default `WEEKLY_DIGEST_PREPARE_CRON` (Sun 18:45) Europe/Kyiv. */
   prepareCron?: string;
 }
 
@@ -109,7 +110,7 @@ export interface PublishOverrideDeps {
 // ─── PREPARE tick ────────────────────────────────────────────────────────────
 
 /**
- * One prepare tick (Fri 18:45 Kyiv). Idempotent; safe under a double cron
+ * One prepare tick (Sun 18:45 Kyiv). Idempotent; safe under a double cron
  * fire. Never throws image failures up — the digest text fate is sealed the
  * moment the `prepared` row is written, before any image work.
  */
@@ -245,11 +246,11 @@ export async function runPrepareTick(deps: PrepareLoopDeps): Promise<void> {
 }
 
 /**
- * Register the prepare cron (`45 18 * * 5` Europe/Kyiv, protect:true) —
+ * Register the prepare cron (`WEEKLY_DIGEST_PREPARE_CRON` Europe/Kyiv, protect:true) —
  * mirrors `startScheduledDigest`. Returns a stop function.
  */
 export function startPrepareLoop(deps: PrepareLoopDeps): () => void {
-  const cron = deps.prepareCron ?? '45 18 * * 5';
+  const cron = deps.prepareCron ?? WEEKLY_DIGEST_PREPARE_CRON;
   const job = new Cron(cron, { timezone: 'Europe/Kyiv', protect: true }, () => {
     void runPrepareTick(deps);
   });
@@ -263,13 +264,13 @@ export function startPrepareLoop(deps: PrepareLoopDeps): () => void {
   };
 }
 
-// ─── PUBLISH override (Fri 19:00, runs inside runScheduledDigest) ─────────────
+// ─── PUBLISH override (Sun 19:00, runs inside runScheduledDigest) ─────────────
 
 /**
  * Post the digest, preferring the Rich Message path (#309) and falling back to
  * the legacy plain-text send on ANY rich-send error or when `richHtml` is null
  * (rows prepared before #309). Returns the posted message id + which path was
- * taken. The Friday 19:00 post must never be skipped because of the rich path —
+ * taken. The Sunday 19:00 post must never be skipped because of the rich path —
  * hence the try/catch fallback here.
  */
 async function postDigest(

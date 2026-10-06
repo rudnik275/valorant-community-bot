@@ -1,6 +1,8 @@
 # digest/
 
-The weekly digest — built Friday, posted to the group chat.
+The weekly digest — built Sunday 19:00 Kyiv, posted to the group chat.
+It moved from Fridays on 2026-10-07; the first Sunday window (to
+2026-10-11) reaches back to the last Friday digest — `../lib/kyiv-week.ts`.
 
 - `build.ts` — queries the 7-day window and assembles ONE structured model
   (`RichDigestModel`) covering every section.
@@ -13,7 +15,7 @@ The weekly digest — built Friday, posted to the group chat.
   restored 2026-08-18) is the same kind of count list for one day — it reuses
   `readOccurrences` so a day's `×N` adds up to the week's — and both read the
   same `detected_events` rows and coexist.
-- `loop.ts` / `two-phase.ts` — scheduling and the Fri 18:45 prepare / 19:00
+- `loop.ts` / `two-phase.ts` — scheduling and the Sun 18:45 prepare / 19:00
   publish split for the promo image.
 
 Everything the digest reads comes from `match_records`, which the scanner

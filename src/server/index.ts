@@ -232,9 +232,9 @@ if (process.env['SCANNER_DISABLED'] !== 'true') {
           text,
           opts as Parameters<typeof bot.api.sendMessage>[2],
         ),
-        // Rich Message send (#315): the three "trio" realtime events
-        // (giant_slayer / match_comeback / community_clash) post as full-roster
-        // rich tables, falling back to the legacy plain template on any error.
+        // Rich Message send (#315): the roster realtime events
+        // (match_comeback / community_clash) post as full-roster rich tables,
+        // falling back to the legacy plain template on any error.
         // Destination is TELEGRAM_PRIMARY_CHAT_ID (the already-authorised group)
         // — same exempt risk-model as the weekly digest's rich send.
         sendRichMessage: (chatId, html) => sendRichMessageHtml(bot!.api, chatId, html),
@@ -271,10 +271,10 @@ if (process.env['SCANNER_DISABLED'] !== 'true') {
         getPrimaryChatId: () => primaryChatId,
         sendPhotoReply,
       });
-      // Two-phase prepare tick (Fri 18:45 Kyiv): build digest + stash PNG.
+      // Two-phase prepare tick (Sun 18:45 Kyiv): build digest + stash PNG.
       // ── DISABLED per user request (2026-05-20) — re-enable by uncommenting
       // this block AND the matching `startPrepareLoop` named import above.
-      // While disabled, the Fri 19:00 publish path sees no `prepared` row
+      // While disabled, the Sun 19:00 publish path sees no `prepared` row
       // and falls back to a fresh build + text-only post (covered by the
       // two-phase tests). `/test_digest_image` still works for manual runs.
       // startPrepareLoop({

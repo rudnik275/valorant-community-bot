@@ -16,8 +16,8 @@
  * match with three community players yields three `detected_events` rows
  * (the unique index is `(match_id, event_type, riot_puuid)`), and the two
  * detectors that do guard themselves with `hasMatchEvent` still race when two
- * scans overlap. Both failures were live — «💪 Поводил(ла) по губам» and
- * «👏 Мы вами гордимся» each posted twice for one match (owner, 2026-08-09).
+ * scans overlap. Both failures were live — «👏 Мы вами гордимся» and another
+ * realtime post each went out twice for one match (owner, 2026-08-09).
  *
  * So the loop enforces it at publish time, where the whole picture is visible:
  *   - an event waits {@link PUBLISH_GRACE_MS} before it is eligible, so its
@@ -38,7 +38,7 @@ import { optOuts } from '../db/schema/opt_outs.ts';
 import { decide } from './decide.ts';
 import { renderGroupedTemplate, type EventSubject, type TemplateMatch } from './templates.ts';
 import { resolveTemplateMatch } from './match-info.ts';
-import { renderRichEvent, isTrioRichEvent } from './rich-templates.ts';
+import { renderRichEvent, isRosterRichEvent } from './rich-templates.ts';
 import { isRealtimeEvent, type EventType } from './types.ts';
 import logger from '../lib/log.ts';
 import { isPublishingEnabled } from '../lib/silent-period.ts';
@@ -65,8 +65,8 @@ export interface PublisherLoopDeps {
     opts?: { parse_mode?: string; disable_web_page_preview?: boolean },
   ) => Promise<{ message_id: number }>;
   /**
-   * Send a Rich Message (HTML) to a chat — used for the #315 "trio" events
-   * (giant_slayer / match_comeback / community_clash), which render as
+   * Send a Rich Message (HTML) to a chat — used for the #315 roster events
+   * (match_comeback / community_clash), which render as
    * full-roster tables. Optional: when absent (or on ANY error), the loop falls
    * back to the legacy plain-text `sendMessage` path. Destination/dedup/retry
    * semantics are identical to the plain path.
@@ -98,7 +98,7 @@ export interface PublisherLoopDeps {
  * without a wait the first player's event could go out alone and the rest be
  * suppressed as duplicates. It used to be the only thing covering a whole scan
  * sweep — 15–20 minutes on prod, not the couple of minutes assumed — which is
- * how «💪 Поводил(ла) по губам» named 1 of 4 heroes (2026-09-30).
+ * how a realtime post named 1 of 4 players (2026-09-30).
  */
 export const PUBLISH_GRACE_MS = 5 * 60_000;
 
@@ -231,7 +231,6 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
       // with its own status.
       const subjects: EventSubject[] = [];
       const postableIds: number[] = [];
-      const heroPuuids: string[] = [];
       const skippedByStatus = new Map<string, number[]>();
       let priorAttempts = 0;
       let primaryPayload: Record<string, unknown> = {};
@@ -323,7 +322,6 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
           ...(matchInfo ? { match: matchInfo } : {}),
         });
         postableIds.push(evId);
-        heroPuuids.push(puuid);
         priorAttempts = Math.max(priorAttempts, Number(ev.failed_attempts ?? 0));
         if (subjects.length === 1) {
           primaryPayload = payload;
@@ -385,22 +383,19 @@ export function startPublisherLoop(deps: PublisherLoopDeps): () => void {
       // already be in the chat, so the plain fallback below must NOT run.
       let richOutcomeUnknown = false;
 
-      // #315 "trio" events (giant_slayer / match_comeback / community_clash)
-      // render as full-roster rich tables. Try the rich path FIRST; fall back
+      // #315 roster events (match_comeback / community_clash) render as
+      // full-roster rich tables. Try the rich path FIRST; fall back
       // to the legacy plain template when the rich attempt definitively left
       // the chat empty (missing dep, incomplete roster → null, render throw, a
       // 4xx on the html). A rich send Telegram never ANSWERED is different:
       // the table may already be in the chat, so falling back would post the
       // same event twice — see `richOutcomeUnknown`.
-      if (isTrioRichEvent(eventType) && deps.sendRichMessage) {
+      if (isRosterRichEvent(eventType) && deps.sendRichMessage) {
         const richSend = deps.sendRichMessage;
         try {
           const richHtml = await renderRichEvent(db, eventType, primaryPayload, {
             ...(primaryMatch?.match_id ? { match_id: primaryMatch.match_id } : {}),
             ...(primaryMatch?.map ? { map: primaryMatch.map } : {}),
-            // Subjects of the event (used by giant_slayer to name them under
-            // the title) — every community player this event fired for.
-            ...(heroPuuids.length > 0 ? { heroPuuids } : {}),
           });
           if (richHtml) {
             const result = await sendWithRetryFn(

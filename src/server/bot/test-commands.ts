@@ -35,7 +35,7 @@ import {
   type TemplateUser,
 } from '../publisher/templates.ts';
 import { resolveTemplateMatch } from '../publisher/match-info.ts';
-import { renderRichEvent, isTrioRichEvent } from '../publisher/rich-templates.ts';
+import { renderRichEvent, isRosterRichEvent } from '../publisher/rich-templates.ts';
 import { isRealtimeEvent, type EventType } from '../publisher/types.ts';
 import logger from '../lib/log.ts';
 import { sendExempt, sendPhotoExempt, InputFile } from '../lib/telegram-send.ts';
@@ -351,7 +351,6 @@ export function makeTestRuntimeEventsHandler(deps: TestCommandsDeps): Middleware
         // Resolve every player of the group into a subject, exactly as the
         // publisher loop does — one message names all of them.
         const subjects: EventSubject[] = [];
-        const heroPuuids: string[] = [];
         let primaryPayload: Record<string, unknown> = {};
         let primaryMatch: TemplateMatch | undefined;
 
@@ -407,7 +406,6 @@ export function makeTestRuntimeEventsHandler(deps: TestCommandsDeps): Middleware
             user: tplUser,
             ...(memberMatch ? { match: memberMatch } : {}),
           });
-          heroPuuids.push(puuid);
           if (subjects.length === 1) {
             primaryPayload = payload;
             primaryMatch = memberMatch;
@@ -418,18 +416,15 @@ export function makeTestRuntimeEventsHandler(deps: TestCommandsDeps): Middleware
 
         const text = renderGroupedTemplate(eventType, subjects);
 
-        // #315 "trio" events preview as full-roster rich tables where the data
+        // #315 roster events preview as full-roster rich tables where the data
         // is complete; fall back to the legacy plain text on null/any error so
         // the preview never breaks (mirrors the publisher loop's rich path).
         let richHtml: string | null = null;
-        if (isTrioRichEvent(eventType)) {
+        if (isRosterRichEvent(eventType)) {
           try {
             richHtml = await renderRichEvent(deps.db, eventType, primaryPayload, {
               ...(primaryMatch?.match_id ? { match_id: primaryMatch.match_id } : {}),
               ...(primaryMatch?.map ? { map: primaryMatch.map } : {}),
-              // Replay parity (#315): giant_slayer names its subjects under the
-              // title in production too.
-              ...(heroPuuids.length > 0 ? { heroPuuids } : {}),
             });
           } catch (err) {
             logger.warn(

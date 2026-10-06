@@ -437,7 +437,7 @@ describe('scanForPuuid', () => {
   // ── Community friends in the lobby ──────────────────────────────────────────
   //
   // Live 2026-09-30: four friends beat a stronger team on Abyss, the sweep
-  // reached them over 11 minutes, and «💪 Поводил(ла) по губам» went out after 5
+  // reached them over 11 minutes, and the realtime post went out after 5
   // naming one — the other three were suppressed as stragglers. The first scan
   // that sees a match now records it for every community player in it, so all
   // their events are born together.

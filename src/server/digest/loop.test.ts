@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { Cron } from 'croner';
 import { runDigestNow, getDigestNowKyiv } from './loop.ts';
 import type { DigestNowKyiv } from './loop.ts';
+import { FIRST_SUNDAY_DIGEST_MS, LAST_FRIDAY_DIGEST_MS, WEEKLY_DIGEST_CRON } from '../lib/kyiv-week.ts';
 
 vi.mock('../lib/log.ts', () => ({
   default: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -32,14 +33,26 @@ const FIXED_WEEK_ISO = '2026-W19';
 // Europe/Kyiv 2026 DST: clocks jump forward Sun 2026-03-29 (EET→EEST) and back
 // Sun 2026-10-25 (EEST→EET). These are the instants the weekly cron actually
 // fires on either side of each switch — 167h apart in spring, 169h in autumn.
+// Spring 2026 was still the Friday schedule; autumn 2026 is the Sunday one.
 const SPRING_TICKS = [Date.UTC(2026, 2, 27, 17), Date.UTC(2026, 3, 3, 16)];
-const AUTUMN_TICKS = [Date.UTC(2026, 9, 23, 16), Date.UTC(2026, 9, 30, 17)];
+const AUTUMN_TICKS = [Date.UTC(2026, 9, 18, 16), Date.UTC(2026, 9, 25, 17)];
 
-/** The instants Croner schedules the weekly digest on, straight from the scheduler. */
+/** The cron the digest posted on until the Friday→Sunday switch. */
+const FRIDAY_DIGEST_CRON = '0 19 * * 5';
+
+/**
+ * The instants Croner schedules the weekly digest on, straight from the
+ * scheduler: Friday ticks up to the last Friday digest, Sunday ticks after.
+ */
 function weeklyCronTicks(fromMs: number, count: number): number[] {
-  return new Cron('0 19 * * 5', { timezone: 'Europe/Kyiv' })
+  const fridays = new Cron(FRIDAY_DIGEST_CRON, { timezone: 'Europe/Kyiv' })
     .nextRuns(count, new Date(fromMs))
+    .map((d) => d.getTime())
+    .filter((t) => t <= LAST_FRIDAY_DIGEST_MS);
+  const sundays = new Cron(WEEKLY_DIGEST_CRON, { timezone: 'Europe/Kyiv' })
+    .nextRuns(count - fridays.length, new Date(Math.max(fromMs, FIRST_SUNDAY_DIGEST_MS - 1)))
     .map((d) => d.getTime());
+  return [...fridays, ...sundays];
 }
 
 const DEFAULT_KYIV: DigestNowKyiv = {
@@ -299,10 +312,35 @@ describe('getDigestNowKyiv', () => {
     expect(r2.weekStart).toBe(fri2 - 7 * 86400000);
   });
 
+  describe('the Friday→Sunday switch', () => {
+    it('the first Sunday digest covers everything since the last Friday digest', () => {
+      // Sun 2026-10-11 19:00 Kyiv: nine days, back to Fri 2026-10-02 19:00 —
+      // the weekend between the two schedules belongs to it.
+      const first = getDigestNowKyiv(FIRST_SUNDAY_DIGEST_MS + 37);
+      expect(first.weekEnd).toBe(FIRST_SUNDAY_DIGEST_MS);
+      expect(first.weekStart).toBe(LAST_FRIDAY_DIGEST_MS);
+      expect(first.weekIso).toBe('2026-W41');
+      const lastFridayWeekend = Date.UTC(2026, 9, 3, 18); // Sat 2026-10-03
+      expect(lastFridayWeekend >= first.weekStart && lastFridayWeekend < first.weekEnd).toBe(true);
+    });
+
+    it('the first Sunday is keyed apart from the last Friday digest', () => {
+      // digest_runs.week_iso is UNIQUE: the same key would dedup the Sunday post away.
+      expect(getDigestNowKyiv(FIRST_SUNDAY_DIGEST_MS).weekIso)
+        .not.toBe(getDigestNowKyiv(LAST_FRIDAY_DIGEST_MS).weekIso);
+    });
+
+    it('the second Sunday is back to a plain 7-day window', () => {
+      const second = getDigestNowKyiv(Date.UTC(2026, 9, 18, 16));
+      expect(second.weekStart).toBe(FIRST_SUNDAY_DIGEST_MS);
+      expect(second.weekEnd - second.weekStart).toBe(7 * 86400000);
+    });
+  });
+
   describe('DST — the window follows the cron, not a fixed 7 × 24h', () => {
     it('the pinned instants are the ones Croner really fires the digest on', () => {
       expect(weeklyCronTicks(Date.UTC(2026, 2, 25), 2)).toEqual(SPRING_TICKS);
-      expect(weeklyCronTicks(Date.UTC(2026, 9, 21), 2)).toEqual(AUTUMN_TICKS);
+      expect(weeklyCronTicks(Date.UTC(2026, 9, 15), 2)).toEqual(AUTUMN_TICKS);
       // 167h across the spring forward, 169h across the autumn back — this is
       // precisely why a fixed 7 × 86400000 window cannot line up with the cron.
       expect(SPRING_TICKS[1]! - SPRING_TICKS[0]!).toBe(167 * 3600000);
@@ -326,16 +364,16 @@ describe('getDigestNowKyiv', () => {
       const next = getDigestNowKyiv(AUTUMN_TICKS[1]!);
       expect(next.weekStart).toBe(prev.weekEnd);
       expect(next.weekEnd - next.weekStart).toBe(169 * 3600000);
-      // The hour that used to fall out of BOTH digests: Fri 2026-10-23 19:30
+      // The hour that used to fall out of BOTH digests: Sun 2026-10-18 19:30
       // Kyiv. It belongs to the later digest and is not lost.
-      const inGapHour = Date.UTC(2026, 9, 23, 16, 30);
+      const inGapHour = Date.UTC(2026, 9, 18, 16, 30);
       expect(inGapHour >= prev.weekStart && inGapHour < prev.weekEnd).toBe(false);
       expect(inGapHour >= next.weekStart && inGapHour < next.weekEnd).toBe(true);
     });
 
     it('every consecutive pair of weekly ticks tiles exactly, DST or not', () => {
-      // Two full years of real cron ticks: no hour is ever aggregated twice and
-      // none is ever skipped.
+      // Two full years of real cron ticks, across the Friday→Sunday switch: no
+      // hour is ever aggregated twice and none is ever skipped.
       const ticks = weeklyCronTicks(Date.UTC(2026, 0, 1), 104);
       for (let i = 1; i < ticks.length; i++) {
         const prev = getDigestNowKyiv(ticks[i - 1]!);

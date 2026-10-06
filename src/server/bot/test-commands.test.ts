@@ -212,7 +212,7 @@ describe('collapseGroupableEvents', () => {
   });
 
   it('groups EVERY realtime type per match, not just match_comeback', () => {
-    for (const eventType of ['giant_slayer', 'teamkill', 'return_after_pause', 'community_clash']) {
+    for (const eventType of ['teamkill', 'return_after_pause', 'community_clash']) {
       const events = [
         { ...baseEv, event_type: eventType, riot_puuid: 'a', match_id: 'm1', detected_at: 100 },
         { ...baseEv, event_type: eventType, riot_puuid: 'b', match_id: 'm1', detected_at: 110 },

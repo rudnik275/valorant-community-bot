@@ -262,6 +262,21 @@ describe('startPublisherLoop', () => {
     });
   });
 
+  describe('event types the publisher no longer knows', () => {
+    it('silences a pending row of a removed type without posting it', async () => {
+      // giant_slayer was removed on 2026-10-07; prod can still hold pending
+      // rows of it. They must close out quietly, not block the queue or post.
+      seedUser(sqlite, 1, 'puuid-1');
+      const id = seedPendingEvent(sqlite, { puuid: 'puuid-1', eventType: 'giant_slayer' });
+
+      const { stop } = makeLoop(db, sendMessage);
+      await runOneTick(stop);
+
+      expect(sendMessage).not.toHaveBeenCalled();
+      expect(getEventStatus(sqlite, id)).toBe('silent');
+    });
+  });
+
   describe('Telegram 429 retry', () => {
     it('retries once on 429 and succeeds', async () => {
       seedUser(sqlite, 1, 'puuid-1');
@@ -620,9 +635,9 @@ describe('startPublisherLoop', () => {
     });
   });
 
-  // ── #315 "trio" rich path (giant_slayer / match_comeback / community_clash) ──
+  // ── #315 roster rich path (match_comeback / community_clash) ──────────────
   describe('rich full-roster events', () => {
-    const MATCH = 'match-trio';
+    const MATCH = 'match-roster';
 
     /** Seed a match_record for the community player (drives map/agent lookup). */
     function seedMatchRecord(puuid: string, map: string) {
@@ -673,7 +688,7 @@ describe('startPublisherLoop', () => {
       });
     }
 
-    it('posts a trio event via the rich path when the roster is complete', async () => {
+    it('posts a roster event via the rich path when the roster is complete', async () => {
       seedUser(sqlite, 1, 'a1'); // Alice is the community trigger
       seedMatchRecord('a1', 'Ascent');
       seedFullRoster(true);
@@ -738,7 +753,7 @@ describe('startPublisherLoop', () => {
       expect(getEventStatus(sqlite, id)).toBe('posted');
     });
 
-    it('uses the plain path (no rich) for non-trio realtime events', async () => {
+    it('uses the plain path (no rich) for non-roster realtime events', async () => {
       seedUser(sqlite, 1, 'a1');
       const id = seedPendingEvent(sqlite, { puuid: 'a1', eventType: 'teamkill', matchId: MATCH, payload: {} });
 
@@ -775,7 +790,7 @@ describe('startPublisherLoop', () => {
   //
   // Each community player is scanned separately, so a match with several of
   // them produces several detected_events rows. The group must still see ONE
-  // message: «💪 Поводил(ла) по губам» and «👏 Мы вами гордимся» both posted
+  // message: «👏 Мы вами гордимся» and another realtime post both went out
   // twice for a single match (owner, 2026-08-09).
   describe('per-match uniqueness', () => {
     const MATCH = 'match-dupes';
@@ -837,41 +852,6 @@ describe('startPublisherLoop', () => {
       });
     }
 
-    it('posts ONE giant_slayer message naming both community players', async () => {
-      seedUser(sqlite, 1, 'a1', { riotName: 'Alice', riotTag: 'AAA' });
-      seedUser(sqlite, 2, 'a2', { riotName: 'Bob', riotTag: 'BBB' });
-      seedMatchRecord('a1');
-      seedMatchRecord('a2');
-      seedFullRoster();
-      const id1 = seedPendingEvent(sqlite, {
-        puuid: 'a1', eventType: 'giant_slayer', matchId: MATCH,
-        payload: { own: 'Diamond 2', enemy_avg: 'Immortal 1' }, detectedAt: 1_000,
-      });
-      const id2 = seedPendingEvent(sqlite, {
-        puuid: 'a2', eventType: 'giant_slayer', matchId: MATCH,
-        payload: { own: 'Diamond 2', enemy_avg: 'Immortal 1' }, detectedAt: 1_100,
-      });
-
-      const sendRich = vi.fn().mockResolvedValue({ message_id: 99 });
-      const stop = makeRichLoop(sendRich);
-      await runOneTick(stop);
-
-      expect(sendRich).toHaveBeenCalledTimes(1);
-      const html = sendRich.mock.calls[0]![1] as string;
-      // One title, both heroes named under it. Assert against the HEADER — the
-      // part above the roster table — because the table lists all ten players
-      // anyway, so a whole-message `toContain` would pass without the fix.
-      expect(html.match(/💪 <b>Поводил\(ла\) по губам<\/b>/g)).toHaveLength(1);
-      const header = html.slice(0, html.indexOf('<table'));
-      expect(header).toContain('<b>Alice#AAA</b>');
-      expect(header).toContain('<b>Bob#BBB</b>');
-      // Both rows close out together, on the same message.
-      expect(getEventStatus(sqlite, id1)).toBe('posted');
-      expect(getEventStatus(sqlite, id2)).toBe('posted');
-      expect(getPostedMessageId(id1)).toBe(99);
-      expect(getPostedMessageId(id2)).toBe(99);
-    });
-
     it('never posts a second message on a later tick for the same match', async () => {
       seedUser(sqlite, 1, 'a1', { riotName: 'Alice', riotTag: 'AAA' });
       seedUser(sqlite, 2, 'a2', { riotName: 'Bob', riotTag: 'BBB' });
@@ -879,10 +859,10 @@ describe('startPublisherLoop', () => {
       seedMatchRecord('a2');
       seedFullRoster();
       seedPendingEvent(sqlite, {
-        puuid: 'a1', eventType: 'giant_slayer', matchId: MATCH, payload: {}, detectedAt: 1_000,
+        puuid: 'a1', eventType: 'match_comeback', matchId: MATCH, payload: {}, detectedAt: 1_000,
       });
       seedPendingEvent(sqlite, {
-        puuid: 'a2', eventType: 'giant_slayer', matchId: MATCH, payload: {}, detectedAt: 1_100,
+        puuid: 'a2', eventType: 'match_comeback', matchId: MATCH, payload: {}, detectedAt: 1_100,
       });
 
       const sendRich = vi.fn().mockResolvedValue({ message_id: 99 });
@@ -903,9 +883,9 @@ describe('startPublisherLoop', () => {
       seedUser(sqlite, 2, 'a2', { riotName: 'Bob', riotTag: 'BBB' });
       seedMatchRecord('a2');
       seedFullRoster();
-      seedPostedEvent({ puuid: 'a1', eventType: 'giant_slayer', matchId: MATCH });
+      seedPostedEvent({ puuid: 'a1', eventType: 'match_comeback', matchId: MATCH });
       const straggler = seedPendingEvent(sqlite, {
-        puuid: 'a2', eventType: 'giant_slayer', matchId: MATCH, payload: {},
+        puuid: 'a2', eventType: 'match_comeback', matchId: MATCH, payload: {},
       });
 
       const sendRich = vi.fn().mockResolvedValue({ message_id: 99 });
@@ -941,7 +921,9 @@ describe('startPublisherLoop', () => {
 
       expect(sendRich).toHaveBeenCalledTimes(1);
       expect((sendRich.mock.calls[0]![1] as string).match(/👏 <b>Мы вами гордимся<\/b>/g)).toHaveLength(1);
+      // Every row closes out together, on the same message.
       for (const id of ids) expect(getEventStatus(sqlite, id)).toBe('posted');
+      for (const id of ids) expect(getPostedMessageId(id)).toBe(55);
     });
 
     it('groups the plain-text path too — one teamkill message, one line per killer', async () => {

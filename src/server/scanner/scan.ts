@@ -297,7 +297,7 @@ export async function scanForPuuid(
  * Detection is per record, so a match with several friends used to yield their
  * events one sweep-slot apart — a sweep of ~33 users takes 15–20 minutes — and
  * the publisher had already posted the first friend's event, suppressing the
- * rest as stragglers (2026-09-30: «💪 Поводил(ла) по губам» named 1 of 4).
+ * rest as stragglers (2026-09-30: a realtime post named 1 of 4 friends).
  * Recording the whole lobby from the first scan that sees the match makes all
  * their events born in one pass; each friend's own scan later finds the match
  * done and skips it.

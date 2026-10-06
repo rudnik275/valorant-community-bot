@@ -11,7 +11,7 @@ export const matchRosters = sqliteTable(
     tag: text('tag'),
     agent: text('agent'),               // agent played this match (null for pre-#301 rows)
     // Per-participant match stats — needed for the full-roster rich tables of
-    // the #315 "trio" events (giant_slayer / match_comeback / community_clash).
+    // the #315 roster events (match_comeback / community_clash).
     // All nullable: rows written before #315 (and any match Henrik omits the
     // field for) have null, which the rich renderer treats as "incomplete data"
     // and falls back to the legacy plain template.

@@ -66,6 +66,19 @@ function makeMockBot() {
   };
 }
 
+// The handler reads "today" off the real clock, and the fixtures seed matches at
+// fixed Kyiv hours of it (02:00, 04:00). Before 04:00 Kyiv those were still in
+// the future and six tests failed every night — CI included, which blocks the
+// deploy. Pin the clock to a Kyiv afternoon; only Date is faked.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-10-07T15:00:00+03:00'));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe('buildCongratsText', () => {
   const player = { riot_puuid: 'p1', riot_name: 'Tester', riot_tag: 'EU1' };
 
