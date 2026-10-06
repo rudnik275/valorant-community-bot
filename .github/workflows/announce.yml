@@ -1,0 +1,40 @@
+name: Announce
+
+# Post a one-off announcement to the group chat as the bot, e.g. a schedule
+# change. Runs scripts/launch/announce.ts inside the running container, which
+# reads the bot token from its own env.
+#
+#   gh workflow run announce.yml -f text_b64="$(printf '%s' '<b>…</b>' | base64)" -f silent=1
+
+on:
+  workflow_dispatch:
+    inputs:
+      text_b64:
+        description: 'Message (Telegram HTML), base64-encoded.'
+        required: true
+      silent:
+        description: 'Set to "1" to post without a notification sound.'
+        required: false
+        default: ''
+
+jobs:
+  announce:
+    name: Post an announcement to the group
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate inputs
+        env:
+          TEXT_B64: ${{ inputs.text_b64 }}
+          SILENT: ${{ inputs.silent }}
+        run: |
+          [[ "$TEXT_B64" =~ ^[A-Za-z0-9+/=]+$ ]] || { echo "text_b64 is not base64"; exit 1; }
+          [[ -z "$SILENT" || "$SILENT" == "1" ]] || { echo 'silent must be empty or "1"'; exit 1; }
+
+      - name: Send from inside the running container
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            docker exec -e ANNOUNCE_B64='${{ inputs.text_b64 }}' -e SILENT='${{ inputs.silent }}' valorant-bot-app bun run scripts/launch/announce.ts
