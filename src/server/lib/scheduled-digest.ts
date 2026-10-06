@@ -113,7 +113,7 @@ export interface DigestContent {
 export interface DigestSpec {
   /** For logs / Healthchecks defaults. e.g. `'digest'`, `'digest-daily'`. */
   module: string;
-  /** Croner expression in Europe/Kyiv, e.g. `'0 19 * * 5'`. */
+  /** Croner expression in Europe/Kyiv, e.g. `'0 19 * * 0'`. */
   cron: string;
   /** Resolve the aggregation window + dedup key from the current moment. */
   resolveWindow: () => DigestWindow;

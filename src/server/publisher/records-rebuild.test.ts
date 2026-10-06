@@ -329,6 +329,23 @@ describe('records-rebuild', () => {
       expect(row.riot_puuid).toBe('p-aaa');
       expect(row.value).toBe(1);
     });
+
+    it('sums the Friday→Sunday switch into the one nine-day window the first Sunday reports', async () => {
+      // The last Friday digest closed Fri 2026-10-02 19:00 Kyiv, the first
+      // Sunday one Sun 2026-10-11 19:00 — and it reaches back across both
+      // weekends. Sat 10-03 is not its own Sun 10-04 window: no digest posted then.
+      sqlite.exec(`INSERT INTO users (telegram_id, riot_puuid, riot_name, riot_tag) VALUES (1, 'p-sw', 'Switch', 'SW')`);
+      seedMvp('p-sw', 'm-sat', Date.UTC(2026, 9, 3, 18));  // Sat 2026-10-03
+      seedMvp('p-sw', 'm-thu', Date.UTC(2026, 9, 8, 18));  // Thu 2026-10-08
+      seedMvp('p-sw', 'm-sun', Date.UTC(2026, 9, 11, 15)); // Sun 2026-10-11 18:00
+
+      await rebuildAllRecords(db, Date.UTC(2026, 9, 12, 6));
+
+      const rows = sqlite
+        .prepare(`SELECT week_iso, value FROM weekly_records WHERE record_type='mvp_count_week'`)
+        .all() as Array<{ week_iso: string; value: number }>;
+      expect(rows).toEqual([{ week_iso: '2026-W41', value: 3 }]);
+    });
   });
 
   it('an orphaned match with no owner cannot abort the rebuild', async () => {

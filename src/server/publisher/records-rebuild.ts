@@ -336,31 +336,32 @@ async function backfillWeeklyMvpRecords(db: AnyDb, nowMs: number): Promise<void>
     })
     .from(matchRecords)
     .where(isNotNull(matchRecords.riot_puuid))
-    // Oldest first, so the Fri→Fri window below advances with a single cursor
+    // Oldest first, so the digest window below advances with a single cursor
     // instead of re-deriving the Kyiv wall clock for every one of the group's
     // thousands of rows.
     .orderBy(asc(matchRecords.started_at));
 
   if (allRows.length === 0) return;
 
-  // The window the digest has NOT closed yet — the Friday tick owns it. It is
+  // The window the digest has NOT closed yet — the weekly tick owns it. It is
   // the tick that writes `weekly_records` for the running week, and
   // `upsertWeeklyLeader` only ever raises, so a rebuild that pre-fills that row
   // from a partial week leaves the tick unable to beat its own bar: it returns
   // at `!beatenForWeek` and «👑 Король MVP за неделю» is dropped for that week
   // without a trace. This rebuild fires from the 06:30 reconcile whenever a
-  // member actually leaves, so any midweek departure could silence Friday's
+  // member actually leaves, so any midweek departure could silence the week's
   // crown (owner, 2026-08-09).
   const openWeekEnd = digestWeekEndFor(nowMs);
 
   const weekMap = new Map<string, Map<string, number>>();
-  // A match counts towards the digest window it was PLAYED IN — Fri 19:00 Kyiv
-  // → Fri 19:00 Kyiv — not towards its ISO Mon–Sun calendar week. Bucketing by
+  // A match counts towards the digest window it was PLAYED IN — digest to
+  // digest (Sun 19:00 Kyiv; Fri before 2026-10-02, see `lib/kyiv-week.ts`) —
+  // not towards its ISO Mon–Sun calendar week. Bucketing by
   // `computeWeekIso(started_at)` moved every Friday-evening and weekend match
   // into the neighbouring row, so the rebuild and the tick summed different
   // matches under the same key: past weeks were rewritten with counts no digest
   // ever announced, and `getAllTimeMaxWeeklyValue` — the bar every future crown
-  // has to clear — was raised to values no Fri→Fri window ever produced.
+  // has to clear — was raised to values no digest window ever produced.
   let windowEnd = -Infinity;
   let windowIso = '';
   for (const row of allRows) {
