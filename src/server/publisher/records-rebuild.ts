@@ -15,7 +15,7 @@
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
 
-import { asc, desc, isNotNull, and } from 'drizzle-orm';
+import { asc, desc, isNotNull, and, sql } from 'drizzle-orm';
 import { matchRecords } from '../db/schema/match_records.ts';
 import { allTimeRecords } from '../db/schema/all_time_records.ts';
 import { weeklyRecords } from '../db/schema/weekly_records.ts';
@@ -327,6 +327,35 @@ async function backfillLongestMatchRounds(db: AnyDb): Promise<void> {
   }).onConflictDoNothing();
 }
 
+/**
+ * 📊 Любимчик Riot — best single-match Riot performance score. The detector
+ * stores the score ROUNDED and takes the record on a strict `>` of that rounded
+ * value, so the rebuild ranks by the rounded score too: 300.4 must not
+ * dethrone an earlier 299.6 here when it could not have done so live. Rows
+ * scanned before #384 have no score and are skipped.
+ */
+async function backfillPerformanceScoreMatch(db: AnyDb): Promise<void> {
+  const rows = await db
+    .select()
+    .from(matchRecords)
+    .where(and(isNotNull(matchRecords.riot_puuid), isNotNull(matchRecords.performance_score)))
+    .orderBy(sql`ROUND(${matchRecords.performance_score}) DESC`, ...EARLIEST_ACHIEVEMENT_FIRST)
+    .limit(1);
+  if (rows.length === 0) return;
+  const top = rows[0]!;
+  if (top.performance_score == null || top.performance_score <= 0) return;
+  await db.insert(allTimeRecords).values({
+    record_type: 'performance_score_match',
+    weapon: '',
+    riot_puuid: top.riot_puuid!,
+    value: Math.round(top.performance_score),
+    match_id: top.match_id,
+    achieved_at: top.started_at,
+    prev_value: null,
+    prev_puuid: null,
+  }).onConflictDoNothing();
+}
+
 async function backfillWeeklyMvpRecords(db: AnyDb, nowMs: number): Promise<void> {
   const allRows = await db
     .select({
@@ -468,6 +497,7 @@ export async function rebuildAllRecords(db: AnyDb, nowMs: number = Date.now()): 
   await backfillSurvivedLastRoundsMatch(db);
   await backfillLongestMatchMinutes(db);
   await backfillLongestMatchRounds(db);
+  await backfillPerformanceScoreMatch(db);
   await backfillWeeklyMvpRecords(db, nowMs);
   await backfillKillsPerWeapon(db);
 }

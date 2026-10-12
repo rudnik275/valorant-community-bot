@@ -909,6 +909,174 @@ describe('buildDigest', () => {
     });
   });
 
+  describe('bright events — record_performance_score_match', () => {
+    it('renders record_performance_score_match in bright block', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Favourite', riotTag: 'FAV' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'perf-record-match', startedAt: IN_WINDOW, map: 'Lotus' });
+      seedEvent(sqlite, {
+        puuid: 'p1',
+        matchId: 'perf-record-match',
+        eventType: 'record_performance_score_match',
+        payload: { value: 355, prev_value: 300, prev_puuid: 'puuid-other' },
+        detectedAt: IN_WINDOW,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).toContain('record_performance_score_match');
+      expect(result.text).toContain('📊 <b>Любимчик Riot</b>');
+      expect(result.text).toContain('Favourite#FAV');
+      expect(result.text).toContain('355 очков');
+      // Per-match record ⇒ links the match it was set in.
+      expect(result.richHtml!).toContain('https://tracker.gg/valorant/match/perf-record-match');
+    });
+
+    it('does NOT render record_performance_score_match when no events in window', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Favourite', riotTag: 'FAV' });
+      seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW });
+      seedEvent(sqlite, {
+        puuid: 'p1',
+        eventType: 'record_performance_score_match',
+        payload: { value: 355, prev_value: null, prev_puuid: null },
+        detectedAt: OUT_OF_WINDOW,
+      });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).not.toContain('record_performance_score_match');
+      expect(result.text).not.toContain('Любимчик Riot');
+    });
+  });
+
+  describe('📊 Оценка Riot — weekly average performance score (#387)', () => {
+    /**
+     * Seed one match per score, IN the window, and stamp its Riot score.
+     * `null` leaves the match unscored (a row scanned before #384).
+     */
+    function seedScoredMatches(puuid: string, scores: Array<number | null>, startedAt = IN_WINDOW) {
+      scores.forEach((score, i) => {
+        const matchId = `perf-${puuid}-${startedAt}-${i}`;
+        seedMatch(sqlite, { puuid, matchId, startedAt: startedAt + i * 1000 });
+        sqlite
+          .prepare('UPDATE match_records SET performance_score = ? WHERE match_id = ? AND riot_puuid = ?')
+          .run(score, matchId, puuid);
+      });
+    }
+
+    /** The award block only — the text twin's section from its header to the next section. */
+    function performanceBlock(text: string | null): string {
+      const at = text!.indexOf('📊 <b>Оценка Riot</b>');
+      if (at === -1) return '';
+      return text!.slice(at).split('\n\n').slice(0, 2).join('\n\n');
+    }
+
+    it('names the best (🏅) and worst (🥔) weekly average, rounded, with match counts', async () => {
+      seedUser(sqlite, 1, 'p-carry', { riotName: 'Carry', riotTag: 'CRY' });
+      seedUser(sqlite, 2, 'p-mid', { riotName: 'Mid', riotTag: 'MID' });
+      seedUser(sqlite, 3, 'p-potato', { riotName: 'Potato', riotTag: 'PTT' });
+      seedScoredMatches('p-carry', [270, 280, 290, 300, 284.4, 280]);   // avg 284.07
+      seedScoredMatches('p-mid', [240, 240, 240, 240, 240]);
+      seedScoredMatches('p-potato', [180, 200, 190, 185, 195.2]);        // avg 190.04
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).toContain('performance');
+      expect(performanceBlock(result.text)).toBe(
+        '📊 <b>Оценка Riot</b>\n\n' +
+          '🏅 <b>Carry#CRY</b> · 284 в среднем за 6 матчей\n' +
+          '🥔 <b>Potato#PTT</b> · 190 в среднем за 5 матчей',
+      );
+      expect(result.richHtml!).toContain('🏅 <b>Carry#CRY</b> · 284 в среднем за 6 матчей');
+    });
+
+    it('needs ≥5 SCORED matches — unscored matches do not count towards the bar', async () => {
+      seedUser(sqlite, 1, 'p-few', { riotName: 'FewScored', riotTag: 'FEW' });
+      seedUser(sqlite, 2, 'p-ok', { riotName: 'Enough', riotTag: 'OK' });
+      // 6 matches, but only 4 carry a score ⇒ not eligible despite the top average.
+      seedScoredMatches('p-few', [350, 350, 350, 350, null, null]);
+      seedScoredMatches('p-ok', [250, 250, 250, 250, 250]);
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      const block = performanceBlock(result.text);
+      expect(block).not.toContain('FewScored');
+      expect(block).toContain('🏅 <b>Enough#OK</b> · 250 в среднем за 5 матчей');
+    });
+
+    it('a single qualifying player gets 🏅 only — never the 🥔 as well', async () => {
+      seedUser(sqlite, 1, 'p-solo', { riotName: 'Solo', riotTag: 'SOL' });
+      seedUser(sqlite, 2, 'p-casual', { riotName: 'Casual', riotTag: 'CAS' });
+      seedScoredMatches('p-solo', [260, 260, 260, 260, 260]);
+      seedScoredMatches('p-casual', [150, 150]);
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      const block = performanceBlock(result.text);
+      expect(block).toContain('🏅 <b>Solo#SOL</b> · 260 в среднем за 5 матчей');
+      expect(block).not.toContain('🥔');
+      expect(block).not.toContain('Casual');
+    });
+
+    it('ignores null scores in the average and the count', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Mixed', riotTag: 'MIX' });
+      seedUser(sqlite, 2, 'p2', { riotName: 'Steady', riotTag: 'STD' });
+      // Three unscored rows must neither drag the average to 187 nor raise the count to 8.
+      seedScoredMatches('p1', [300, 300, 300, 300, 300, null, null, null]);
+      seedScoredMatches('p2', [220, 220, 220, 220, 220]);
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      const block = performanceBlock(result.text);
+      expect(block).toContain('🏅 <b>Mixed#MIX</b> · 300 в среднем за 5 матчей');
+      expect(block).toContain('🥔 <b>Steady#STD</b> · 220 в среднем за 5 матчей');
+    });
+
+    it('counts only matches inside the window', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'InWeek', riotTag: 'IN' });
+      seedScoredMatches('p1', [200, 200, 200, 200, 200]);
+      // Last week's stellar games must not lift this week's average.
+      seedScoredMatches('p1', [400, 400, 400, 400, 400], OUT_OF_WINDOW);
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(performanceBlock(result.text)).toContain('🏅 <b>InWeek#IN</b> · 200 в среднем за 5 матчей');
+    });
+
+    it('skips an opted-out player — the next one up takes the medal', async () => {
+      seedUser(sqlite, 1, 'p-hidden', { riotName: 'Hidden', riotTag: 'HID' });
+      seedUser(sqlite, 2, 'p-best', { riotName: 'Visible', riotTag: 'VIS' });
+      seedUser(sqlite, 3, 'p-worst', { riotName: 'Lowest', riotTag: 'LOW' });
+      seedOptOut(sqlite, 1, 1);
+      seedScoredMatches('p-hidden', [340, 340, 340, 340, 340]);
+      seedScoredMatches('p-best', [280, 280, 280, 280, 280]);
+      seedScoredMatches('p-worst', [170, 170, 170, 170, 170]);
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      const block = performanceBlock(result.text);
+      expect(result.text).not.toContain('Hidden');
+      expect(block).toContain('🏅 <b>Visible#VIS</b> · 280');
+      expect(block).toContain('🥔 <b>Lowest#LOW</b> · 170');
+    });
+
+    it('names everyone tied on the rounded average', async () => {
+      seedUser(sqlite, 1, 'p-a', { riotName: 'Ann', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'p-z', { riotName: 'Zed', riotTag: 'ZZZ' });
+      seedUser(sqlite, 3, 'p-low', { riotName: 'Low', riotTag: 'LOW' });
+      // 270.2 and 269.8 both read «270» — the medal is shared, each keeps their own count.
+      seedScoredMatches('p-a', [270.2, 270.2, 270.2, 270.2, 270.2]);
+      seedScoredMatches('p-z', [269.8, 269.8, 269.8, 269.8, 269.8, 269.8, 269.8]);
+      seedScoredMatches('p-low', [200, 200, 200, 200, 200]);
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      const block = performanceBlock(result.text);
+      expect(block).toContain('🏅 <b>Ann#AAA</b> · 270 в среднем за 5 матчей');
+      expect(block).toContain('🏅 <b>Zed#ZZZ</b> · 270 в среднем за 7 матчей');
+      expect(block).toContain('🥔 <b>Low#LOW</b> · 200 в среднем за 5 матчей');
+    });
+
+    it('omits the section when nobody has 5 scored matches (e.g. all pre-#384 rows)', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'OldRows', riotTag: 'OLD' });
+      seedScoredMatches('p1', [null, null, null, null, null, null]);
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).not.toContain('performance');
+      expect(result.text).not.toContain('Оценка Riot');
+    });
+  });
+
   describe('removed sections', () => {
     it('does not include bestKDMatch section', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'Player1', riotTag: 'P1' });
@@ -1066,6 +1234,42 @@ describe('buildDigest', () => {
       const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
       expect(result.sectionsIncluded).not.toContain('nearMiss');
       expect(result.text).not.toContain('близко к рекорду');
+    });
+
+    it('near-miss for performance_score compares the ROUNDED week-best with the record', async () => {
+      seedUser(sqlite, 99, 'p-holder', { riotName: 'Holder', riotTag: 'HLD' });
+      seedAllTimeRecord(sqlite, { recordType: 'performance_score_match', value: 340, puuid: 'p-holder', matchId: 'old-perf' });
+
+      seedUser(sqlite, 1, 'p1', { riotName: 'AlmostFav', riotTag: 'FAV' });
+      seedUser(sqlite, 2, 'p2', { riotName: 'Unscored', riotTag: 'UNS' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'perf-near', startedAt: IN_WINDOW });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'perf-low', startedAt: IN_WINDOW + 1000 });
+      seedMatch(sqlite, { puuid: 'p2', matchId: 'perf-null', startedAt: IN_WINDOW + 2000 });
+      const setScore = sqlite.prepare('UPDATE match_records SET performance_score = ? WHERE match_id = ? AND riot_puuid = ?');
+      setScore.run(333.6, 'perf-near', 'p1'); // rounds to 334 — within 10 of 340
+      setScore.run(250.1, 'perf-low', 'p1');
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).toContain('nearMiss');
+      expect(result.text).toContain('📊 <u>Был(ла) близко к рекорду по оценке Riot</u>');
+      expect(result.text).toContain('<b>AlmostFav#FAV</b>');
+      expect(result.text).toContain(' · 334 очков · ');
+      // The week-best match is the one linked.
+      expect(result.richHtml!).toContain('https://tracker.gg/valorant/match/perf-near');
+      expect(result.text).not.toContain('Unscored');
+    });
+
+    it('no performance near-miss beyond the threshold of 10', async () => {
+      seedUser(sqlite, 99, 'p-holder', { riotName: 'Holder', riotTag: 'HLD' });
+      seedAllTimeRecord(sqlite, { recordType: 'performance_score_match', value: 340, puuid: 'p-holder', matchId: 'old-perf' });
+      seedUser(sqlite, 1, 'p1', { riotName: 'FarFav', riotTag: 'FAR' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'perf-far', startedAt: IN_WINDOW });
+      sqlite
+        .prepare('UPDATE match_records SET performance_score = ? WHERE match_id = ? AND riot_puuid = ?')
+        .run(329.4, 'perf-far', 'p1'); // rounds to 329 — 11 short
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.text).not.toContain('по оценке Riot');
     });
 
     it('near-miss for damage_dealt renders with correct emoji and unit', async () => {
