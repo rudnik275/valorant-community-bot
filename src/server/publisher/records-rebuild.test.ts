@@ -267,63 +267,6 @@ describe('records-rebuild', () => {
     expect(anchor.value).toBe(7);
   });
 
-  describe('📊 Любимчик Riot — performance_score_match', () => {
-    function seedScored(puuid: string, matchId: string, startedAt: number, score: number | null) {
-      sqlite
-        .prepare(`INSERT INTO match_records (riot_puuid, match_id, started_at, map, agent, kills, deaths, assists, result, rounds_played, performance_score, kill_events_compact) VALUES (?, ?, ?, 'Ascent', 'Jett', 15, 10, 3, 'win', 22, ?, '[]')`)
-        .run(puuid, matchId, startedAt, score);
-    }
-
-    it('restores the best score, rounded, with its match', async () => {
-      sqlite.exec(`INSERT INTO users (telegram_id, riot_puuid, riot_name, riot_tag) VALUES (1, 'puuid-carry', 'Carry', 'CRY'), (2, 'puuid-mid', 'Mid', 'MID')`);
-      seedScored('puuid-mid', 'match-mid', 1000, 241.3);
-      seedScored('puuid-carry', 'match-carry', 1001, 354.6);
-
-      await rebuildAllRecords(db);
-
-      const rec = sqlite.prepare(`SELECT * FROM all_time_records WHERE record_type='performance_score_match'`).get() as { riot_puuid: string; value: number; match_id: string };
-      expect(rec.riot_puuid).toBe('puuid-carry');
-      expect(rec.value).toBe(355);
-      expect(rec.match_id).toBe('match-carry');
-    });
-
-    it('re-attributes to the best remaining player after a purge', async () => {
-      sqlite.exec(`INSERT INTO users (telegram_id, riot_puuid, riot_name, riot_tag) VALUES (1, 'puuid-gone', 'Gone', 'GN'), (2, 'puuid-here', 'Here', 'HR')`);
-      seedScored('puuid-gone', 'match-gone', 1000, 340);
-      seedScored('puuid-here', 'match-here', 1001, 280.2);
-
-      await purgePlayer(db, { telegramId: 1, riotPuuid: 'puuid-gone' });
-      await rebuildAllRecords(db);
-
-      const rec = sqlite.prepare(`SELECT * FROM all_time_records WHERE record_type='performance_score_match'`).get() as { riot_puuid: string; value: number };
-      expect(rec.riot_puuid).toBe('puuid-here');
-      expect(rec.value).toBe(280);
-    });
-
-    it('a tie on the rounded score stays with the earlier match, as it would live', async () => {
-      // 300.4 and 299.6 both round to 300 — live, the later one could not beat
-      // the earlier on a strict `>`, so neither may the rebuild.
-      sqlite.exec(`INSERT INTO users (telegram_id, riot_puuid, riot_name, riot_tag) VALUES (1, 'puuid-early', 'Early', 'EA'), (2, 'puuid-late', 'Late', 'LA')`);
-      seedScored('puuid-early', 'match-early', 1000, 299.6);
-      seedScored('puuid-late', 'match-late', 2000, 300.4);
-
-      await rebuildAllRecords(db);
-
-      const rec = sqlite.prepare(`SELECT * FROM all_time_records WHERE record_type='performance_score_match'`).get() as { riot_puuid: string; value: number };
-      expect(rec.riot_puuid).toBe('puuid-early');
-      expect(rec.value).toBe(300);
-    });
-
-    it('no scored matches (all pre-#384) → no record row', async () => {
-      sqlite.exec(`INSERT INTO users (telegram_id, riot_puuid, riot_name, riot_tag) VALUES (1, 'puuid-old', 'Old', 'OLD')`);
-      seedScored('puuid-old', 'match-old', 1000, null);
-
-      await rebuildAllRecords(db);
-
-      expect(sqlite.prepare(`SELECT * FROM all_time_records WHERE record_type='performance_score_match'`).get()).toBeUndefined();
-    });
-  });
-
   describe('weekly MVP — the rebuild must not contest the week the Friday tick owns', () => {
     // Fri 2026-08-07 19:00 Kyiv = 16:00 UTC. The window ending there opens on
     // Fri 2026-07-31 19:00 Kyiv.

@@ -296,6 +296,12 @@ describe('getMatches', () => {
       team: 'Red',
     });
     expect(match!.players[0]!.performance?.score).toBeCloseTo(282.363, 3);
+    // #394: the post-match grade and per-category arrows.
+    expect(match!.players[0]!.performance?.ratings).toMatchObject({
+      grade: 'pass',
+      combat: { damage: 'neutral', death_impact: 'down', kill_impact: 'double_up', trades: 'down' },
+      utility: { assists: 'down', defuses: 'neutral', plants: 'neutral', utility_usage: 'double_up' },
+    });
     const round = match!.rounds[0]!;
     expect(round.ceremony).toBe('CeremonyAce');
     expect(round.first_blood).toMatchObject({ puuid: '26f40503-6b6d-576c-a32d-9fcb8f081042', team: 'Red' });
@@ -323,13 +329,31 @@ describe('getMatches', () => {
     const nulled = HenrikMatchV4Schema.parse({
       ...base,
       metadata: { ...base['metadata'], mvp: null },
-      players: [{ ...base['players'][0], performance: { score: null } }],
+      players: [{ ...base['players'][0], performance: { score: null, ratings: null } }],
       rounds: [{ ...base['rounds'][0], first_blood: null, ceremony_player: null }],
     });
     expect(nulled.metadata.mvp).toBeNull();
     expect(nulled.players[0]!.performance?.score).toBeNull();
+    expect(nulled.players[0]!.performance?.ratings).toBeNull();
     expect(nulled.rounds[0]!.first_blood).toBeNull();
     expect(nulled.rounds[0]!.ceremony_player).toBeNull();
+  });
+
+  it('parses partial performance.ratings: grade only, a null arrow, an unknown grade (#394)', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const base = (matchFixture as { data: Array<Record<string, any>> }).data[0]!;
+    const parsed = HenrikMatchV4Schema.parse({
+      ...base,
+      players: [{
+        ...base['players'][0],
+        performance: { score: 300, ratings: { grade: 'distinction', combat: { damage: null } } },
+      }],
+    });
+    expect(parsed.players[0]!.performance?.ratings).toMatchObject({
+      grade: 'distinction',
+      combat: { damage: null },
+    });
+    expect(parsed.players[0]!.performance?.ratings?.utility).toBeUndefined();
   });
 
   it('drops a single malformed match and returns the survivors instead of failing the whole batch', async () => {

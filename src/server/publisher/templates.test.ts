@@ -26,7 +26,6 @@ const ALL_EVENT_TYPES: EventType[] = [
   'record_longest_match_minutes',
   'record_survived_last_rounds',
   'record_died_first_rounds',
-  'record_performance_score_match',
 ];
 
 const safeUser = {
@@ -62,7 +61,6 @@ const minimalPayloads: Record<EventType, Record<string, unknown>> = {
   record_longest_match_minutes: { value: 45, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '', community_players: [], rounds: 24, result: 'win' },
   record_survived_last_rounds: { value: 4, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '' },
   record_died_first_rounds: { value: 4, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '' },
-  record_performance_score_match: { value: 355, prev_value: null, prev_puuid: null, prev_name: '', prev_tag: '' },
 };
 
 describe('esc()', () => {

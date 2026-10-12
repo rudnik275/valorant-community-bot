@@ -67,10 +67,6 @@ function fullModel(overrides: Partial<RichDigestModel> = {}): RichDigestModel {
         value: '29 фрагов',
       },
     ],
-    performance: {
-      best: { players: [{ nameHtml: '<b>Carry#CRY</b>', matches: 12 }], avg: 284 },
-      worst: { players: [{ nameHtml: '<b>Potato#PTT</b>', matches: 7 }], avg: 190 },
-    },
     mostActive: { namesHtml: ['<b>Alpha#AAA</b>'], count: 7 },
     topMaps: [
       { emojiHtml: '<tg-emoji emoji-id="5267510877233387981">🗺️</tg-emoji>', map: 'Ascent', count: 12 },
@@ -99,7 +95,6 @@ function emptyModel(overrides: Partial<RichDigestModel> = {}): RichDigestModel {
     weaponMasters: [],
     firstBlood: null,
     nearMisses: [],
-    performance: null,
     mostActive: null,
     topMaps: [],
     topAgents: [],
@@ -688,7 +683,6 @@ describe('renderDigest — section order', () => {
       'RR недели',
       'Серийный маньяк',               // рекорды
       'Был(ла) близко к рекорду',      // почти рекорды
-      'Оценка Riot',
       'Повышение по службе',
       'Мастера своего дела',
       'Открывашка недели',
@@ -822,7 +816,6 @@ describe('renderDigest — the text twin', () => {
       'RR недели',
       'Мастера своего дела',
       'Открывашка недели',
-      'Оценка Riot',
       'Повышение по службе',
       'Больше всех матчей',
       'Серийный маньяк',
@@ -833,70 +826,12 @@ describe('renderDigest — the text twin', () => {
   });
 });
 
-describe('renderDigest — 📊 Оценка Riot', () => {
-  it('renders 🏅 best and 🥔 worst averages under one header', () => {
-    const { html, text } = renderDigest(fullModel());
-    expect(html).toContain(
-      '📊 <b>Оценка Riot</b><br><br>' +
-        '🏅 <b>Carry#CRY</b> · 284 в среднем за 12 матчей<br>' +
-        '🥔 <b>Potato#PTT</b> · 190 в среднем за 7 матчей',
-    );
-    expect(text).toContain(
-      '📊 <b>Оценка Riot</b>\n\n' +
-        '🏅 <b>Carry#CRY</b> · 284 в среднем за 12 матчей\n' +
-        '🥔 <b>Potato#PTT</b> · 190 в среднем за 7 матчей',
-    );
-  });
-
-  it('pluralises the match count', () => {
-    const { html } = renderDigest(fullModel({
-      performance: {
-        best: { players: [{ nameHtml: '<b>A#A</b>', matches: 21 }], avg: 250 },
-        worst: { players: [{ nameHtml: '<b>B#B</b>', matches: 22 }], avg: 200 },
-      },
-    }));
-    expect(html).toContain('<b>A#A</b> · 250 в среднем за 21 матч<br>');
-    expect(html).toContain('<b>B#B</b> · 200 в среднем за 22 матча');
-  });
-
-  it('names every tied player, each with their own match count', () => {
-    const { html } = renderDigest(fullModel({
-      performance: {
-        best: {
-          players: [{ nameHtml: '<b>One#ONE</b>', matches: 5 }, { nameHtml: '<b>Two#TWO</b>', matches: 9 }],
-          avg: 270,
-        },
-        worst: null,
-      },
-    }));
-    expect(html).toContain('🏅 <b>One#ONE</b> · 270 в среднем за 5 матчей');
-    expect(html).toContain('🏅 <b>Two#TWO</b> · 270 в среднем за 9 матчей');
-    expect(html.match(/Оценка Riot/g)).toHaveLength(1);
-  });
-
-  it('omits the 🥔 line when worst is null', () => {
-    const { html } = renderDigest(fullModel({
-      performance: { best: { players: [{ nameHtml: '<b>Carry#CRY</b>', matches: 12 }], avg: 284 }, worst: null },
-    }));
-    expect(html).toContain('🏅 <b>Carry#CRY</b> · 284 в среднем за 12 матчей');
-    expect(html).not.toContain('🥔');
-  });
-
-  it('omits the section when performance is null or both sides are null', () => {
-    for (const performance of [null, { best: null, worst: null }]) {
-      const { html, text } = renderDigest(fullModel({ performance }));
-      expect(html).not.toContain('Оценка Riot');
-      expect(text).not.toContain('Оценка Riot');
-    }
-  });
-});
-
 describe('renderDigest — empty sections', () => {
   it('renders just the pulse line when nothing else qualifies', () => {
     const { html, text } = renderDigest(emptyModel());
     expect(html).toContain('📊 За неделю мы сыграли <b>3</b> матчей');
     expect(text).toContain('📊 За неделю мы сыграли <b>3</b> матчей');
-    for (const header of ['Эйсы недели', 'Ножи недели', 'Клатчи недели', 'Мастера своего дела', 'Открывашка недели', 'Оценка Riot', 'Больше всех матчей', 'RR недели']) {
+    for (const header of ['Эйсы недели', 'Ножи недели', 'Клатчи недели', 'Мастера своего дела', 'Открывашка недели', 'Больше всех матчей', 'RR недели']) {
       expect(html).not.toContain(header);
     }
   });

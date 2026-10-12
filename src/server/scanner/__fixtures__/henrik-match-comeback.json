@@ -23,7 +23,7 @@
       "performance": {
         "score": 282.3630389723281,
         "breakdown": { "damage": 157.5, "trades": 0.09, "assists": 0.13, "utility_usage": 2.13, "plants": null, "defuses": null, "adjusted_kills": 0.99, "adjusted_deaths": -0.77 },
-        "ratings": { "grade": "pass", "combat": {}, "utility": {} }
+        "ratings": { "grade": "pass", "combat": {"damage": "neutral", "death_impact": "down", "kill_impact": "double_up", "trades": "down"}, "utility": {"assists": "down", "defuses": "neutral", "plants": "neutral", "utility_usage": "double_up"} }
       }
     },
     {
@@ -35,7 +35,7 @@
       "agent": { "id": "xxx", "name": "Sage" },
       "tier": { "id": 18, "name": "Diamond 1" },
       "stats": { "kills": 10, "deaths": 12, "assists": 8, "score": 2600 },
-      "performance": { "score": 168.4 }
+      "performance": { "score": 168.4, "ratings": { "grade": "pass", "combat": {"damage": "neutral", "death_impact": "down", "kill_impact": "double_up", "trades": "down"}, "utility": {"assists": "down", "defuses": "neutral", "plants": "neutral", "utility_usage": "double_up"} } }
     },
     {
       "puuid": "ally-2",
@@ -46,7 +46,7 @@
       "agent": { "id": "xxx", "name": "Sova" },
       "tier": { "id": 19, "name": "Diamond 2" },
       "stats": { "kills": 14, "deaths": 13, "assists": 6, "score": 3500 },
-      "performance": { "score": 221.7 }
+      "performance": { "score": 221.7, "ratings": { "grade": "pass", "combat": {"damage": "neutral", "death_impact": "down", "kill_impact": "double_up", "trades": "down"}, "utility": {"assists": "down", "defuses": "neutral", "plants": "neutral", "utility_usage": "double_up"} } }
     },
     {
       "puuid": "ally-3",
@@ -57,7 +57,7 @@
       "agent": { "id": "xxx", "name": "Killjoy" },
       "tier": { "id": 17, "name": "Platinum 3" },
       "stats": { "kills": 11, "deaths": 11, "assists": 9, "score": 2900 },
-      "performance": { "score": 190.2 }
+      "performance": { "score": 190.2, "ratings": { "grade": "pass", "combat": {"damage": "neutral", "death_impact": "down", "kill_impact": "double_up", "trades": "down"}, "utility": {"assists": "down", "defuses": "neutral", "plants": "neutral", "utility_usage": "double_up"} } }
     },
     {
       "puuid": "ally-4",
@@ -68,7 +68,7 @@
       "agent": { "id": "xxx", "name": "Omen" },
       "tier": { "id": 18, "name": "Diamond 1" },
       "stats": { "kills": 9, "deaths": 14, "assists": 7, "score": 2400 },
-      "performance": { "score": 154.9 }
+      "performance": { "score": 154.9, "ratings": { "grade": "pass", "combat": {"damage": "neutral", "death_impact": "down", "kill_impact": "double_up", "trades": "down"}, "utility": {"assists": "down", "defuses": "neutral", "plants": "neutral", "utility_usage": "double_up"} } }
     },
     {
       "puuid": "enemy-1",
@@ -79,7 +79,7 @@
       "agent": { "id": "xxx", "name": "Reyna" },
       "tier": { "id": 18, "name": "Diamond 1" },
       "stats": { "kills": 16, "deaths": 18, "assists": 2, "score": 4100 },
-      "performance": { "score": 236.1 }
+      "performance": { "score": 236.1, "ratings": { "grade": "merit", "combat": {"damage": "neutral", "death_impact": "down", "kill_impact": "double_up", "trades": "down"}, "utility": {"assists": "down", "defuses": "neutral", "plants": "neutral", "utility_usage": "double_up"} } }
     },
     {
       "puuid": "enemy-2",
@@ -90,7 +90,7 @@
       "agent": { "id": "xxx", "name": "Phoenix" },
       "tier": { "id": 19, "name": "Diamond 2" },
       "stats": { "kills": 13, "deaths": 15, "assists": 5, "score": 3300 },
-      "performance": { "score": 201.5 }
+      "performance": { "score": 201.5, "ratings": { "grade": "pass", "combat": {"damage": "neutral", "death_impact": "down", "kill_impact": "double_up", "trades": "down"}, "utility": {"assists": "down", "defuses": "neutral", "plants": "neutral", "utility_usage": "double_up"} } }
     },
     {
       "puuid": "enemy-3",
@@ -101,7 +101,7 @@
       "agent": { "id": "xxx", "name": "Breach" },
       "tier": { "id": 20, "name": "Diamond 3" },
       "stats": { "kills": 11, "deaths": 16, "assists": 8, "score": 2800 },
-      "performance": { "score": 177.3 }
+      "performance": { "score": 177.3, "ratings": { "grade": "pass", "combat": {"damage": "neutral", "death_impact": "down", "kill_impact": "double_up", "trades": "down"}, "utility": {"assists": "down", "defuses": "neutral", "plants": "neutral", "utility_usage": "double_up"} } }
     },
     {
       "puuid": "enemy-4",
@@ -112,7 +112,7 @@
       "agent": { "id": "xxx", "name": "Viper" },
       "tier": { "id": 17, "name": "Platinum 3" },
       "stats": { "kills": 9, "deaths": 19, "assists": 4, "score": 2200 },
-      "performance": { "score": 149.8 }
+      "performance": { "score": 149.8, "ratings": { "grade": "pass", "combat": {"damage": "neutral", "death_impact": "down", "kill_impact": "double_up", "trades": "down"}, "utility": {"assists": "down", "defuses": "neutral", "plants": "neutral", "utility_usage": "double_up"} } }
     },
     {
       "puuid": "enemy-5",
@@ -123,7 +123,7 @@
       "agent": { "id": "xxx", "name": "Cypher" },
       "tier": { "id": 18, "name": "Diamond 1" },
       "stats": { "kills": 7, "deaths": 20, "assists": 10, "score": 1900 },
-      "performance": { "score": 131.6 }
+      "performance": { "score": 131.6, "ratings": { "grade": "pass", "combat": {"damage": "neutral", "death_impact": "down", "kill_impact": "double_up", "trades": "down"}, "utility": {"assists": "down", "defuses": "neutral", "plants": "neutral", "utility_usage": "double_up"} } }
     }
   ],
   "teams": [

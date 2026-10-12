@@ -365,10 +365,17 @@ const PlayerV4Schema = z.object({
     title: z.string().nullish(),
     preferred_level_border: z.string().nullish(),
   }).passthrough().optional(),
-  // Henrik v4.10: Riot's per-player performance rating. Only `score` is typed;
-  // `ratings.grade` is deliberately not modelled — 9/10 players get "pass".
+  // Henrik v4.10: Riot's per-player post-match performance — the number, grade
+  // and per-category arrows the game shows after a match. Stored verbatim
+  // (#384 score, #394 grade + ratings); the grade vocabulary is open
+  // (`pass`, `merit` seen), so it stays a plain string.
   performance: z.object({
     score: z.number().nullable().optional(),
+    ratings: z.object({
+      grade: z.string().nullish(),
+      combat: z.record(z.string(), z.string().nullable()).nullish(),
+      utility: z.record(z.string(), z.string().nullable()).nullish(),
+    }).passthrough().nullish(),
   }).passthrough().nullish(),
 }).passthrough();
 

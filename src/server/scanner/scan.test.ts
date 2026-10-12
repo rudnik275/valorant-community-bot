@@ -623,6 +623,32 @@ describe('scanForPuuid', () => {
     mmrSpy.mockRestore();
   });
 
+  // ── Riot post-match performance (#384 score, #394 grade + ratings) ──────────
+
+  it('stores Riot\'s post-match score, grade and per-category arrows on the row', async () => {
+    seedUser();
+    const ratings = {
+      grade: 'merit',
+      combat: { damage: 'neutral', death_impact: 'down', kill_impact: 'double_up', trades: 'down' },
+      utility: { assists: 'down', defuses: 'neutral', plants: 'neutral', utility_usage: 'double_up' },
+    };
+    const match = makeFakeMatchResponse('perf-match').data[0]!;
+    const [target, ...rest] = match.players;
+    const withPerf = { ...match, players: [{ ...target!, performance: { score: 301.2, ratings } }, ...rest] };
+    fetchMock.mockImplementation(async () =>
+      new Response(JSON.stringify({ status: 200, data: [withPerf] }), { status: 200 }),
+    );
+
+    await scanForPuuid(db, TARGET_PUUID, { detection: false });
+
+    const row = sqlite
+      .prepare('SELECT performance_score, performance_grade, performance_ratings FROM match_records WHERE riot_puuid = ? AND match_id = ?')
+      .get(TARGET_PUUID, 'perf-match') as { performance_score: number | null; performance_grade: string | null; performance_ratings: string | null };
+    expect(row.performance_score).toBeCloseTo(301.2, 5);
+    expect(row.performance_grade).toBe('merit');
+    expect(JSON.parse(row.performance_ratings!)).toEqual({ combat: ratings.combat, utility: ratings.utility });
+  });
+
   // ── Lazy region backfill ────────────────────────────────────────────────────
 
   it('backfills riot_region when null by calling getAccountByPuuid', async () => {
