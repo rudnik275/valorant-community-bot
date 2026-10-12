@@ -52,3 +52,14 @@ of our own computation — fewer points of failure.
 - The scan now reads five more Henrik fields, all `nullish` in the zod
   schemas: if Henrik drops them, the MVP falls back to the heuristic and the
   rest stay null — ingestion never fails on their account.
+
+## 2026-10-12 — performance score: award withdrawn, grade and ratings stored
+
+The digest award «📊 Оценка Riot» and the all-time record «📊 Любимчик Riot»
+built on `performance_score` (#387) were withdrawn the same day (#394): a bare
+weekly average («284 в среднем») was unreadable to the group. The data stays
+and is extended — reversing the "grade is not stored" call above, the scan now
+also keeps `ratings.grade` verbatim in `match_records.performance_grade` and
+the per-category arrows (`ratings.combat` / `ratings.utility`) as JSON in
+`performance_ratings`, going forward only. How to present them is tracked in
+#395.

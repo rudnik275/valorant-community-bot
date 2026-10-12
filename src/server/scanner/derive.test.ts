@@ -488,6 +488,58 @@ describe('performance_score derivation', () => {
   });
 });
 
+describe('performance_grade / performance_ratings derivation (#394)', () => {
+  const RATINGS = {
+    combat: { damage: 'neutral', death_impact: 'down', kill_impact: 'double_up', trades: 'down' },
+    utility: { assists: 'down', defuses: 'neutral', plants: 'neutral', utility_usage: 'double_up' },
+  };
+
+  /** v4Fixture with the target player's `performance` replaced. */
+  function withPerformance(performance: unknown): HenrikMatchV4 {
+    const base = v4Fixture as HenrikMatchV4;
+    return {
+      ...base,
+      players: [{ ...base.players[0]!, performance } as HenrikMatchV4['players'][number], ...base.players.slice(1)],
+    } as HenrikMatchV4;
+  }
+
+  it('stores Riot\'s grade and per-category arrows verbatim', () => {
+    const match = comebackFixture as HenrikMatchV4;
+    const target = deriveMatchRecord(match, TARGET_PUUID)!;
+    expect(target.performance_grade).toBe('pass');
+    expect(JSON.parse(target.performance_ratings!)).toEqual(RATINGS);
+    expect(deriveMatchRecord(match, 'enemy-1')!.performance_grade).toBe('merit');
+  });
+
+  it('is null when Henrik omits performance (pre-v4.10 match)', () => {
+    const record = deriveMatchRecord(v4Fixture as HenrikMatchV4, TARGET_PUUID)!;
+    expect(record.performance_grade).toBeNull();
+    expect(record.performance_ratings).toBeNull();
+  });
+
+  it('is null when performance carries a score but no ratings', () => {
+    const record = deriveMatchRecord(withPerformance({ score: 250 }), TARGET_PUUID)!;
+    expect(record.performance_score).toBe(250);
+    expect(record.performance_grade).toBeNull();
+    expect(record.performance_ratings).toBeNull();
+  });
+
+  it('keeps the grade but stores no arrows when both groups are absent', () => {
+    const record = deriveMatchRecord(withPerformance({ score: 250, ratings: { grade: 'merit' } }), TARGET_PUUID)!;
+    expect(record.performance_grade).toBe('merit');
+    expect(record.performance_ratings).toBeNull();
+  });
+
+  it('stores one group with the other as null when Henrik sends only one', () => {
+    const record = deriveMatchRecord(
+      withPerformance({ score: 250, ratings: { grade: null, combat: RATINGS.combat } }),
+      TARGET_PUUID,
+    )!;
+    expect(record.performance_grade).toBeNull();
+    expect(JSON.parse(record.performance_ratings!)).toEqual({ combat: RATINGS.combat, utility: null });
+  });
+});
+
 describe('rounds_compact derivation', () => {
   it('extracts rounds_compact from match.rounds[] in comeback fixture', () => {
     const record = deriveMatchRecord(comebackFixture as HenrikMatchV4, TARGET_PUUID);

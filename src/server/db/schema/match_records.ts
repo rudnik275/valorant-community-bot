@@ -45,6 +45,13 @@ export const matchRecords = sqliteTable(
     // Riot's per-player performance score (`players[].performance.score`,
     // Henrik v4.10). Null on rows written before the deploy (#384).
     performance_score: real('performance_score'),
+    // Riot's post-match grade (`players[].performance.ratings.grade`) verbatim —
+    // `pass`, `merit`, … (open vocabulary). Null on rows written before #394.
+    performance_grade: text('performance_grade'),
+    // Riot's per-category arrows as JSON, verbatim:
+    // `{"combat":{"damage":"neutral",…},"utility":{"assists":"down",…}}`.
+    // Null when Henrik sent neither group, and on rows written before #394.
+    performance_ratings: text('performance_ratings'),
     // RR gained/lost in this match (MMR v3 `latest_update.last_change`).
     // Same coverage as `rank_before`: newest match of the scan target only.
     rr_change: integer('rr_change'),

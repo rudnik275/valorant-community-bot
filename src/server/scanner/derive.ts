@@ -56,6 +56,13 @@ export interface MatchRecordInsert {
   died_first_rounds: number | null;
   /** Riot's `players[].performance.score` (Henrik v4.10); null when absent. */
   performance_score: number | null;
+  /** Riot's `players[].performance.ratings.grade` verbatim; null when absent. */
+  performance_grade: string | null;
+  /**
+   * JSON `{"combat":{…},"utility":{…}}` of Riot's per-category arrows, each
+   * group verbatim (null when Henrik omitted it); null when both are absent.
+   */
+  performance_ratings: string | null;
   /**
    * Always `null` out of derive — overlaid by `scan.ts` from MMR v3
    * `latest_update.last_change`, like {@link rank_before}.
@@ -420,6 +427,25 @@ export function deriveMatchRecord(match: HenrikMatchV4, puuid: string): MatchRec
     survived_last_rounds: calcSurvivedLastRounds(match, puuid, playerTeamId),
     died_first_rounds: calcDiedFirstRounds(match, puuid, playerTeamId),
     performance_score: player.performance?.score ?? null,
+    performance_grade: player.performance?.ratings?.grade ?? null,
+    performance_ratings: encodePerformanceRatings(player.performance?.ratings),
     rr_change: null,
   };
+}
+
+/**
+ * Riot's per-category arrows (`ratings.combat` / `ratings.utility`) as one
+ * JSON blob, verbatim. Null when Henrik sent neither group.
+ */
+function encodePerformanceRatings(
+  ratings:
+    | {
+        combat?: Record<string, string | null> | null | undefined;
+        utility?: Record<string, string | null> | null | undefined;
+      }
+    | null
+    | undefined,
+): string | null {
+  if (!ratings?.combat && !ratings?.utility) return null;
+  return JSON.stringify({ combat: ratings.combat ?? null, utility: ratings.utility ?? null });
 }

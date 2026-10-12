@@ -21,7 +21,7 @@
       "performance": {
         "score": 282.3630389723281,
         "breakdown": {"damage": 157.5, "trades": 0.09, "assists": 0.13, "utility_usage": 2.13, "plants": null, "defuses": null, "adjusted_kills": 0.99, "adjusted_deaths": -0.77},
-        "ratings": {"grade": "pass", "combat": {}, "utility": {}}
+        "ratings": {"grade": "pass", "combat": {"damage": "neutral", "death_impact": "down", "kill_impact": "double_up", "trades": "down"}, "utility": {"assists": "down", "defuses": "neutral", "plants": "neutral", "utility_usage": "double_up"}}
       }
     }],
     "teams": [{"team_id": "Red", "won": false, "rounds": {"won": 11, "lost": 13}}, {"team_id": "Blue", "won": true, "rounds": {"won": 13, "lost": 11}}],
