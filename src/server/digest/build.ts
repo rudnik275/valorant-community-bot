@@ -31,6 +31,7 @@ import { optOuts } from '../db/schema/opt_outs.ts';
 import { allTimeRecords } from '../db/schema/all_time_records.ts';
 import { computeAndEmitWeeklyMvpRecord } from './weekly-mvp-record.ts';
 import { computeWeekIso } from '../lib/kyiv-week.ts';
+import { decodeRounds } from '../lib/match-codec.ts';
 import { NEAR_MISS_THRESHOLDS } from './near-miss-config.ts';
 import type { TemplateUser, TemplateMatch } from '../publisher/templates.ts';
 import { renderPlayerName } from '../publisher/player-render.ts';
@@ -923,6 +924,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
 
   // ─── ALWAYS-SECTIONS ─────────────────────────────────────────────────────────
   let richMostActive: { namesHtml: string[]; count: number } | null = null;
+  let richFirstBlood: { namesHtml: string[]; count: number } | null = null;
   const richTopMaps: RichDigestModel['topMaps'] = [];
   const richTopAgents: RichDigestModel['topAgents'] = [];
 
@@ -973,6 +975,63 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
     if (leaders.length > 0) {
       richMostActive = { namesHtml: leaders, count: leaderCount };
       sectionsIncluded.push('mostActive');
+    }
+  }
+
+  // 🩸 Открывашка недели — most opening kills of the round (#386). Read off
+  // `rounds_compact[].fb` (Henrik v4.10 `rounds[].first_blood.puuid`): a
+  // member's first bloods in a match are the rounds where `fb` is their own
+  // puuid, so no team lookup is needed. Pre-v4.10 rows carry no `fb` and simply
+  // count 0. ≥3 to show; ties share the award, like «Больше всех матчей».
+  {
+    const optedOut = await getOptOutSet();
+
+    const rows = await db
+      .select({
+        riot_puuid: matchRecords.riot_puuid,
+        rounds_compact: matchRecords.rounds_compact,
+      })
+      .from(matchRecords)
+      .where(
+        and(
+          isNotNull(matchRecords.riot_puuid),
+          gte(matchRecords.started_at, weekStart),
+          lt(matchRecords.started_at, weekEnd),
+        ),
+      );
+
+    const tally = new Map<string, number>();
+    for (const row of rows as Array<{ riot_puuid: string; rounds_compact: string | null }>) {
+      const puuid = row.riot_puuid;
+      const n = decodeRounds(row.rounds_compact).filter((r) => r.fb === puuid).length;
+      if (n > 0) tally.set(puuid, (tally.get(puuid) ?? 0) + n);
+    }
+    // Desc by count, puuid as the deterministic tie-break.
+    const candidates = [...tally.entries()].sort(
+      (a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0),
+    );
+
+    const leaders: string[] = [];
+    let leaderCount = 0;
+    for (const [puuid, cnt] of candidates) {
+      if (cnt < 3) break;
+      if (leaders.length > 0 && cnt < leaderCount) break;
+
+      const user = await getUserByPuuid(puuid);
+      if (!user) continue;
+      if (optedOut.has(user.telegram_id)) continue;
+
+      leaders.push(renderPlayerName({
+        name: user.riot_name,
+        tag: user.riot_tag,
+        isCommunity: true,
+      }));
+      leaderCount = cnt;
+    }
+
+    if (leaders.length > 0) {
+      richFirstBlood = { namesHtml: leaders, count: leaderCount };
+      sectionsIncluded.push('firstBlood');
     }
   }
 
@@ -1047,6 +1106,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
     knives: richKnives,
     promotions: richPromotions,
     weaponMasters: richWeaponMasters,
+    firstBlood: richFirstBlood,
     nearMisses: richNearMisses,
     mostActive: richMostActive,
     topMaps: richTopMaps,

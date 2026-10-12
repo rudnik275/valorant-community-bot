@@ -50,6 +50,7 @@ function fullModel(overrides: Partial<RichDigestModel> = {}): RichDigestModel {
         playerHtml: '<b>Beta#BBB</b>',
       },
     ],
+    firstBlood: { namesHtml: ['<b>Opener#OPN</b>'], count: 14 },
     nearMisses: [
       {
         emoji: '💀',
@@ -82,6 +83,7 @@ function emptyModel(overrides: Partial<RichDigestModel> = {}): RichDigestModel {
     knives: [],
     promotions: [],
     weaponMasters: [],
+    firstBlood: null,
     nearMisses: [],
     mostActive: null,
     topMaps: [],
@@ -549,6 +551,41 @@ describe('renderDigest — «Больше всех матчей» ties', () => {
   });
 });
 
+describe('renderDigest — 🩸 Открывашка недели', () => {
+  it('renders the header and a nick · count line', () => {
+    const { html, text } = renderDigest(fullModel());
+    expect(html).toContain('🩸 <b>Открывашка недели</b>');
+    expect(html).toContain('<b>Opener#OPN</b> · 14 первых убийств');
+    expect(text).toContain('🩸 <b>Открывашка недели</b>\n\n<b>Opener#OPN</b> · 14 первых убийств');
+  });
+
+  it('lists every tied name under one header', () => {
+    const { html } = renderDigest(
+      fullModel({ firstBlood: { namesHtml: ['<b>Alpha#AAA</b>', '<b>Beta#BBB</b>'], count: 9 } }),
+    );
+    expect(html).toContain('<b>Alpha#AAA</b> · 9 первых убийств');
+    expect(html).toContain('<b>Beta#BBB</b> · 9 первых убийств');
+    expect(html.match(/🩸 <b>Открывашка недели<\/b>/g)).toHaveLength(1);
+  });
+
+  it('omits the section when null', () => {
+    const { html, text } = renderDigest(fullModel({ firstBlood: null }));
+    expect(html).not.toContain('Открывашка недели');
+    expect(text).not.toContain('Открывашка недели');
+  });
+
+  it.each([
+    [1, '1 первое убийство'],
+    [2, '2 первых убийства'],
+    [5, '5 первых убийств'],
+    [21, '21 первое убийство'],
+    [12, '12 первых убийств'],
+  ])('pluralises %i as «%s»', (count, expected) => {
+    const { html } = renderDigest(fullModel({ firstBlood: { namesHtml: ['<b>Opener#OPN</b>'], count } }));
+    expect(html).toContain(`<b>Opener#OPN</b> · ${expected}`);
+  });
+});
+
 describe('renderDigest — section order', () => {
   it('follows the owner-specified sequence', () => {
     const { html } = renderDigest(fullModel());
@@ -560,6 +597,7 @@ describe('renderDigest — section order', () => {
       'Был(ла) близко к рекорду',      // почти рекорды
       'Повышение по службе',
       'Мастера своего дела',
+      'Открывашка недели',
       'Эйсы недели',
       'Ножи недели',
       'Карты недели',
@@ -686,6 +724,7 @@ describe('renderDigest — the text twin', () => {
       'Ножи недели',
       'Винстрик недели',
       'Мастера своего дела',
+      'Открывашка недели',
       'Повышение по службе',
       'Больше всех матчей',
       'Серийный маньяк',
@@ -701,7 +740,7 @@ describe('renderDigest — empty sections', () => {
     const { html, text } = renderDigest(emptyModel());
     expect(html).toContain('📊 За неделю мы сыграли <b>3</b> матчей');
     expect(text).toContain('📊 За неделю мы сыграли <b>3</b> матчей');
-    for (const header of ['Эйсы недели', 'Ножи недели', 'Мастера своего дела', 'Больше всех матчей']) {
+    for (const header of ['Эйсы недели', 'Ножи недели', 'Мастера своего дела', 'Открывашка недели', 'Больше всех матчей']) {
       expect(html).not.toContain(header);
     }
   });

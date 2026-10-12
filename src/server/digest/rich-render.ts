@@ -194,6 +194,8 @@ export interface RichDigestModel {
   promotions: RichPromotion[];
   /** Weapons-masters rows. Empty ⇒ omitted. */
   weaponMasters: RichWeaponMaster[];
+  /** «Открывашка недели»: member(s) with the most first bloods (≥3, ties share; trusted `namesHtml`), or null ⇒ omitted. */
+  firstBlood: { namesHtml: string[]; count: number } | null;
   /** Near-miss blocks. Empty ⇒ «Почти рекорды» omitted. */
   nearMisses: RichNearMiss[];
   /**
@@ -461,7 +463,7 @@ function standingsRows(standings: AceKnifeStanding[]): Array<{ labelHtml: string
 function buildBlocks(model: RichDigestModel): Block[] {
   // Section order is owner-specified (2026-08-04):
   //   пульс → больше всех матчей → винстрик → рекорды → почти рекорды →
-  //   повышения → мастера своего дела → эйсы → ножи → карты → агенты
+  //   повышения → мастера своего дела → открывашка → эйсы → ножи → карты → агенты
   // «Больше всех матчей» leads because it reads straight off the pulse line
   // («сыграли 478» → «больше всех — Госпожа, 68»); the two aggregate boards
   // close the post. Reordering means moving whole blocks here — nothing else
@@ -545,6 +547,17 @@ function buildBlocks(model: RichDigestModel): Block[] {
       section(
         ['🔫 <b>Мастера своего дела</b>', '<i>лидеры по убийствам одним оружием за матч</i>'],
         lines,
+      ),
+    );
+  }
+
+  // 7½. Открывашка недели — most opening kills; a tie lists everyone.
+  if (model.firstBlood && model.firstBlood.namesHtml.length > 0) {
+    const { namesHtml, count } = model.firstBlood;
+    push(
+      '🩸 <b>Открывашка недели</b>',
+      ...namesHtml.map(
+        (n) => `${n} · ${count} ${pluralRu(count, 'первое убийство', 'первых убийства', 'первых убийств')}`,
       ),
     );
   }
