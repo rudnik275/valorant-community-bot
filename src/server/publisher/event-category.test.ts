@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { EVENT_CATEGORY, isRealtimeEvent, isWeeklyEvent, type EventType } from './types.ts';
 
 describe('EVENT_CATEGORY', () => {
-  it('covers all 21 EventType values exactly once', () => {
+  it('covers all 20 EventType values exactly once', () => {
     const allEvents: EventType[] = [
       'ace',
       'teamkill',
@@ -24,7 +24,6 @@ describe('EVENT_CATEGORY', () => {
       'record_survived_last_rounds',
       'record_died_first_rounds',
       'record_mvp_count_week',
-      'record_performance_score_match',
     ];
     expect(Object.keys(EVENT_CATEGORY).sort()).toEqual([...allEvents].sort());
   });
@@ -41,11 +40,11 @@ describe('EVENT_CATEGORY', () => {
     ]);
   });
 
-  it('has 17 weekly types — ace/knife_kill moved here when the daily digest was dropped; clutch joined them', () => {
+  it('has 16 weekly types — ace/knife_kill moved here when the daily digest was dropped; clutch joined them', () => {
     const weekly = Object.entries(EVENT_CATEGORY)
       .filter(([, v]) => v === 'weekly')
       .map(([k]) => k);
-    expect(weekly.length).toBe(17);
+    expect(weekly.length).toBe(16);
     expect(weekly.sort()).toEqual([
       'ace',
       'clutch',
@@ -61,7 +60,6 @@ describe('EVENT_CATEGORY', () => {
       'record_legshots_match',
       'record_longest_match_minutes',
       'record_mvp_count_week',
-      'record_performance_score_match',
       'record_survived_last_rounds',
       'winstreak_10plus',
     ]);

@@ -24,8 +24,7 @@ export type EventType =
   | 'record_kills_per_weapon'
   | 'record_longest_match_minutes'
   | 'record_survived_last_rounds'
-  | 'record_died_first_rounds'
-  | 'record_performance_score_match';
+  | 'record_died_first_rounds';
 
 export interface DetectedEvent {
   type: EventType;
@@ -125,7 +124,6 @@ export const EVENT_CATEGORY: Record<EventType, EventCategory> = {
   record_survived_last_rounds: 'weekly',
   record_died_first_rounds: 'weekly',
   record_mvp_count_week: 'weekly',
-  record_performance_score_match: 'weekly',
 };
 
 export function isRealtimeEvent(t: EventType): boolean {

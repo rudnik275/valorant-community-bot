@@ -17,7 +17,6 @@ import { recordKillsPerWeaponDetector } from './record-kills-per-weapon.ts';
 import { recordLongestMatchMinutesDetector } from './record-longest-match-minutes.ts';
 import { recordSurvivedLastRoundsDetector } from './record-survived-last-rounds.ts';
 import { recordDiedFirstRoundsDetector } from './record-died-first-rounds.ts';
-import { recordPerformanceScoreMatchDetector } from './record-performance-score-match.ts';
 
 export const ALL_DETECTORS: Detector[] = [
   aceDetector,
@@ -38,5 +37,4 @@ export const ALL_DETECTORS: Detector[] = [
   recordLongestMatchMinutesDetector,
   recordSurvivedLastRoundsDetector,
   recordDiedFirstRoundsDetector,
-  recordPerformanceScoreMatchDetector,
 ];
