@@ -5,7 +5,10 @@ It moved from Fridays on 2026-10-07; the first Sunday window (to
 2026-10-11) reaches back to the last Friday digest — `../lib/kyiv-week.ts`.
 
 - `build.ts` — queries the 7-day window and assembles ONE structured model
-  (`RichDigestModel`) covering every section.
+  (`RichDigestModel`) covering every section. Weekly aggregates computed right
+  here, with no detected event behind them: «🏆 Больше всех матчей» (≥5
+  matches) and «🩸 Открывашка недели» (most first bloods from
+  `rounds_compact[].fb`, ≥3).
 - `rich-render.ts` — renders that model twice: the Rich Message html the group
   actually sees, and the plain-text fallback used when `sendRichMessage` fails.
   Layout is **flat lines, no tables** (owner, 2026-08-04 — tables read badly on

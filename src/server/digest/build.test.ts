@@ -737,6 +737,123 @@ describe('buildDigest', () => {
     });
   });
 
+  describe('first blood award — Открывашка недели', () => {
+    /** Two rounds opened by `fb`, one by someone else — the v4.10 `rounds_compact` shape. */
+    function roundsOpenedBy(fb: string): Array<Record<string, unknown>> {
+      return [
+        { r: 1, w: 'Blue', fb, fbt: 'Blue' },
+        { r: 2, w: 'Red', fb, fbt: 'Blue' },
+        { r: 3, w: 'Blue', fb: 'other', fbt: 'Red' },
+      ];
+    }
+
+    function setRounds(matchId: string, puuid: string, rounds: unknown[] | null) {
+      sqlite
+        .prepare('UPDATE match_records SET rounds_compact = ? WHERE match_id = ? AND riot_puuid = ?')
+        .run(rounds === null ? null : JSON.stringify(rounds), matchId, puuid);
+    }
+
+    it('awards the member with ≥3 first bloods in the window', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Opener', riotTag: 'OPN' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'm2', startedAt: IN_WINDOW + 1000 });
+      setRounds('m1', 'p1', roundsOpenedBy('p1'));
+      setRounds('m2', 'p1', roundsOpenedBy('p1'));
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).toContain('firstBlood');
+      expect(result.text).toContain('🩸 <b>Открывашка недели</b>');
+      expect(result.text).toContain('<b>Opener#OPN</b> · 4 первых убийства');
+      expect(result.richHtml).toContain('<b>Opener#OPN</b> · 4 первых убийства');
+    });
+
+    it('omits the award when the top member has fewer than 3', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Opener', riotTag: 'OPN' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW });
+      setRounds('m1', 'p1', roundsOpenedBy('p1'));
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).not.toContain('firstBlood');
+      expect(result.text).not.toContain('Открывашка недели');
+    });
+
+    it('counts a lobby-mate\'s rounds only for the member who opened them', async () => {
+      // Every friend in the lobby stores the same match-level rounds. p2's copy
+      // names p1 as the opener — that must neither credit p2 nor double p1.
+      seedUser(sqlite, 1, 'p1', { riotName: 'Opener', riotTag: 'OPN' });
+      seedUser(sqlite, 2, 'p2', { riotName: 'Mate', riotTag: 'MTE' });
+      for (const [matchId, at] of [['m1', IN_WINDOW], ['m2', IN_WINDOW + 1000]] as const) {
+        seedMatch(sqlite, { puuid: 'p1', matchId, startedAt: at });
+        seedMatch(sqlite, { puuid: 'p2', matchId, startedAt: at });
+        setRounds(matchId, 'p1', roundsOpenedBy('p1'));
+        setRounds(matchId, 'p2', roundsOpenedBy('p1'));
+      }
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.text).toContain('<b>Opener#OPN</b> · 4 первых убийства');
+      expect(result.text).not.toContain('<b>Mate#MTE</b> ·');
+    });
+
+    it('lists every member tied on the top count', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Alpha', riotTag: 'AAA' });
+      seedUser(sqlite, 2, 'p2', { riotName: 'Beta', riotTag: 'BBB' });
+      for (const puuid of ['p1', 'p2']) {
+        seedMatch(sqlite, { puuid, matchId: `m1-${puuid}`, startedAt: IN_WINDOW });
+        seedMatch(sqlite, { puuid, matchId: `m2-${puuid}`, startedAt: IN_WINDOW + 1000 });
+        setRounds(`m1-${puuid}`, puuid, roundsOpenedBy(puuid));
+        setRounds(`m2-${puuid}`, puuid, roundsOpenedBy(puuid));
+      }
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.text).toContain('<b>Alpha#AAA</b> · 4 первых убийства');
+      expect(result.text).toContain('<b>Beta#BBB</b> · 4 первых убийства');
+      expect(result.text!.match(/Открывашка недели/g)).toHaveLength(1);
+    });
+
+    it('skips an opted-out leader and awards the next member', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'SilentOpener', riotTag: 'SSS' });
+      seedUser(sqlite, 2, 'p2', { riotName: 'LoudOpener', riotTag: 'LLL' });
+      seedOptOut(sqlite, 1, 1);
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'm2', startedAt: IN_WINDOW + 1000 });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'm3', startedAt: IN_WINDOW + 2000 });
+      seedMatch(sqlite, { puuid: 'p2', matchId: 'm4', startedAt: IN_WINDOW + 3000 });
+      seedMatch(sqlite, { puuid: 'p2', matchId: 'm5', startedAt: IN_WINDOW + 4000 });
+      for (const m of ['m1', 'm2', 'm3']) setRounds(m, 'p1', roundsOpenedBy('p1'));
+      for (const m of ['m4', 'm5']) setRounds(m, 'p2', roundsOpenedBy('p2'));
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).toContain('firstBlood');
+      expect(result.text).not.toContain('SilentOpener');
+      expect(result.text).toContain('<b>LoudOpener#LLL</b> · 4 первых убийства');
+    });
+
+    it('ignores matches outside the window', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Opener', riotTag: 'OPN' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'm2', startedAt: OUT_OF_WINDOW });
+      setRounds('m1', 'p1', roundsOpenedBy('p1'));
+      setRounds('m2', 'p1', roundsOpenedBy('p1'));
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).not.toContain('firstBlood');
+    });
+
+    it('counts 0 for pre-v4.10 rows (no `fb`, or no rounds at all)', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Opener', riotTag: 'OPN' });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'm1', startedAt: IN_WINDOW });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'm2', startedAt: IN_WINDOW + 1000 });
+      seedMatch(sqlite, { puuid: 'p1', matchId: 'm3', startedAt: IN_WINDOW + 2000 });
+      setRounds('m1', 'p1', roundsOpenedBy('p1'));
+      setRounds('m2', 'p1', [{ r: 1, w: 'Blue' }, { r: 2, w: 'Red' }, { r: 3, w: 'Blue' }]);
+      setRounds('m3', 'p1', null);
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.text).not.toBeNull();
+      expect(result.sectionsIncluded).not.toContain('firstBlood');
+    });
+  });
+
   describe('anti-coercion', () => {
     it('does not mention opt-out or silent players in digest text', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'OptedPlayer', riotTag: 'OPT' });
