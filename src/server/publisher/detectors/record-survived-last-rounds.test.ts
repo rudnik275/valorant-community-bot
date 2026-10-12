@@ -47,6 +47,8 @@ function makeRecord(overrides: Partial<MatchRecord> = {}): MatchRecord {
     is_match_mvp: null,
     survived_last_rounds: null,
     died_first_rounds: null,
+    performance_score: null,
+    rr_change: null,
     inserted_at: 1750000000000,
     ...overrides,
   };

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { deriveMatchRecord, deriveMatchRoster } from './derive.ts';
 import type { HenrikMatchV4 } from '../lib/henrik.ts';
+import { decodeRounds } from '../lib/match-codec.ts';
 
 import v4Fixture from './__fixtures__/match_console_v4.json';
 import v4UnrankedFixture from './__fixtures__/match_console_v4_unranked.json';
@@ -49,9 +50,10 @@ describe('deriveMatchRecord (v4)', () => {
       expect(record!.rounds_played).toBe(25);
     });
 
-    it('sets rank_before to null', () => {
+    it('sets rank_before and rr_change to null (scan.ts overlays them from MMR latest_update)', () => {
       const record = deriveMatchRecord(v4Fixture as HenrikMatchV4, TARGET_PUUID);
       expect(record!.rank_before).toBeNull();
+      expect(record!.rr_change).toBeNull();
     });
 
     it('sets rank_after from players[].tier.name', () => {
@@ -412,6 +414,80 @@ describe('deriveMatchRecord (v4)', () => {
   });
 });
 
+describe('is_match_mvp — Riot metadata.mvp wins over the combat-score heuristic (ADR 0005)', () => {
+  const withMvp = (mvp: unknown): HenrikMatchV4 =>
+    ({ ...v4Fixture, metadata: { ...v4Fixture.metadata, mvp } }) as HenrikMatchV4;
+
+  it('flags the player Riot names, even when someone else has a higher combat score', () => {
+    // enemy-1 is Riot's MVP; target-puuid has the top combat score (5800).
+    const match = withMvp({ puuid: 'enemy-1', name: 'Enemy1', tag: 'NA1', team: 'Red' });
+    expect(deriveMatchRecord(match, 'enemy-1')!.is_match_mvp).toBe(1);
+    expect(deriveMatchRecord(match, TARGET_PUUID)!.is_match_mvp).toBe(0);
+  });
+
+  it('names exactly one MVP — a combat-score tie no longer crowns both', () => {
+    const tie = {
+      ...withMvp({ puuid: TARGET_PUUID }),
+      players: (v4Fixture as HenrikMatchV4).players.map((p) =>
+        p.puuid === 'enemy-1' ? { ...p, stats: { ...p.stats!, score: 5800 } } : p,
+      ),
+    } as HenrikMatchV4;
+    expect(deriveMatchRecord(tie, TARGET_PUUID)!.is_match_mvp).toBe(1);
+    expect(deriveMatchRecord(tie, 'enemy-1')!.is_match_mvp).toBe(0);
+  });
+
+  it('flags 0 for a player Riot did not name even when they have no combat score', () => {
+    const match = {
+      ...withMvp({ puuid: 'enemy-1' }),
+      players: [
+        { ...(v4Fixture as HenrikMatchV4).players[0]!, stats: { kills: 5, deaths: 5, assists: 5 } },
+        ...(v4Fixture as HenrikMatchV4).players.slice(1),
+      ],
+    } as HenrikMatchV4;
+    expect(deriveMatchRecord(match, TARGET_PUUID)!.is_match_mvp).toBe(0);
+  });
+
+  it('falls back to the top-combat-score heuristic when mvp is null', () => {
+    const match = withMvp(null);
+    expect(deriveMatchRecord(match, TARGET_PUUID)!.is_match_mvp).toBe(1);
+    expect(deriveMatchRecord(match, 'enemy-1')!.is_match_mvp).toBe(0);
+  });
+
+  it('falls back to the heuristic when mvp is absent (pre-v4.10 match)', () => {
+    expect((v4Fixture as HenrikMatchV4).metadata.mvp).toBeUndefined();
+    expect(deriveMatchRecord(v4Fixture as HenrikMatchV4, TARGET_PUUID)!.is_match_mvp).toBe(1);
+  });
+
+  it('reads Riot\'s MVP from the real-shape comeback fixture', () => {
+    const match = comebackFixture as HenrikMatchV4;
+    expect(deriveMatchRecord(match, TARGET_PUUID)!.is_match_mvp).toBe(1);
+    expect(deriveMatchRecord(match, 'ally-2')!.is_match_mvp).toBe(0);
+  });
+});
+
+describe('performance_score derivation', () => {
+  it('stores Riot\'s players[].performance.score', () => {
+    const match = comebackFixture as HenrikMatchV4;
+    expect(deriveMatchRecord(match, TARGET_PUUID)!.performance_score).toBeCloseTo(282.363, 3);
+    expect(deriveMatchRecord(match, 'enemy-5')!.performance_score).toBe(131.6);
+  });
+
+  it('is null when Henrik omits performance (pre-v4.10 match)', () => {
+    expect(deriveMatchRecord(v4Fixture as HenrikMatchV4, TARGET_PUUID)!.performance_score).toBeNull();
+  });
+
+  it('is null when performance is present but its score is null', () => {
+    const match = {
+      ...v4Fixture,
+      players: [
+        { ...(v4Fixture as HenrikMatchV4).players[0]!, performance: { score: null } },
+        ...(v4Fixture as HenrikMatchV4).players.slice(1),
+      ],
+    } as HenrikMatchV4;
+    expect(deriveMatchRecord(match, TARGET_PUUID)!.performance_score).toBeNull();
+  });
+});
+
 describe('rounds_compact derivation', () => {
   it('extracts rounds_compact from match.rounds[] in comeback fixture', () => {
     const record = deriveMatchRecord(comebackFixture as HenrikMatchV4, TARGET_PUUID);
@@ -428,6 +504,43 @@ describe('rounds_compact derivation', () => {
     // Round 3 is Red win
     const third = parsed.find((x) => x.r === 3);
     expect(third!.w).toBe('Red');
+  });
+
+  it('carries first blood (fb/fbt) and the ceremony player (cp) from Henrik v4.10', () => {
+    const record = deriveMatchRecord(comebackFixture as HenrikMatchV4, TARGET_PUUID);
+    const rounds = decodeRounds(record!.rounds_compact);
+
+    // Ace round: Riot credits target-puuid, who also opened the round.
+    expect(rounds.find((x) => x.r === 15)).toEqual({
+      r: 15, w: 'Blue', c: 'CeremonyAce', fb: 'target-puuid', fbt: 'Blue', cp: 'target-puuid',
+    });
+    // Team ceremony — Riot names a team, not a player, so no `cp`.
+    expect(rounds.find((x) => x.r === 2)).toEqual({
+      r: 2, w: 'Blue', c: 'CeremonyFlawless', fb: 'target-puuid', fbt: 'Blue',
+    });
+    // First blood is independent of who won the round.
+    expect(rounds.find((x) => x.r === 3)).toEqual({ r: 3, w: 'Red', fb: 'target-puuid', fbt: 'Blue' });
+    expect(rounds.find((x) => x.r === 7)).toMatchObject({ fb: 'enemy-2', fbt: 'Red' });
+    // Every round in the fixture has a first blood; only round 15 has a ceremony player.
+    expect(rounds.every((x) => typeof x.fb === 'string')).toBe(true);
+    expect(rounds.filter((x) => x.cp).map((x) => x.r)).toEqual([15]);
+  });
+
+  it('writes no fb/fbt/cp keys when Henrik omits or nulls them (pre-v4.10 rounds)', () => {
+    const match = {
+      ...v4Fixture,
+      rounds: [
+        { id: 1, ceremony: '', winning_team: 'Blue', stats: [] },
+        { id: 2, ceremony: 'CeremonyAce', winning_team: 'Red', stats: [], first_blood: null, ceremony_player: null },
+        { id: 3, winning_team: 'Red', stats: [], first_blood: { puuid: 'enemy-1' } },
+      ],
+    } as HenrikMatchV4;
+    const record = deriveMatchRecord(match, TARGET_PUUID);
+    expect(decodeRounds(record!.rounds_compact)).toEqual([
+      { r: 1, w: 'Blue' },
+      { r: 2, w: 'Red', c: 'CeremonyAce' },
+      { r: 3, w: 'Red', fb: 'enemy-1' }, // no team on the ref → no fbt
+    ]);
   });
 
   it('rounds_compact is "[]" when match.rounds is empty', () => {

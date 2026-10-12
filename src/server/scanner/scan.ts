@@ -14,6 +14,7 @@ import {
   HenrikInactiveAccountError,
   type Priority,
   type HenrikMatchV4,
+  type HenrikMmr,
 } from '../lib/henrik.ts';
 import { deriveMatchRecord, deriveMatchRoster, type MatchRecordInsert } from './derive.ts';
 import { scannerEvents } from './events.ts';
@@ -120,8 +121,12 @@ export async function scanForPuuid(
   // mmr_fetched_at always updates as a liveness probe.
   const oldPeakTierId = user.peak_tier_id as number | null;
   const oldPeakTierName = user.peak_tier_name as string | null;
+  // RR update for the target's newest match — overlaid onto its record in
+  // step 6a. Stays null when the MMR call fails (non-fatal, as before).
+  let latestUpdate: HenrikMmr['latest_update'] = null;
   try {
     const mmr = await getMmrByPuuid(puuid, region, 'console', { priority });
+    latestUpdate = mmr.latest_update ?? null;
     const mmrUpdate: Partial<typeof users.$inferInsert> = {
       mmr_fetched_at: Date.now(),
     };
@@ -241,6 +246,21 @@ export async function scanForPuuid(
 
   if (toInsert.length === 0) {
     return { newRecords: [], skippedDuplicates };
+  }
+
+  // 6a. Riot's RR verdict for the target's newest match (ADR 0005). MMR v3
+  // `latest_update` covers ONE match, so only the record whose match_id it
+  // names gets `rank_before` / `rr_change`; older new matches in the same tick
+  // keep null. Target's own record only — a friend's lobby record would need
+  // the friend's MMR. Applied before insert and before `newRecord` emits so
+  // the row and the event agree.
+  const update = latestUpdate;
+  if (update) {
+    const newest = toInsert.find((r) => r.match_id === update.match_id);
+    if (newest) {
+      newest.rr_change = update.last_change ?? null;
+      newest.rank_before = update.tier_before_update?.name ?? null;
+    }
   }
 
   // 6b. Community friends in the same lobbies — see recordLobbyFriends.

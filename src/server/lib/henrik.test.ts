@@ -11,6 +11,7 @@ import {
   HenrikUpstreamError,
   HenrikError,
   acquireToken,
+  HenrikMatchV4Schema,
   __resetTokenBucketForTest,
   __resetBlockUntilForTest,
 } from './henrik.ts';
@@ -281,6 +282,54 @@ describe('getMatches', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it('types the Henrik v4.10 fields: metadata.mvp, performance.score, first_blood, ceremony_player (#384)', async () => {
+    fetchMock.mockResolvedValue(makeResponse(200, matchFixture));
+
+    const [match] = await getMatches('26f40503-6b6d-576c-a32d-9fcb8f081042', 'eu');
+
+    expect(match!.metadata.mvp).toMatchObject({
+      puuid: '26f40503-6b6d-576c-a32d-9fcb8f081042',
+      name: 'rudі',
+      tag: '1111',
+      team: 'Red',
+    });
+    expect(match!.players[0]!.performance?.score).toBeCloseTo(282.363, 3);
+    const round = match!.rounds[0]!;
+    expect(round.ceremony).toBe('CeremonyAce');
+    expect(round.first_blood).toMatchObject({ puuid: '26f40503-6b6d-576c-a32d-9fcb8f081042', team: 'Red' });
+    expect(round.ceremony_player?.puuid).toBe('26f40503-6b6d-576c-a32d-9fcb8f081042');
+  });
+
+  it('parses a pre-v4.10 match with none of the new fields, and one where Henrik nulls them', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const base = (matchFixture as { data: Array<Record<string, any>> }).data[0]!;
+    const { mvp: _mvp, ...metadataWithoutMvp } = base['metadata'];
+    const { performance: _perf, ...playerWithoutPerf } = base['players'][0];
+    const { first_blood: _fb, ceremony_player: _cp, ...roundWithoutNew } = base['rounds'][0];
+
+    const absent = HenrikMatchV4Schema.parse({
+      ...base,
+      metadata: metadataWithoutMvp,
+      players: [playerWithoutPerf],
+      rounds: [roundWithoutNew],
+    });
+    expect(absent.metadata.mvp).toBeUndefined();
+    expect(absent.players[0]!.performance).toBeUndefined();
+    expect(absent.rounds[0]!.first_blood).toBeUndefined();
+    expect(absent.rounds[0]!.ceremony_player).toBeUndefined();
+
+    const nulled = HenrikMatchV4Schema.parse({
+      ...base,
+      metadata: { ...base['metadata'], mvp: null },
+      players: [{ ...base['players'][0], performance: { score: null } }],
+      rounds: [{ ...base['rounds'][0], first_blood: null, ceremony_player: null }],
+    });
+    expect(nulled.metadata.mvp).toBeNull();
+    expect(nulled.players[0]!.performance?.score).toBeNull();
+    expect(nulled.rounds[0]!.first_blood).toBeNull();
+    expect(nulled.rounds[0]!.ceremony_player).toBeNull();
+  });
+
   it('drops a single malformed match and returns the survivors instead of failing the whole batch', async () => {
     // Regression: previously the whole array was validated as one zod schema —
     // one bad match anywhere in the response broke ingestion for the user
@@ -432,6 +481,37 @@ describe('getMmrByPuuid', () => {
     const err = await getMmrByPuuid('test-puuid', 'eu').catch((e) => e);
     expect(err).toBeInstanceOf(HenrikRateLimitError);
     expect((err as HenrikRateLimitError).retryAfter).toBe(30);
+  });
+
+  it('exposes latest_update — the RR verdict for the last match (#384)', async () => {
+    fetchMock.mockResolvedValue(makeResponse(200, mmrFixture));
+
+    const result = await getMmrByPuuid('26f40503-6b6d-576c-a32d-9fcb8f081042', 'eu');
+
+    expect(result.latest_update).toEqual({
+      match_id: 'test-match-id-1',
+      last_change: -18,
+      tier_before_update: { id: 21, name: 'Ascendant 1' },
+    });
+  });
+
+  it('latest_update is null when Henrik omits it or nulls its parts', async () => {
+    const { latest_update: _lu, ...dataWithout } = (mmrFixture as { data: Record<string, unknown> }).data;
+    fetchMock.mockResolvedValueOnce(makeResponse(200, { status: 200, data: dataWithout }));
+    expect((await getMmrByPuuid('abc', 'eu')).latest_update).toBeNull();
+
+    fetchMock.mockResolvedValueOnce(makeResponse(200, {
+      status: 200,
+      data: {
+        ...dataWithout,
+        latest_update: { match_id: 'm-1', last_change: null, tier_before_update: null },
+      },
+    }));
+    expect((await getMmrByPuuid('abc', 'eu')).latest_update).toEqual({
+      match_id: 'm-1',
+      last_change: null,
+      tier_before_update: null,
+    });
   });
 
   it('handles null peak gracefully', async () => {

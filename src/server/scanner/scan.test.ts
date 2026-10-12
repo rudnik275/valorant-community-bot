@@ -528,6 +528,101 @@ describe('scanForPuuid', () => {
     expect(emittedRecords).toHaveLength(0);
   });
 
+  // ── RR verdict overlay from MMR latest_update (#384, ADR 0005) ─────────────
+  //
+  // MMR v3 `latest_update` covers the player's LAST match only. The scan
+  // stamps `rr_change` / `rank_before` onto that one record; older matches in
+  // the same tick and friends' lobby records keep null.
+
+  function mmrWithLatestUpdate(matchId: string): henrik.HenrikMmr {
+    return {
+      current: { tier: { id: 20, name: 'Diamond 3' }, rr: 82, last_change: -18 },
+      peak: null,
+      latest_update: {
+        match_id: matchId,
+        last_change: -18,
+        tier_before_update: { id: 21, name: 'Ascendant 1' },
+      },
+    };
+  }
+
+  function rrRow(puuid: string, matchId: string) {
+    return sqlite
+      .prepare('SELECT rr_change, rank_before FROM match_records WHERE riot_puuid = ? AND match_id = ?')
+      .get(puuid, matchId) as { rr_change: number | null; rank_before: string | null };
+  }
+
+  it('stamps rr_change + rank_before onto the newest match only; an older new match keeps null', async () => {
+    seedUser();
+    const newest = { ...makeFakeMatchResponse('rr-newest').data[0]! };
+    newest.metadata = { ...newest.metadata, started_at: '2026-10-11T15:00:00.000Z' };
+    const older = { ...makeFakeMatchResponse('rr-older').data[0]! };
+    older.metadata = { ...older.metadata, started_at: '2026-10-11T14:00:00.000Z' };
+    fetchMock.mockImplementation(async () =>
+      new Response(JSON.stringify({ status: 200, data: [newest, older] }), { status: 200 }),
+    );
+    const mmrSpy = vi.spyOn(henrik, 'getMmrByPuuid').mockResolvedValueOnce(mmrWithLatestUpdate('rr-newest'));
+
+    const emitted: Array<{ match_id: string; rr_change: number | null; rank_before: string | null }> = [];
+    scannerEvents.on('newRecord', (r) => emitted.push(r));
+
+    const result = await scanForPuuid(db, TARGET_PUUID, { detection: true });
+
+    expect(result.newRecords).toHaveLength(2);
+    expect(rrRow(TARGET_PUUID, 'rr-newest')).toEqual({ rr_change: -18, rank_before: 'Ascendant 1' });
+    expect(rrRow(TARGET_PUUID, 'rr-older')).toEqual({ rr_change: null, rank_before: null });
+    // The event carries the same values as the row.
+    expect(emitted.find((r) => r.match_id === 'rr-newest')).toMatchObject({ rr_change: -18, rank_before: 'Ascendant 1' });
+    expect(emitted.find((r) => r.match_id === 'rr-older')).toMatchObject({ rr_change: null, rank_before: null });
+
+    mmrSpy.mockRestore();
+  });
+
+  it('leaves a friend\'s lobby record without rr_change — their RR is in their own MMR', async () => {
+    seedUser();
+    seedFriend(222, 'blue-player-1');
+    fetchMock.mockImplementation(async () =>
+      new Response(JSON.stringify(makeFakeMatchResponseWithFullRoster('rr-lobby')), { status: 200 }),
+    );
+    const mmrSpy = vi.spyOn(henrik, 'getMmrByPuuid').mockResolvedValueOnce(mmrWithLatestUpdate('rr-lobby'));
+
+    await scanForPuuid(db, TARGET_PUUID, { detection: true });
+
+    expect(rrRow(TARGET_PUUID, 'rr-lobby')).toEqual({ rr_change: -18, rank_before: 'Ascendant 1' });
+    expect(rrRow('blue-player-1', 'rr-lobby')).toEqual({ rr_change: null, rank_before: null });
+
+    mmrSpy.mockRestore();
+  });
+
+  it('stamps nothing when latest_update names a match that is not new this tick', async () => {
+    seedUser();
+    fetchMock.mockImplementation(async () =>
+      new Response(JSON.stringify(makeFakeMatchResponse('rr-fresh')), { status: 200 }),
+    );
+    const mmrSpy = vi.spyOn(henrik, 'getMmrByPuuid').mockResolvedValueOnce(mmrWithLatestUpdate('some-other-match'));
+
+    await scanForPuuid(db, TARGET_PUUID, { detection: false });
+
+    expect(rrRow(TARGET_PUUID, 'rr-fresh')).toEqual({ rr_change: null, rank_before: null });
+
+    mmrSpy.mockRestore();
+  });
+
+  it('records the match with null rr_change when the MMR call fails', async () => {
+    seedUser();
+    fetchMock.mockImplementation(async () =>
+      new Response(JSON.stringify(makeFakeMatchResponse('rr-mmr-down')), { status: 200 }),
+    );
+    const mmrSpy = vi.spyOn(henrik, 'getMmrByPuuid').mockRejectedValueOnce(new henrik.HenrikRateLimitError(60));
+
+    const result = await scanForPuuid(db, TARGET_PUUID, { detection: false });
+
+    expect(result.newRecords).toHaveLength(1);
+    expect(rrRow(TARGET_PUUID, 'rr-mmr-down')).toEqual({ rr_change: null, rank_before: null });
+
+    mmrSpy.mockRestore();
+  });
+
   // ── Lazy region backfill ────────────────────────────────────────────────────
 
   it('backfills riot_region when null by calling getAccountByPuuid', async () => {
