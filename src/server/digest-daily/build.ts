@@ -23,7 +23,7 @@ export interface BuildDailyDigestResult {
 
 interface Row {
   id: number;
-  eventType: 'ace' | 'knife_kill';
+  eventType: 'ace' | 'knife_kill' | 'clutch';
   puuid: string;
   matchId: string;
   payloadJson: string;
@@ -37,7 +37,7 @@ interface Row {
 export async function buildDailyAceDigest(deps: BuildDailyDigestDeps): Promise<BuildDailyDigestResult> {
   const { db, windowStart, windowEnd, excludeEventIds } = deps;
   const conditions = [
-    inArray(detectedEvents.event_type, ['ace', 'knife_kill']),
+    inArray(detectedEvents.event_type, ['ace', 'knife_kill', 'clutch']),
     inArray(detectedEvents.status, ['silent', 'digest-only']),
     gte(detectedEvents.detected_at, windowStart),
     lt(detectedEvents.detected_at, windowEnd),

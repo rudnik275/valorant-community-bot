@@ -35,7 +35,7 @@ function seedEvent(
   sqlite: Database.Database,
   opts: {
     puuid: string;
-    eventType: 'ace' | 'knife_kill';
+    eventType: 'ace' | 'knife_kill' | 'clutch';
     payload: Record<string, unknown>;
     detectedAt: number;
     status?: string;
@@ -78,7 +78,7 @@ describe('buildAceKnifeStandings', () => {
 
   it('returns empty boards when there are no events', async () => {
     const r = await buildAceKnifeStandings(db, WEEK_START, WEEK_END, NO_OPT_OUTS);
-    expect(r).toEqual({ aces: [], knives: [] });
+    expect(r).toEqual({ aces: [], knives: [], clutches: [] });
   });
 
   it('counts one ace per aced round, summed across a player’s matches', async () => {
@@ -104,6 +104,23 @@ describe('buildAceKnifeStandings', () => {
 
     const r = await buildAceKnifeStandings(db, WEEK_START, WEEK_END, NO_OPT_OUTS);
     expect(r.knives).toEqual([{ name: 'Alpha', tag: 'AAA', count: 3 }]);
+  });
+
+  it('counts one clutch per clutch round into its own board, apart from aces and knives', async () => {
+    seedUser(sqlite, 1, 'p1', 'Alpha', 'AAA');
+    seedUser(sqlite, 2, 'p2', 'Beta', 'BBB');
+    seedEvent(sqlite, { puuid: 'p1', eventType: 'clutch', payload: { count: 2, rounds: [3, 9], rounds_won: [3, 9] }, detectedAt: IN_WINDOW });
+    seedEvent(sqlite, { puuid: 'p1', eventType: 'clutch', payload: { count: 1, rounds: [14], rounds_won: [14] }, detectedAt: IN_WINDOW + 1000 });
+    seedEvent(sqlite, { puuid: 'p2', eventType: 'clutch', payload: { count: 1, rounds: [7], rounds_won: [7] }, detectedAt: IN_WINDOW + 2000 });
+    seedEvent(sqlite, { puuid: 'p2', eventType: 'ace', payload: { rounds: [4] }, detectedAt: IN_WINDOW + 3000 });
+
+    const r = await buildAceKnifeStandings(db, WEEK_START, WEEK_END, NO_OPT_OUTS);
+    expect(r.clutches).toEqual([
+      { name: 'Alpha', tag: 'AAA', count: 3 },
+      { name: 'Beta', tag: 'BBB', count: 1 },
+    ]);
+    expect(r.aces).toEqual([{ name: 'Beta', tag: 'BBB', count: 1 }]);
+    expect(r.knives).toEqual([]);
   });
 
   it('ignores victims_afk on legacy rows — AFK kills count the same as any other', async () => {
@@ -237,5 +254,6 @@ describe('buildAceKnifeStandings', () => {
     const r = await buildAceKnifeStandings(db, WEEK_START, WEEK_END, NO_OPT_OUTS);
     expect(r.aces).toEqual([]);
     expect(r.knives).toEqual([]);
+    expect(r.clutches).toEqual([]);
   });
 });

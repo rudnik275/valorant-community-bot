@@ -17,6 +17,7 @@ export type EventType =
   | 'record_headshots_match'
   | 'record_legshots_match'
   | 'knife_kill'
+  | 'clutch'
   | 'match_comeback'
   | 'record_mvp_count_week'
   | 'community_clash'
@@ -108,6 +109,7 @@ export const EVENT_CATEGORY: Record<EventType, EventCategory> = {
 
   ace: 'weekly',
   knife_kill: 'weekly',
+  clutch: 'weekly',
 
   winstreak_10plus: 'weekly',
   peak_rank_up: 'weekly',

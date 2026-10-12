@@ -1,4 +1,5 @@
 import { isAmbiguousSendFailure } from '../lib/telegram-send.ts';
+import { DAILY_DIGEST_TITLE } from './render.ts';
 
 const MAX_MESSAGE_LENGTH = 4096;
 
@@ -42,7 +43,7 @@ export async function sendDailyDigest(
   const chunks = splitDailyDigest(text);
   const deliver = async (chunk: string) => {
     if (sendRich) {
-      const title = '🍿 Эйсы и ножи за предыдущие 24 часа';
+      const title = DAILY_DIGEST_TITLE;
       const hasTitle = chunk.startsWith(`${title}\n\n`);
       const body = hasTitle ? chunk.slice(title.length + 2) : chunk;
       // Telegram does not give <p> blocks a blank-line margin. Preserve every

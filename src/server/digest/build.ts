@@ -913,7 +913,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
   // ─── ACE / KNIFE LEADERBOARDS ────────────────────────────────────────────────
   // Formerly the standalone 23:00 daily digest. Now plain per-player counts —
   // «кто сколько эйсов сделал, кто сколько ножей сделал» (owner, 2026-08-04).
-  const { aces: richAces, knives: richKnives } = await buildAceKnifeStandings(
+  const { aces: richAces, knives: richKnives, clutches: richClutches } = await buildAceKnifeStandings(
     db,
     weekStart,
     weekEnd,
@@ -921,6 +921,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
   );
   if (richAces.length > 0) sectionsIncluded.push('aces');
   if (richKnives.length > 0) sectionsIncluded.push('knives');
+  if (richClutches.length > 0) sectionsIncluded.push('clutches');
 
   // ─── ALWAYS-SECTIONS ─────────────────────────────────────────────────────────
   let richMostActive: { namesHtml: string[]; count: number } | null = null;
@@ -1104,6 +1105,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
     winstreaks: richWinstreaks,
     aces: richAces,
     knives: richKnives,
+    clutches: richClutches,
     promotions: richPromotions,
     weaponMasters: richWeaponMasters,
     firstBlood: richFirstBlood,

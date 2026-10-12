@@ -5,7 +5,7 @@ import { esc } from '../publisher/templates.ts';
 /** One detected event, carrying its match-specific presentation and occurrence count. */
 export interface DailyEvent {
   id: number;
-  eventType: 'ace' | 'knife_kill';
+  eventType: 'ace' | 'knife_kill' | 'clutch';
   puuid: string;
   name: string;
   tag: string;
@@ -28,10 +28,13 @@ function renderEvent(event: DailyEvent): string {
   return `- ${player} ${matchIcons(event)}`;
 }
 
+/** Heading of the daily post — also the rich `<h2>` that `send.ts` lifts out of the text. */
+export const DAILY_DIGEST_TITLE = '🍿 Эйсы, ножи и клатчи за предыдущие 24 часа';
+
 /** Input is in detection order; stable sorting preserves first detection for ties. */
 export function renderDailyDigest(events: DailyEvent[]): string {
-  const sections = ['🍿 Эйсы и ножи за предыдущие 24 часа'];
-  for (const [type, heading] of [['ace', '🎯 Эйсы'], ['knife_kill', '🔪 Ножи']] as const) {
+  const sections: string[] = [DAILY_DIGEST_TITLE];
+  for (const [type, heading] of [['ace', '🎯 Эйсы'], ['knife_kill', '🔪 Ножи'], ['clutch', '🧊 Клатчи']] as const) {
     const players = new Map<string, { count: number; events: DailyEvent[] }>();
     for (const event of events) {
       if (event.eventType !== type) continue;

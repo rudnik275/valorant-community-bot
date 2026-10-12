@@ -10,6 +10,7 @@ import { recordDeathsMatchDetector } from './record-deaths-match.ts';
 import { recordHeadshotsMatchDetector } from './record-headshots-match.ts';
 import { recordLegshotsMatchDetector } from './record-legshots-match.ts';
 import { knifeKillDetector } from './knife-kill.ts';
+import { clutchDetector } from './clutch.ts';
 import { matchComebackDetector } from './match-comeback.ts';
 import { communityClashDetector } from './community-clash.ts';
 import { recordKillsPerWeaponDetector } from './record-kills-per-weapon.ts';
@@ -29,6 +30,7 @@ export const ALL_DETECTORS: Detector[] = [
   recordHeadshotsMatchDetector,
   recordLegshotsMatchDetector,
   knifeKillDetector,
+  clutchDetector,
   matchComebackDetector,
   communityClashDetector,
   recordKillsPerWeaponDetector,

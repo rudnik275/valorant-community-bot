@@ -236,7 +236,7 @@ describe('buildDailyAceDigest', () => {
     const id = seedAceEvent(sqlite, { puuid: 'p1', matchId: 'm1', detectedAt: IN_WINDOW });
     const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
     expect(result).toEqual({
-      text: '🍿 Эйсы и ножи за предыдущие 24 часа\n\n🎯 Эйсы\n\n- ' +
+      text: '🍿 Эйсы, ножи и клатчи за предыдущие 24 часа\n\n🎯 Эйсы\n\n- ' +
         renderPlayerName({ name: 'Ace', tag: 'ACE', isCommunity: true, rank: 'Diamond 3' }) +
         ` <a href="https://tracker.gg/valorant/match/m1">${agentToEmojiHtml('Jett')}/${mapToEmojiHtml('Ascent')}</a>`,
       includedEventIds: [id],
@@ -275,8 +275,25 @@ describe('buildDailyAceDigest', () => {
     const ace = seedAceEvent(sqlite, { puuid: 'p1', matchId: 'm1', detectedAt: IN_WINDOW + 1, rounds: [0, 3] });
     const { text, includedEventIds } = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
     const row = `- <b>Both#T</b> <a href="https://tracker.gg/valorant/match/m1">${agentToEmojiHtml('Jett')}/${mapToEmojiHtml('Ascent')}</a>`;
-    expect(text).toBe(`🍿 Эйсы и ножи за предыдущие 24 часа\n\n🎯 Эйсы\n\n${row}\n${row}\n\n🔪 Ножи\n\n${row}\n${row}`);
+    expect(text).toBe(`🍿 Эйсы, ножи и клатчи за предыдущие 24 часа\n\n🎯 Эйсы\n\n${row}\n${row}\n\n🔪 Ножи\n\n${row}\n${row}`);
     expect(includedEventIds).toEqual([knife, ace]);
+  });
+
+  it('renders one 🧊 Клатчи row per clutch round, after Ножи', async () => {
+    seedUser(sqlite, 1, 'p1', { riotName: 'Ice', riotTag: 'T' });
+    seedMatch(sqlite, { puuid: 'p1', matchId: 'm1' });
+    const ace = seedAceEvent(sqlite, { puuid: 'p1', matchId: 'm1', detectedAt: IN_WINDOW, rounds: [1] });
+    const clutch = sqlite.prepare(
+      `INSERT INTO detected_events (event_type, riot_puuid, match_id, payload_json, detected_at, status)
+       VALUES ('clutch', 'p1', 'm1', ?, ?, 'digest-only')`,
+    ).run(JSON.stringify({ count: 2, rounds: [3, 9], rounds_won: [3, 9] }), IN_WINDOW + 1).lastInsertRowid as number;
+    const knife = seedKnifeEvent(sqlite, { puuid: 'p1', matchId: 'm1', detectedAt: IN_WINDOW + 2, rounds: [5], roundsWon: [] });
+    const { text, includedEventIds } = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
+    const row = `- <b>Ice#T</b> <a href="https://tracker.gg/valorant/match/m1">${agentToEmojiHtml('Jett')}/${mapToEmojiHtml('Ascent')}</a>`;
+    expect(text).toBe(
+      `🍿 Эйсы, ножи и клатчи за предыдущие 24 часа\n\n🎯 Эйсы\n\n${row}\n\n🔪 Ножи\n\n${row}\n\n🧊 Клатчи\n\n${row}\n${row}`,
+    );
+    expect(includedEventIds).toEqual([ace, clutch, knife]);
   });
 
   it('groups by PUUID even when two players have identical display names', async () => {
@@ -294,7 +311,7 @@ describe('buildDailyAceDigest', () => {
     seedUser(sqlite, 1, 'p1', { riotName: '<Ace&>', riotTag: '"T' });
     seedKnifeEvent(sqlite, { puuid: 'p1', matchId: 'm"&', detectedAt: IN_WINDOW, rounds: [2], roundsWon: [] });
     const { text } = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
-    expect(text).toBe('🍿 Эйсы и ножи за предыдущие 24 часа\n\n🔪 Ножи\n\n- <b>&lt;Ace&amp;&gt;#&quot;T</b> <a href="https://tracker.gg/valorant/match/m&quot;&amp;">🦸/⛰️</a>');
+    expect(text).toBe('🍿 Эйсы, ножи и клатчи за предыдущие 24 часа\n\n🔪 Ножи\n\n- <b>&lt;Ace&amp;&gt;#&quot;T</b> <a href="https://tracker.gg/valorant/match/m&quot;&amp;">🦸/⛰️</a>');
   });
 
   it('omits unknown ranks and uses linked fallback icons for unknown agents and maps', async () => {
@@ -312,7 +329,7 @@ describe('buildDailyAceDigest', () => {
     const start = seedAceEvent(sqlite, { puuid: 'p1', matchId: 'start', detectedAt: WIN_START });
     seedAceEvent(sqlite, { puuid: 'p1', matchId: 'end', detectedAt: WIN_END });
     const other = seedAceEvent(sqlite, { puuid: 'p1', matchId: 'other', detectedAt: IN_WINDOW });
-    sqlite.prepare("UPDATE detected_events SET event_type = 'clutch' WHERE id = ?").run(other);
+    sqlite.prepare("UPDATE detected_events SET event_type = 'teamkill' WHERE id = ?").run(other);
     const result = await buildDailyAceDigest({ db, windowStart: WIN_START, windowEnd: WIN_END });
     expect(result.includedEventIds).toEqual([start]);
   });
