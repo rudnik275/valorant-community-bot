@@ -1,0 +1,81 @@
+{
+  "status": 200,
+  "data": {
+    "account": {
+      "name": "FixturePlayer",
+      "tag": "FIX1",
+      "puuid": "fixture-puuid-mmr-history"
+    },
+    "history": [
+      {
+        "tier": { "id": 20, "name": "Diamond 3" },
+        "match_id": "fixture-history-match-3",
+        "map": { "id": "2fe4ed3a-450a-948b-6d6b-e89a78e680a9", "name": "Lotus" },
+        "season": { "id": "fixture-season-id", "short": "e11a5" },
+        "rr": 82,
+        "last_change": -18,
+        "elo": 1782,
+        "refunded_rr": 0,
+        "was_derank_protected": false,
+        "date": "2026-10-11T15:57:55.291Z",
+        "queue_id": "console_competitive",
+        "match_length": 1926560,
+        "tier_before_update": { "id": 21, "name": "Ascendant 1" },
+        "rr_before_update": 0,
+        "rr_performance_bonus": 0,
+        "afk_penalty": 0,
+        "rr_penalty": 0,
+        "is_placement_match": false,
+        "competitive_movement": "MOVEMENT_UNKNOWN",
+        "new_map_incentive_rr_forgiven": 0,
+        "was_derank_protection_replenished": false
+      },
+      {
+        "tier": { "id": 21, "name": "Ascendant 1" },
+        "match_id": "fixture-history-match-2",
+        "map": { "id": "2bee0dc9-4ffe-519b-1cbd-7fbe763a6047", "name": "Haven" },
+        "season": { "id": "fixture-season-id", "short": "e11a5" },
+        "rr": 0,
+        "last_change": 21,
+        "elo": 1800,
+        "refunded_rr": 0,
+        "was_derank_protected": false,
+        "date": "2026-10-11T14:59:10.004Z",
+        "queue_id": "console_competitive",
+        "match_length": 2211603,
+        "tier_before_update": { "id": 20, "name": "Diamond 3" },
+        "rr_before_update": 79,
+        "rr_performance_bonus": 2,
+        "afk_penalty": 0,
+        "rr_penalty": 0,
+        "is_placement_match": false,
+        "competitive_movement": "MOVEMENT_UNKNOWN",
+        "new_map_incentive_rr_forgiven": 0,
+        "was_derank_protection_replenished": false
+      },
+      {
+        "tier": { "id": 20, "name": "Diamond 3" },
+        "match_id": "fixture-history-match-1",
+        "map": { "id": "7eaecc1b-4337-bbf6-6ab9-04b8f06b3319", "name": "Ascent" },
+        "season": { "id": "fixture-season-id", "short": "e11a5" },
+        "rr": 79,
+        "last_change": null,
+        "elo": 1779,
+        "refunded_rr": 0,
+        "was_derank_protected": false,
+        "date": "2026-10-10T20:12:41.512Z",
+        "queue_id": "console_competitive",
+        "match_length": 2050330,
+        "tier_before_update": null,
+        "rr_before_update": 79,
+        "rr_performance_bonus": 0,
+        "afk_penalty": 0,
+        "rr_penalty": 0,
+        "is_placement_match": false,
+        "competitive_movement": "MOVEMENT_UNKNOWN",
+        "new_map_incentive_rr_forgiven": 0,
+        "was_derank_protection_replenished": false
+      }
+    ]
+  }
+}

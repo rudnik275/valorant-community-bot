@@ -27,6 +27,10 @@ function fullModel(overrides: Partial<RichDigestModel> = {}): RichDigestModel {
       },
     ],
     winstreaks: [{ name: 'Alpha', tag: 'AAA', streak: 12 }],
+    rrWeek: {
+      gainer: { net: 47, players: [{ nameHtml: '<b>Climber#CLM</b>', matches: 12 }] },
+      loser: { net: -31, players: [{ nameHtml: '<b>Sinker#SNK</b>', matches: 9 }] },
+    },
     aces: [
       { name: 'Killer', tag: 'KLL', count: 4 },
       { name: 'Alpha', tag: 'AAA', count: 2 },
@@ -87,6 +91,7 @@ function emptyModel(overrides: Partial<RichDigestModel> = {}): RichDigestModel {
     totalMatches: 3,
     records: [],
     winstreaks: [],
+    rrWeek: null,
     aces: [],
     knives: [],
     clutches: [],
@@ -603,6 +608,76 @@ describe('renderDigest — 🩸 Открывашка недели', () => {
   });
 });
 
+describe('renderDigest — «🏦 RR недели»', () => {
+  it('renders the top gainer and the top loser, header then a blank line', () => {
+    const { html, text } = renderDigest(fullModel());
+    expect(html).toContain(
+      '🏦 <b>RR недели</b><br><br>' +
+        '📈 <b>Climber#CLM</b> · +47 RR за 12 матчей<br>' +
+        '📉 <b>Sinker#SNK</b> · −31 RR за 9 матчей',
+    );
+    expect(text).toContain(
+      '🏦 <b>RR недели</b>\n\n📈 <b>Climber#CLM</b> · +47 RR за 12 матчей\n📉 <b>Sinker#SNK</b> · −31 RR за 9 матчей',
+    );
+  });
+
+  it('uses a real minus sign (U+2212) for the loss, not a hyphen', () => {
+    const { html } = renderDigest(fullModel());
+    expect(html).toContain('−31 RR');
+    expect(html).not.toContain('-31 RR');
+  });
+
+  it('renders the gainer alone when nobody finished the week down', () => {
+    const { html } = renderDigest(
+      fullModel({
+        rrWeek: { gainer: { net: 18, players: [{ nameHtml: '<b>Climber#CLM</b>', matches: 1 }] }, loser: null },
+      }),
+    );
+    expect(html).toContain('🏦 <b>RR недели</b><br><br>📈 <b>Climber#CLM</b> · +18 RR за 1 матч');
+    expect(html).not.toContain('📉');
+  });
+
+  it('renders the loser alone when nobody finished the week up', () => {
+    const { html } = renderDigest(
+      emptyModel({
+        rrWeek: { gainer: null, loser: { net: -45, players: [{ nameHtml: '<b>Sinker#SNK</b>', matches: 3 }] } },
+      }),
+    );
+    expect(html).toContain('🏦 <b>RR недели</b><br><br>📉 <b>Sinker#SNK</b> · −45 RR за 3 матча');
+    expect(html).not.toContain('📈');
+  });
+
+  it('names every tied player on one line each, with their own match count', () => {
+    const { html } = renderDigest(
+      fullModel({
+        rrWeek: {
+          gainer: {
+            net: 30,
+            players: [
+              { nameHtml: '<b>Alpha#AAA</b>', matches: 2 },
+              { nameHtml: '<b>Beta#BBB</b>', matches: 5 },
+            ],
+          },
+          loser: null,
+        },
+      }),
+    );
+    expect(html).toContain('📈 <b>Alpha#AAA</b> · +30 RR за 2 матча<br>📈 <b>Beta#BBB</b> · +30 RR за 5 матчей');
+    expect(html.match(/🏦 <b>RR недели<\/b>/g)).toHaveLength(1);
+  });
+
+  it('omits the section when rrWeek is null', () => {
+    const { html, text } = renderDigest(fullModel({ rrWeek: null }));
+    expect(html).not.toContain('RR недели');
+    expect(text).not.toContain('RR недели');
+  });
+
+  it('omits the section when both sides are empty', () => {
+    const { html } = renderDigest(fullModel({ rrWeek: { gainer: null, loser: null } }));
+    expect(html).not.toContain('RR недели');
+  });
+});
+
 describe('renderDigest — section order', () => {
   it('follows the owner-specified sequence', () => {
     const { html } = renderDigest(fullModel());
@@ -610,6 +685,7 @@ describe('renderDigest — section order', () => {
       'мы сыграли',                    // пульс
       'Больше всех матчей',
       'Винстрик недели',
+      'RR недели',
       'Серийный маньяк',               // рекорды
       'Был(ла) близко к рекорду',      // почти рекорды
       'Оценка Riot',
@@ -743,6 +819,7 @@ describe('renderDigest — the text twin', () => {
       'Ножи недели',
       'Клатчи недели',
       'Винстрик недели',
+      'RR недели',
       'Мастера своего дела',
       'Открывашка недели',
       'Оценка Riot',
@@ -819,7 +896,7 @@ describe('renderDigest — empty sections', () => {
     const { html, text } = renderDigest(emptyModel());
     expect(html).toContain('📊 За неделю мы сыграли <b>3</b> матчей');
     expect(text).toContain('📊 За неделю мы сыграли <b>3</b> матчей');
-    for (const header of ['Эйсы недели', 'Ножи недели', 'Клатчи недели', 'Мастера своего дела', 'Открывашка недели', 'Оценка Riot', 'Больше всех матчей']) {
+    for (const header of ['Эйсы недели', 'Ножи недели', 'Клатчи недели', 'Мастера своего дела', 'Открывашка недели', 'Оценка Riot', 'Больше всех матчей', 'RR недели']) {
       expect(html).not.toContain(header);
     }
   });

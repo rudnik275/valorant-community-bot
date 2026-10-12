@@ -1962,3 +1962,133 @@ describe('buildDigest', () => {
     });
   });
 });
+
+// ─── «🏦 RR недели» (#388) ────────────────────────────────────────────────────
+
+describe('buildDigest — «🏦 RR недели»', () => {
+  let db: ReturnType<typeof makeTestDb>['db'];
+  let sqlite: Database.Database;
+
+  beforeEach(() => {
+    ({ db, sqlite } = makeTestDb());
+  });
+
+  afterEach(() => {
+    sqlite.close();
+  });
+
+  /** Seed one match and stamp Riot's RR verdict on it (null ⇒ unknown, as the scanner leaves it). */
+  function seedRrMatch(puuid: string, matchId: string, rrChange: number | null, startedAt = IN_WINDOW) {
+    seedMatch(sqlite, { puuid, matchId, startedAt });
+    sqlite
+      .prepare('UPDATE match_records SET rr_change = ? WHERE match_id = ? AND riot_puuid = ?')
+      .run(rrChange, matchId, puuid);
+  }
+
+  async function build() {
+    return buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END, readOnly: true });
+  }
+
+  it('names the top gainer and top loser with net RR and the matches behind it', async () => {
+    seedUser(sqlite, 1, 'p-up', { riotName: 'Climber', riotTag: 'CLM' });
+    seedUser(sqlite, 2, 'p-down', { riotName: 'Sinker', riotTag: 'SNK' });
+    seedUser(sqlite, 3, 'p-mid', { riotName: 'Middle', riotTag: 'MID' });
+    // Climber: +20 +25 −8 = +37 over 3 known matches; the null row is not counted.
+    seedRrMatch('p-up', 'up-1', 20);
+    seedRrMatch('p-up', 'up-2', 25, IN_WINDOW + 1000);
+    seedRrMatch('p-up', 'up-3', -8, IN_WINDOW + 2000);
+    seedRrMatch('p-up', 'up-4', null, IN_WINDOW + 3000);
+    // Sinker: −18 −22 = −40 over 2.
+    seedRrMatch('p-down', 'down-1', -18);
+    seedRrMatch('p-down', 'down-2', -22, IN_WINDOW + 1000);
+    // Middle: +5 — neither extreme.
+    seedRrMatch('p-mid', 'mid-1', 5);
+
+    const result = await build();
+    expect(result.sectionsIncluded).toContain('rrWeek');
+    const html = result.richHtml!;
+    expect(html).toContain(
+      '🏦 <b>RR недели</b><br><br>' +
+        '📈 <b>Climber#CLM</b> · +37 RR за 3 матча<br>' +
+        '📉 <b>Sinker#SNK</b> · −40 RR за 2 матча',
+    );
+    expect(html).not.toContain('Middle#MID</b> · +5');
+    expect(result.text).toContain('📈 <b>Climber#CLM</b> · +37 RR за 3 матча');
+  });
+
+  it('sits after the pulse line and before the maps board', async () => {
+    seedUser(sqlite, 1, 'p-up', { riotName: 'Climber', riotTag: 'CLM' });
+    seedRrMatch('p-up', 'up-1', 20);
+    const html = (await build()).richHtml!;
+    const rr = html.indexOf('RR недели');
+    expect(rr).toBeGreaterThan(html.indexOf('мы сыграли'));
+    expect(rr).toBeLessThan(html.indexOf('Карты недели'));
+  });
+
+  it('an all-positive week has a gainer and no loser line', async () => {
+    seedUser(sqlite, 1, 'p-a', { riotName: 'Alpha', riotTag: 'AAA' });
+    seedUser(sqlite, 2, 'p-b', { riotName: 'Beta', riotTag: 'BBB' });
+    seedRrMatch('p-a', 'a-1', 15);
+    seedRrMatch('p-b', 'b-1', 30);
+
+    const html = (await build()).richHtml!;
+    expect(html).toContain('📈 <b>Beta#BBB</b> · +30 RR за 1 матч');
+    expect(html).not.toContain('Alpha#AAA</b> · +15');
+    expect(html).not.toContain('📉');
+  });
+
+  it('a tie on the extreme names every tied player with their own match count', async () => {
+    seedUser(sqlite, 1, 'p-a', { riotName: 'Alpha', riotTag: 'AAA' });
+    seedUser(sqlite, 2, 'p-b', { riotName: 'Beta', riotTag: 'BBB' });
+    seedRrMatch('p-a', 'a-1', 20);
+    seedRrMatch('p-b', 'b-1', 12);
+    seedRrMatch('p-b', 'b-2', 8, IN_WINDOW + 1000);
+
+    const html = (await build()).richHtml!;
+    expect(html).toContain('📈 <b>Alpha#AAA</b> · +20 RR за 1 матч');
+    expect(html).toContain('📈 <b>Beta#BBB</b> · +20 RR за 2 матча');
+  });
+
+  it('skips opted-out players — the next one takes the line', async () => {
+    seedUser(sqlite, 1, 'p-hidden', { riotName: 'Hidden', riotTag: 'HID' });
+    seedUser(sqlite, 2, 'p-shown', { riotName: 'Shown', riotTag: 'SHN' });
+    seedOptOut(sqlite, 1, 1);
+    seedRrMatch('p-hidden', 'h-1', 60);
+    seedRrMatch('p-shown', 's-1', 10);
+
+    const html = (await build()).richHtml!;
+    expect(html).not.toContain('Hidden#HID');
+    expect(html).toContain('📈 <b>Shown#SHN</b> · +10 RR за 1 матч');
+  });
+
+  it('ignores matches outside the window', async () => {
+    seedUser(sqlite, 1, 'p-a', { riotName: 'Alpha', riotTag: 'AAA' });
+    seedRrMatch('p-a', 'old', 90, OUT_OF_WINDOW);
+    seedRrMatch('p-a', 'new', -12);
+
+    const html = (await build()).richHtml!;
+    expect(html).toContain('📉 <b>Alpha#AAA</b> · −12 RR за 1 матч');
+    expect(html).not.toContain('📈');
+  });
+
+  it('omits the section when nobody has a known RR change this week', async () => {
+    seedUser(sqlite, 1, 'p-a', { riotName: 'Alpha', riotTag: 'AAA' });
+    seedRrMatch('p-a', 'a-1', null);
+    seedRrMatch('p-a', 'old', 25, OUT_OF_WINDOW);
+
+    const result = await build();
+    expect(result.sectionsIncluded).not.toContain('rrWeek');
+    expect(result.richHtml).not.toContain('RR недели');
+    expect(result.text).not.toContain('RR недели');
+  });
+
+  it('omits the section when every net is exactly zero', async () => {
+    seedUser(sqlite, 1, 'p-a', { riotName: 'Alpha', riotTag: 'AAA' });
+    seedRrMatch('p-a', 'a-1', 10);
+    seedRrMatch('p-a', 'a-2', -10, IN_WINDOW + 1000);
+
+    const result = await build();
+    expect(result.sectionsIncluded).not.toContain('rrWeek');
+    expect(result.richHtml).not.toContain('RR недели');
+  });
+});

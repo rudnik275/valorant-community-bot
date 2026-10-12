@@ -44,6 +44,8 @@ import {
   type RichWeaponMaster,
   type RichRecord,
   type RichWinstreak,
+  type RichRrWeek,
+  type RichRrSide,
   type RichPromotion,
   type RichNearMiss,
   type RichPlayerRef,
@@ -1007,6 +1009,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
   let richFirstBlood: { namesHtml: string[]; count: number } | null = null;
   const richTopMaps: RichDigestModel['topMaps'] = [];
   const richTopAgents: RichDigestModel['topAgents'] = [];
+  let richRrWeek: RichRrWeek | null = null;
 
   sectionsIncluded.push('pulse');
 
@@ -1170,6 +1173,63 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
     }
   }
 
+  // RR недели — each member's net RR over the window: SUM(rr_change) over the
+  // matches whose RR verdict we know (#388). `rr_change` is null on rows the
+  // scanner wrote before #389 and on any match that wasn't the player's newest
+  // in its scan tick, so `matches` counts only the rows behind the sum.
+  {
+    const optedOut = await getOptOutSet();
+
+    const rows = await db
+      .select({
+        riot_puuid: matchRecords.riot_puuid,
+        net: sql<number>`SUM(${matchRecords.rr_change})`,
+        n: sql<number>`COUNT(${matchRecords.rr_change})`,
+      })
+      .from(matchRecords)
+      .where(
+        and(
+          isNotNull(matchRecords.riot_puuid),
+          isNotNull(matchRecords.rr_change),
+          gte(matchRecords.started_at, weekStart),
+          lt(matchRecords.started_at, weekEnd),
+        ),
+      )
+      .groupBy(matchRecords.riot_puuid)
+      // Deterministic tie order — same reason as the most-active board.
+      .orderBy(matchRecords.riot_puuid);
+
+    const members: Array<{ nameHtml: string; net: number; matches: number }> = [];
+    for (const row of rows as Array<{ riot_puuid: string; net: number; n: number }>) {
+      const user = await getUserByPuuid(row.riot_puuid);
+      if (!user) continue;
+      if (optedOut.has(user.telegram_id)) continue;
+      members.push({
+        // Weekly aggregate — no match attached ⇒ just bold Ник#Тег.
+        nameHtml: renderPlayerName({ name: user.riot_name, tag: user.riot_tag, isCommunity: true }),
+        net: Number(row.net),
+        matches: Number(row.n),
+      });
+    }
+
+    // Everyone on the extreme net shares the line-up — a tie names them all.
+    const sideAt = (net: number): RichRrSide => ({
+      net,
+      players: members
+        .filter((m) => m.net === net)
+        .map((m) => ({ nameHtml: m.nameHtml, matches: m.matches })),
+    });
+    const best = Math.max(...members.map((m) => m.net));
+    const worst = Math.min(...members.map((m) => m.net));
+    const gainer = best > 0 ? sideAt(best) : null;
+    const loser = worst < 0 ? sideAt(worst) : null;
+
+    if (gainer || loser) {
+      richRrWeek = { gainer, loser };
+      sectionsIncluded.push('rrWeek');
+    }
+  }
+
   // ─── Compose ─────────────────────────────────────────────────────────────────
   // ONE render pass produces both the Rich Message html (what the group sees)
   // and the plain-text fallback (used only when sendRichMessage errors, and as
@@ -1182,6 +1242,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
     totalMatches,
     records: richRecords,
     winstreaks: richWinstreaks,
+    rrWeek: richRrWeek,
     aces: richAces,
     knives: richKnives,
     clutches: richClutches,

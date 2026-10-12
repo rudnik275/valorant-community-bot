@@ -4,6 +4,7 @@ import {
   getMatches,
   getMmr,
   getMmrByPuuid,
+  getMmrHistoryByPuuid,
   extractCardId,
   HenrikNotFoundError,
   HenrikInactiveAccountError,
@@ -17,6 +18,7 @@ import {
 } from './henrik.ts';
 import matchFixture from './__fixtures__/henrik/match_console_v4.json';
 import mmrFixture from './__fixtures__/henrik/mmr_console_v3.json';
+import mmrHistoryFixture from './__fixtures__/henrik/mmr_history_console_v2.json';
 
 vi.mock('./log.ts', () => ({
   default: {
@@ -529,6 +531,81 @@ describe('getMmrByPuuid', () => {
     const result = await getMmrByPuuid('abc', 'eu');
     expect(result.peak).toBeNull();
     expect(result.current.tier.id).toBe(3);
+  });
+});
+
+// ─── getMmrHistoryByPuuid ─────────────────────────────────────────────────────
+
+describe('getMmrHistoryByPuuid', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    __resetTokenBucketForTest({ tokens: 30 });
+    __resetBlockUntilForTest();
+    delete process.env['HENRIK_API_KEY'];
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('parses every history entry, newest first, down to match id + RR change + tier before', async () => {
+    fetchMock.mockResolvedValue(makeResponse(200, mmrHistoryFixture));
+
+    const history = await getMmrHistoryByPuuid('fixture-puuid-mmr-history', 'eu');
+
+    expect(history).toEqual([
+      {
+        match_id: 'fixture-history-match-3',
+        last_change: -18,
+        tier_before_update: { id: 21, name: 'Ascendant 1' },
+      },
+      {
+        match_id: 'fixture-history-match-2',
+        last_change: 21,
+        tier_before_update: { id: 20, name: 'Diamond 3' },
+      },
+      // Henrik nulls the verdict sometimes — carried as null, not dropped.
+      { match_id: 'fixture-history-match-1', last_change: null, tier_before_update: null },
+    ]);
+  });
+
+  it('calls the v2 by-puuid mmr-history endpoint with default platform=console', async () => {
+    fetchMock.mockResolvedValue(makeResponse(200, mmrHistoryFixture));
+
+    await getMmrHistoryByPuuid('test-puuid', 'eu');
+
+    const url = (fetchMock.mock.calls[0] as [string, unknown])[0] as string;
+    expect(url).toContain('/valorant/v2/by-puuid/mmr-history/eu/console/test-puuid');
+  });
+
+  it('respects platform=pc override', async () => {
+    fetchMock.mockResolvedValue(makeResponse(200, mmrHistoryFixture));
+
+    await getMmrHistoryByPuuid('test-puuid', 'na', 'pc');
+
+    const url = (fetchMock.mock.calls[0] as [string, unknown])[0] as string;
+    expect(url).toContain('/valorant/v2/by-puuid/mmr-history/na/pc/test-puuid');
+  });
+
+  it('returns an empty list when the player has no ranked history', async () => {
+    fetchMock.mockResolvedValue(makeResponse(200, { status: 200, data: { history: [] } }));
+
+    expect(await getMmrHistoryByPuuid('abc', 'eu')).toEqual([]);
+  });
+
+  it('throws HenrikError on an unexpected shape', async () => {
+    fetchMock.mockResolvedValue(makeResponse(200, { status: 200, data: { history: [{ rr: 10 }] } }));
+
+    await expect(getMmrHistoryByPuuid('abc', 'eu')).rejects.toThrow(HenrikError);
+  });
+
+  it('throws HenrikNotFoundError on 404', async () => {
+    fetchMock.mockResolvedValue(makeResponse(404, { status: 404 }));
+
+    await expect(getMmrHistoryByPuuid('no-such-puuid', 'eu')).rejects.toThrow(HenrikNotFoundError);
   });
 });
 

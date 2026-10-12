@@ -553,6 +553,51 @@ function parseMmrResponse(json: unknown): HenrikMmr {
   };
 }
 
+// ─── Zod schemas for v2 MMR-history endpoint ─────────────────────────────────
+
+/**
+ * One mmr-history v2 entry — Riot's RR verdict for one ranked match. Same
+ * shape as MMR v3 `latest_update`; only the fields the seed (#388) reads are
+ * modelled, the rest pass through.
+ */
+const MmrHistoryEntrySchema = z.object({
+  match_id: z.string(),
+  last_change: z.number().nullable().optional(),
+  tier_before_update: MmrTierSchema.passthrough().nullish(),
+  date: z.unknown().optional(),
+}).passthrough();
+
+const MmrHistoryResponseSchema = z.object({
+  status: z.number(),
+  data: z.object({
+    account: z.unknown().optional(),
+    history: z.array(MmrHistoryEntrySchema),
+  }).passthrough(),
+});
+
+/** One match's RR verdict from `/v2/by-puuid/mmr-history`, newest first. */
+export interface HenrikMmrHistoryEntry {
+  match_id: string;
+  /** RR gained (+) or lost (−) in that match; null when Henrik omits it. */
+  last_change: number | null;
+  /** Tier the player held going into that match, or null when omitted. */
+  tier_before_update: { id: number; name: string } | null;
+}
+
+function parseMmrHistoryResponse(json: unknown): HenrikMmrHistoryEntry[] {
+  const parsed = MmrHistoryResponseSchema.safeParse(json);
+  if (!parsed.success) {
+    throw new HenrikError(`Unexpected Henrik MMR-history response shape: ${parsed.error.message}`);
+  }
+  return parsed.data.data.history.map((e) => ({
+    match_id: e.match_id,
+    last_change: e.last_change ?? null,
+    tier_before_update: e.tier_before_update
+      ? { id: e.tier_before_update.id, name: e.tier_before_update.name }
+      : null,
+  }));
+}
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
@@ -773,5 +818,25 @@ export async function getMmrByPuuid(
     key: endpoint,
     priority: opts?.priority ?? 'background',
     fn: () => fetchWithRetry(endpoint, parseMmrResponse),
+  });
+}
+
+/**
+ * Get a player's recent RR history by PUUID — Henrik returns the last 20
+ * ranked matches, newest first, each with Riot's RR verdict.
+ * Endpoint: GET /valorant/v2/by-puuid/mmr-history/{region}/{platform}/{puuid}
+ * Default platform: 'console'
+ */
+export async function getMmrHistoryByPuuid(
+  puuid: string,
+  region: string,
+  platform: 'pc' | 'console' = 'console',
+  opts?: { priority?: Priority },
+): Promise<HenrikMmrHistoryEntry[]> {
+  const endpoint = `/valorant/v2/by-puuid/mmr-history/${encodeURIComponent(region)}/${encodeURIComponent(platform)}/${encodeURIComponent(puuid)}`;
+  return henrikQueue.enqueue({
+    key: endpoint,
+    priority: opts?.priority ?? 'background',
+    fn: () => fetchWithRetry(endpoint, parseMmrHistoryResponse),
   });
 }
