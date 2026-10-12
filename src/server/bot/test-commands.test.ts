@@ -312,7 +312,7 @@ describe('/test_daily_digest preview (#365)', () => {
       const payload = rich[0]![0] as { chat_id: number; rich_message: { html: string } };
       expect(payload.chat_id).toBe(OWNER_TELEGRAM_ID);
       const html = payload.rich_message.html;
-      expect(html).toContain('<h2>🍿 Эйсы и ножи за предыдущие 24 часа</h2>🎯 Эйсы<br><br>- ');
+      expect(html).toContain('<h2>🍿 Эйсы, ножи и клатчи за предыдущие 24 часа</h2>🎯 Эйсы<br><br>- ');
       expect(html.match(/<b>Ace#ACE<\/b>/g)).toHaveLength(2);
       expect(html).toMatch(/<a href="https:\/\/tracker.gg\/valorant\/match\/m1"><tg-emoji/);
     } finally {
@@ -335,7 +335,7 @@ describe('/test_daily_digest preview (#365)', () => {
     }
   });
 
-  it('says so in one line when the window holds no aces or knives', async () => {
+  it('says so in one line when the window holds no aces, knives or clutches', async () => {
     const { db, sqlite } = makeTestDb();
     try {
       const bot = makeMockBot();
@@ -346,7 +346,7 @@ describe('/test_daily_digest preview (#365)', () => {
       const texts = bot.api.sendMessage.mock.calls.map((c) => c[1] as string);
       expect(texts).toEqual([
         '<i>--- Preview: дневной дайджест за последние 1 дн. ---</i>',
-        '<i>(нет эйсов и ножей за это окно)</i>',
+        '<i>(нет эйсов, ножей и клатчей за это окно)</i>',
       ]);
       expect(bot.api.raw.sendRichMessage).not.toHaveBeenCalled();
     } finally {

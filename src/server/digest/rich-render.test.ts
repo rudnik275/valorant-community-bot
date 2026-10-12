@@ -35,6 +35,10 @@ function fullModel(overrides: Partial<RichDigestModel> = {}): RichDigestModel {
       { name: 'Alpha', tag: 'AAA', count: 3 },
       { name: 'Beta', tag: 'BBB', count: 1 },
     ],
+    clutches: [
+      { name: 'Beta', tag: 'BBB', count: 2 },
+      { name: 'Killer', tag: 'KLL', count: 1 },
+    ],
     promotions: [{ name: 'Climber', tag: 'UP', rank: 'Platinum 1' }],
     weaponMasters: [
       {
@@ -81,6 +85,7 @@ function emptyModel(overrides: Partial<RichDigestModel> = {}): RichDigestModel {
     winstreaks: [],
     aces: [],
     knives: [],
+    clutches: [],
     promotions: [],
     weaponMasters: [],
     firstBlood: null,
@@ -193,6 +198,13 @@ describe('renderDigest — ace / knife leaderboards', () => {
     const { html } = renderDigest(fullModel({ aces: [], knives: [] }));
     expect(html).not.toContain('Эйсы недели');
     expect(html).not.toContain('Ножи недели');
+  });
+
+  it('renders the 🧊 clutch board with podium medals and counts, like the ace board', () => {
+    const { html, text } = renderDigest(fullModel());
+    expect(html).toContain('🧊 <b>Клатчи недели</b><br><br>🥇 <b>Beta#BBB</b> — 2<br>🥈 <b>Killer#KLL</b> — 1');
+    expect(text).toContain('🧊 <b>Клатчи недели</b>\n\n🥇 <b>Beta#BBB</b> — 2\n🥈 <b>Killer#KLL</b> — 1');
+    expect(renderDigest(fullModel({ clutches: [] })).html).not.toContain('Клатчи недели');
   });
 });
 
@@ -414,7 +426,7 @@ describe('renderDigest — ties on a board', () => {
   const aces = (counts: number[]) =>
     counts.map((count, i) => ({ name: `P${i + 1}`, tag: 'T', count }));
   const board = (counts: number[]) =>
-    renderDigest(fullModel({ aces: aces(counts), knives: [], topMaps: [], topAgents: [] })).html;
+    renderDigest(fullModel({ aces: aces(counts), knives: [], clutches: [], topMaps: [], topAgents: [] })).html;
 
   it('gives every player on the same count the same medal', () => {
     // The live week: one player on 2 aces, seven tied on 1. Positional medals
@@ -600,6 +612,7 @@ describe('renderDigest — section order', () => {
       'Открывашка недели',
       'Эйсы недели',
       'Ножи недели',
+      'Клатчи недели',
       'Карты недели',
       'Агенты недели',
       '#digest',
@@ -722,6 +735,7 @@ describe('renderDigest — the text twin', () => {
     for (const header of [
       'Эйсы недели',
       'Ножи недели',
+      'Клатчи недели',
       'Винстрик недели',
       'Мастера своего дела',
       'Открывашка недели',
@@ -740,7 +754,7 @@ describe('renderDigest — empty sections', () => {
     const { html, text } = renderDigest(emptyModel());
     expect(html).toContain('📊 За неделю мы сыграли <b>3</b> матчей');
     expect(text).toContain('📊 За неделю мы сыграли <b>3</b> матчей');
-    for (const header of ['Эйсы недели', 'Ножи недели', 'Мастера своего дела', 'Открывашка недели', 'Больше всех матчей']) {
+    for (const header of ['Эйсы недели', 'Ножи недели', 'Клатчи недели', 'Мастера своего дела', 'Открывашка недели', 'Больше всех матчей']) {
       expect(html).not.toContain(header);
     }
   });

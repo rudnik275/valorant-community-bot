@@ -6,7 +6,7 @@ const row = (i: number) => `- <tg-emoji emoji-id="123">💎</tg-emoji> <b>Sixtee
 describe('sendDailyDigest', () => {
   it('sends a short digest byte-identically in one message and returns its result', async () => {
     const send = vi.fn().mockResolvedValue({ message_id: 7 });
-    const text = `🍿 Эйсы и ножи за предыдущие 24 часа\n\n🎯 Эйсы\n${row(1)}`;
+    const text = `🍿 Эйсы, ножи и клатчи за предыдущие 24 часа\n\n🎯 Эйсы\n${row(1)}`;
     expect(await sendDailyDigest(text, send)).toEqual({ message_id: 7 });
     expect(send.mock.calls).toEqual([[text]]);
   });
@@ -14,9 +14,9 @@ describe('sendDailyDigest', () => {
   it('uses h2 only for the main heading and uses explicit blank lines after both section headings and between sections', async () => {
     const send = vi.fn();
     const rich = vi.fn().mockResolvedValue({ message_id: 9 });
-    const text = `🍿 Эйсы и ножи за предыдущие 24 часа\n\n🎯 Эйсы\n\n${row(1)}\n\n🔪 Ножи\n\n${row(2)}`;
+    const text = `🍿 Эйсы, ножи и клатчи за предыдущие 24 часа\n\n🎯 Эйсы\n\n${row(1)}\n\n🔪 Ножи\n\n${row(2)}`;
     expect(await sendDailyDigest(text, send, rich)).toEqual({ message_id: 9 });
-    expect(rich).toHaveBeenCalledWith(`<h2>🍿 Эйсы и ножи за предыдущие 24 часа</h2>🎯 Эйсы<br><br>${row(1)}<br><br>🔪 Ножи<br><br>${row(2)}`);
+    expect(rich).toHaveBeenCalledWith(`<h2>🍿 Эйсы, ножи и клатчи за предыдущие 24 часа</h2>🎯 Эйсы<br><br>${row(1)}<br><br>🔪 Ножи<br><br>${row(2)}`);
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -37,7 +37,7 @@ describe('sendDailyDigest', () => {
 
   it('splits 150 rows into sequential messages by parsed UTF-16 length, keeping every row and link intact', async () => {
     const rows = Array.from({ length: 150 }, (_, i) => row(i));
-    const text = ['🍿 Эйсы и ножи за предыдущие 24 часа', '', '🎯 Эйсы', ...rows].join('\n');
+    const text = ['🍿 Эйсы, ножи и клатчи за предыдущие 24 часа', '', '🎯 Эйсы', ...rows].join('\n');
     const sent: string[] = [];
     let active = false;
     const send = async (chunk: string) => {

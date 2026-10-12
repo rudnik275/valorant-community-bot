@@ -19,6 +19,9 @@
  *             per kill and CAN repeat a round (two knife kills in one round =
  *             2). The old daily post deduped rounds; a leaderboard of "кто
  *             сколько ножей сделал" is more naturally kills.
+ *   - Clutch — one per CLUTCH ROUND, as Riot credits it (`CeremonyClutch` +
+ *             `ceremony_player`, #385). `rounds` is unique per match like aces.
+ *             No 1vN size — Riot's match payload does not carry it.
  *
  * A knife kill is a knife kill: the old «заколол баранчика» / «распотрошил
  * гуся» (AFK victim) split is retired (owner, 2026-08-04) — both count the
@@ -42,13 +45,13 @@ import { users } from '../db/schema/users.ts';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
 
-/** One player's row in an ace or knife leaderboard. */
+/** One player's row in an ace, knife or clutch leaderboard. */
 export interface AceKnifeStanding {
   /** Riot display name (unescaped). */
   name: string;
   /** Riot tag (unescaped). */
   tag: string;
-  /** Aces (aced rounds) or knife kills in the window. Always ≥ 1. */
+  /** Aces (aced rounds), knife kills or clutch rounds in the window. Always ≥ 1. */
   count: number;
 }
 
@@ -57,10 +60,12 @@ export interface AceKnifeStandings {
   aces: AceKnifeStanding[];
   /** Knife leaderboard, desc by count. Empty ⇒ section omitted. */
   knives: AceKnifeStanding[];
+  /** Clutch leaderboard, desc by count. Empty ⇒ section omitted. */
+  clutches: AceKnifeStanding[];
 }
 
 interface Row {
-  eventType: 'ace' | 'knife_kill';
+  eventType: 'ace' | 'knife_kill' | 'clutch';
   puuid: string;
   payloadJson: string;
   riotName: string | null;
@@ -77,15 +82,15 @@ interface Tally {
 /**
  * Count the occurrences one event payload contributes.
  *
- * `rounds` is the authoritative array for both types (one entry per ace round /
- * per knife kill). Legacy rows that predate it fall back to the scalar counters
- * the detectors also write (`total_aces` / `count`); a row with neither
- * contributes 0 rather than throwing.
+ * `rounds` is the authoritative array for every type (one entry per ace round /
+ * per knife kill / per clutch round). Legacy rows that predate it fall back to
+ * the scalar counters the detectors also write (`total_aces` / `count`); a row
+ * with neither contributes 0 rather than throwing.
  *
  * Exported because the DAILY digest (`digest-daily/build.ts`) counts by the
  * same rule since 2026-09-07 — a day's `×N` must add up to the week's number.
  */
-export function readOccurrences(eventType: 'ace' | 'knife_kill', payloadJson: string): number {
+export function readOccurrences(eventType: 'ace' | 'knife_kill' | 'clutch', payloadJson: string): number {
   let payload: Record<string, unknown>;
   try {
     payload = JSON.parse(payloadJson) as Record<string, unknown>;
@@ -114,7 +119,7 @@ function toStandings(tallies: Map<string, Tally>): AceKnifeStanding[] {
 }
 
 /**
- * Build the weekly ace / knife leaderboards for [weekStart, weekEnd).
+ * Build the weekly ace / knife / clutch leaderboards for [weekStart, weekEnd).
  *
  * `optedOutTelegramIds` are dropped from both boards. Players with no matching
  * `users` row are dropped too — a leaderboard entry needs a nick to render.
@@ -138,7 +143,7 @@ export async function buildAceKnifeStandings(
     .leftJoin(users, eq(users.riot_puuid, detectedEvents.riot_puuid))
     .where(
       and(
-        inArray(detectedEvents.event_type, ['ace', 'knife_kill']),
+        inArray(detectedEvents.event_type, ['ace', 'knife_kill', 'clutch']),
         gte(detectedEvents.detected_at, weekStart),
         lt(detectedEvents.detected_at, weekEnd),
       ),
@@ -147,6 +152,7 @@ export async function buildAceKnifeStandings(
 
   const aceTallies = new Map<string, Tally>();
   const knifeTallies = new Map<string, Tally>();
+  const clutchTallies = new Map<string, Tally>();
 
   for (const row of rows) {
     // No nick ⇒ nothing to render. No telegram_id ⇒ can't be opted out.
@@ -156,7 +162,8 @@ export async function buildAceKnifeStandings(
     const occurrences = readOccurrences(row.eventType, row.payloadJson);
     if (occurrences === 0) continue;
 
-    const bucket = row.eventType === 'ace' ? aceTallies : knifeTallies;
+    const bucket =
+      row.eventType === 'ace' ? aceTallies : row.eventType === 'clutch' ? clutchTallies : knifeTallies;
     const existing = bucket.get(row.puuid);
     if (existing) {
       existing.count += occurrences;
@@ -165,5 +172,9 @@ export async function buildAceKnifeStandings(
     }
   }
 
-  return { aces: toStandings(aceTallies), knives: toStandings(knifeTallies) };
+  return {
+    aces: toStandings(aceTallies),
+    knives: toStandings(knifeTallies),
+    clutches: toStandings(clutchTallies),
+  };
 }

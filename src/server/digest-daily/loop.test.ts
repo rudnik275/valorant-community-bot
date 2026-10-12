@@ -10,7 +10,7 @@ vi.mock('../lib/log.ts', () => ({
 }));
 
 const { MOCK_TEXT } = vi.hoisted(() => ({
-  MOCK_TEXT: '🍿 Эйсы и ножи за предыдущие 24 часа\n\n🎯 Эйсы\n- <b>Player#TAG</b> <a href="https://tracker.gg/valorant/match/m1">🦸/⛰️</a>',
+  MOCK_TEXT: '🍿 Эйсы, ножи и клатчи за предыдущие 24 часа\n\n🎯 Эйсы\n- <b>Player#TAG</b> <a href="https://tracker.gg/valorant/match/m1">🦸/⛰️</a>',
 }));
 
 // The builder is covered against real SQLite in build.test.ts.
@@ -92,14 +92,14 @@ describe('runDailyDigestNow', () => {
     const sendRichMessage = vi.fn().mockResolvedValue({ message_id: 17 });
     await runDailyDigestNow({ db, sendMessage, sendRichMessage, getPrimaryChatId: () => -100123456789 });
     expect(sendRichMessage).toHaveBeenCalledWith(-100123456789,
-      expect.stringContaining('<h2>🍿 Эйсы и ножи за предыдущие 24 часа</h2>'));
+      expect.stringContaining('<h2>🍿 Эйсы, ножи и клатчи за предыдущие 24 часа</h2>'));
     expect(sendMessage).not.toHaveBeenCalled();
     expect(getDailyRunRow(sqlite, getKyivDate())?.posted_message_id).toBe(17);
   });
 
   it('sends a long digest in complete rows and records the run after the final part', async () => {
     const { buildDailyAceDigest } = await import('./build.ts');
-    const text = '🍿 Эйсы и ножи за предыдущие 24 часа\n\n🔪 Ножи\n' +
+    const text = '🍿 Эйсы, ножи и клатчи за предыдущие 24 часа\n\n🔪 Ножи\n' +
       Array.from({ length: 200 }, (_, i) => `- <b>LongPlayerName16#TAG</b> <a href="https://tracker.gg/valorant/match/m${i}">🦸/⛰️</a>`).join('\n');
     vi.mocked(buildDailyAceDigest).mockResolvedValueOnce({ text, includedEventIds: [42] });
     let messageId = 20;

@@ -18,6 +18,7 @@ const ALL_EVENT_TYPES: EventType[] = [
   'record_headshots_match',
   'record_legshots_match',
   'knife_kill',
+  'clutch',
   'match_comeback',
   'record_mvp_count_week',
   'community_clash',
@@ -52,6 +53,7 @@ const minimalPayloads: Record<EventType, Record<string, unknown>> = {
   record_headshots_match: { value: 20, prev_value: null, prev_puuid: null },
   record_legshots_match: { value: 10, prev_value: null, prev_puuid: null },
   knife_kill: {},
+  clutch: {},
   match_comeback: {},
   record_mvp_count_week: { value: 5, prev_value: null, prev_puuid: null },
   community_clash: { teams: [], winner_team_id: null },
@@ -102,7 +104,7 @@ describe('renderTemplate — only realtime types have a template', () => {
     // digest/rich-render.ts, so their chat templates were deleted rather than
     // left to duplicate that copy.
     for (const t of [
-      'ace', 'knife_kill', 'record_kills_match', 'winstreak_10plus', 'peak_rank_up',
+      'ace', 'knife_kill', 'clutch', 'record_kills_match', 'winstreak_10plus', 'peak_rank_up',
       'record_died_first_rounds', 'record_survived_last_rounds',
     ] as EventType[]) {
       expect(renderTemplate(t, {}, safeUser), `${t} should fall back`).toContain(FALLBACK);

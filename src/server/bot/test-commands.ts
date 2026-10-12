@@ -149,7 +149,7 @@ export function makeTestDigestHandler(deps: TestCommandsDeps): MiddlewareFn<Cont
  * (#365). Builds it for the last N days (default 1 — the 23:00 post uses a
  * trailing 24h window) WITHOUT touching persistent state and sends
  * `result.text` — the exact HTML message the group gets — to the owner's
- * DM. A window with no aces or knives says so in one line.
+ * DM. A window with no aces, knives or clutches says so in one line.
  *
  * Same contract as `/test_digest`: any error is replied as text, and the
  * preview send is owner-DM-only (`chat_id` = `ctx.from.id`, verified by
@@ -186,7 +186,7 @@ export function makeTestDailyDigestHandler(deps: TestCommandsDeps): MiddlewareFn
         await sendExempt(
           deps.bot.api,
           fromId!,
-          '<i>(нет эйсов и ножей за это окно)</i>',
+          '<i>(нет эйсов, ножей и клатчей за это окно)</i>',
           HTML_OPTS,
         );
       }

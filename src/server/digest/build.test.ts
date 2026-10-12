@@ -1260,6 +1260,19 @@ describe('buildDigest', () => {
       expect(html).not.toContain('Alpha#AAA');
     });
 
+    it('renders the 🧊 clutch board from clutch events', async () => {
+      seedUser(sqlite, 1, 'p1', { riotName: 'Alpha', riotTag: 'AAA' });
+      seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW });
+      seedEvent(sqlite, { puuid: 'p1', matchId: 'c1', eventType: 'clutch', payload: { count: 2, rounds: [3, 9] }, detectedAt: IN_WINDOW });
+
+      const result = await buildDigest({ db, weekStart: WEEK_START, weekEnd: WEEK_END });
+      expect(result.sectionsIncluded).toContain('clutches');
+      expect(result.sectionsIncluded).not.toContain('clutch');
+      expect(result.richHtml!).toContain('🧊 <b>Клатчи недели</b><br><br>🥇 <b>Alpha#AAA</b> — 2');
+      expect(result.text).toContain('Клатчи недели');
+      expect(result.text).toContain('<b>Alpha#AAA</b> — 2');
+    });
+
     it('ace/knife events never leak into the bright-records area', async () => {
       seedUser(sqlite, 1, 'p1', { riotName: 'Alpha', riotTag: 'AAA' });
       seedMatch(sqlite, { puuid: 'p1', startedAt: IN_WINDOW });

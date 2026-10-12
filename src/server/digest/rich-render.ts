@@ -190,6 +190,8 @@ export interface RichDigestModel {
    * Empty ⇒ section omitted.
    */
   knives: AceKnifeStanding[];
+  /** Clutch leaderboard — clutch rounds Riot credited (#385). Desc by count. Empty ⇒ omitted. */
+  clutches: AceKnifeStanding[];
   /** Promotion rows. Empty ⇒ omitted. */
   promotions: RichPromotion[];
   /** Weapons-masters rows. Empty ⇒ omitted. */
@@ -463,7 +465,8 @@ function standingsRows(standings: AceKnifeStanding[]): Array<{ labelHtml: string
 function buildBlocks(model: RichDigestModel): Block[] {
   // Section order is owner-specified (2026-08-04):
   //   пульс → больше всех матчей → винстрик → рекорды → почти рекорды →
-  //   повышения → мастера своего дела → открывашка → эйсы → ножи → карты → агенты
+  //   повышения → мастера своего дела → открывашка → эйсы → ножи → клатчи →
+  //   карты → агенты
   // «Больше всех матчей» leads because it reads straight off the pulse line
   // («сыграли 478» → «больше всех — Госпожа, 68»); the two aggregate boards
   // close the post. Reordering means moving whole blocks here — nothing else
@@ -569,6 +572,8 @@ function buildBlocks(model: RichDigestModel): Block[] {
   if (aceBlock) blocks.push(aceBlock);
   const knifeBlock = leaderboardBlock('🔪', 'Ножи недели', standingsRows(model.knives), PLAYER_TAIL);
   if (knifeBlock) blocks.push(knifeBlock);
+  const clutchBlock = leaderboardBlock('🧊', 'Клатчи недели', standingsRows(model.clutches), PLAYER_TAIL);
+  if (clutchBlock) blocks.push(clutchBlock);
 
   // 9. Карты и агенты — full boards in the ace/knife shape, but with the tail
   // folded into a `<details>` (owner: «топ3 показывать, остальное в
