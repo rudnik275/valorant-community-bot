@@ -1,0 +1,50 @@
+name: Seed RR change
+
+# One-off: fill match_records.rr_change / rank_before from Henrik mmr-history
+# (#388), so «🏦 RR недели» has data for matches recorded before the scanner
+# stored RR. Runs scripts/launch/seed-rr-change.ts inside the running
+# container, which reads the Henrik key from its own env. Dry-run by default.
+#
+#   gh workflow run seed-rr-change.yml              # dry-run: counts only
+#   gh workflow run seed-rr-change.yml -f apply=1   # writes
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Set to "1" to write rr_change / rank_before. Empty = dry-run.'
+        required: false
+        default: ''
+
+jobs:
+  seed:
+    name: Seed rr_change from Henrik mmr-history
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate inputs
+        env:
+          APPLY: ${{ inputs.apply }}
+        run: |
+          [[ -z "$APPLY" || "$APPLY" == "1" ]] || { echo 'apply must be empty or "1"'; exit 1; }
+
+      # Same deploy key and host as the CI deploy job.
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@v5
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          SSH_PRIVATE_KEY: "op://valorant-community-bot/valorant-deploy-1p/private key?ssh-format=openssh"
+
+      - name: Run the seed inside the running container
+        uses: appleboy/ssh-action@v1
+        env:
+          APPLY: ${{ inputs.apply }}
+        with:
+          host: 46.62.229.131
+          username: deploy
+          key: ${{ env.SSH_PRIVATE_KEY }}
+          envs: APPLY
+          command_timeout: 30m
+          script: |
+            docker exec -e APPLY="$APPLY" valorant-bot-app bun run scripts/launch/seed-rr-change.ts

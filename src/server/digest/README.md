@@ -24,6 +24,13 @@ It moved from Fridays on 2026-10-07; the first Sunday window (to
   клатчи за предыдущие 24 часа») is the same kind of count list for one day —
   it reuses `readOccurrences` so a day's `×N` adds up to the week's — and both
   read the same `detected_events` rows and coexist.
+- «🏦 RR недели» (in `build.ts`, after the top-agents query) — each member's
+  net RR for the week, `SUM(match_records.rr_change)`: the top gainer 📈 and
+  the top loser 📉, with the number of matches whose RR verdict is known.
+  Omitted when nobody has a non-zero net. `rr_change` is filled by the scanner
+  for each player's newest match per tick; older gaps were seeded once from
+  Henrik mmr-history (`../scanner/seed-rr-change.ts`,
+  `gh workflow run seed-rr-change.yml -f apply=1`).
 - `loop.ts` / `two-phase.ts` — scheduling and the Sun 18:45 prepare / 19:00
   publish split for the promo image.
 

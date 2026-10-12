@@ -97,6 +97,35 @@ export interface RichWinstreak {
   streak: number;
 }
 
+/** One player on a side of «🏦 RR недели». */
+export interface RichRrPlayer {
+  /**
+   * TRUSTED fragment (already `<b>…</b>`-wrapped + escaped by build.ts) —
+   * rendered verbatim; do NOT re-escape.
+   */
+  nameHtml: string;
+  /** Ranked matches with a known RR change behind the net. */
+  matches: number;
+}
+
+/**
+ * One side of «🏦 RR недели»: everyone on the week's best (or worst) net RR.
+ * Tied players share `net` but not the match count, so each carries its own.
+ */
+export interface RichRrSide {
+  /** Net RR over the week — the sum of `match_records.rr_change`. */
+  net: number;
+  players: RichRrPlayer[];
+}
+
+/** «🏦 RR недели» — top net RR gainer and top net RR loser of the week. */
+export interface RichRrWeek {
+  /** Highest positive net, or null when nobody finished the week up. */
+  gainer: RichRrSide | null;
+  /** Lowest negative net, or null when nobody finished the week down. */
+  loser: RichRrSide | null;
+}
+
 /** One promotion row for «Повышение по службе». */
 export interface RichPromotion {
   name: string;
@@ -211,6 +240,8 @@ export interface RichDigestModel {
   records: RichRecord[];
   /** Winstreak rows. Empty ⇒ section omitted. */
   winstreaks: RichWinstreak[];
+  /** «🏦 RR недели» — net RR gainer / loser. null ⇒ section omitted. */
+  rrWeek: RichRrWeek | null;
   /**
    * Ace leaderboard — «кто сколько эйсов сделал». Desc by count.
    * Empty ⇒ section omitted.
@@ -497,7 +528,7 @@ function standingsRows(standings: AceKnifeStanding[]): Array<{ labelHtml: string
  */
 function buildBlocks(model: RichDigestModel): Block[] {
   // Section order is owner-specified (2026-08-04):
-  //   пульс → больше всех матчей → винстрик → рекорды → почти рекорды →
+  //   пульс → больше всех матчей → винстрик → RR недели → рекорды → почти рекорды →
   //   оценка Riot → повышения → мастера своего дела → открывашка → эйсы →
   //   ножи → клатчи → карты → агенты
   // «Больше всех матчей» leads because it reads straight off the pulse line
@@ -534,6 +565,20 @@ function buildBlocks(model: RichDigestModel): Block[] {
           ` · ${w.streak} побед подряд`,
       );
     push('🏆 <b>Винстрик недели</b>', ...lines);
+  }
+
+  // 3b. RR недели — the week's net RR (sum of Riot's per-match RR change):
+  // top gainer first, then top loser. A tie names everyone on that net, one
+  // line each, since tied players rarely share a match count.
+  if (model.rrWeek) {
+    const rrLine = (marker: string, signed: string, p: RichRrPlayer): string =>
+      `${marker} ${p.nameHtml} · ${signed} RR за ${p.matches} ${pluralRu(p.matches, 'матч', 'матча', 'матчей')}`;
+    const { gainer, loser } = model.rrWeek;
+    const lines: string[] = [];
+    if (gainer) lines.push(...gainer.players.map((p) => rrLine('📈', `+${gainer.net}`, p)));
+    // Real minus sign (U+2212), not a hyphen.
+    if (loser) lines.push(...loser.players.map((p) => rrLine('📉', `−${Math.abs(loser.net)}`, p)));
+    if (lines.length > 0) push('🏦 <b>RR недели</b>', ...lines);
   }
 
   // 4. Records — two flat lines each: title, then `ник · значение · ссылка`.
