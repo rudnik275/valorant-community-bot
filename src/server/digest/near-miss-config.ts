@@ -11,7 +11,7 @@ export interface NearMissThreshold {
   /** absolute delta — value within this distance below all-time record counts as near-miss */
   threshold: number;
   /** column name in match_records (or special value for derived columns) */
-  source: 'kills' | 'deaths' | 'headshots' | 'legshots' | 'damage_dealt' | 'damage_received' | 'game_length_minutes' | 'rounds_played' | 'died_first_rounds' | 'mvp_count_week';
+  source: 'kills' | 'deaths' | 'headshots' | 'legshots' | 'damage_dealt' | 'damage_received' | 'game_length_minutes' | 'rounds_played' | 'died_first_rounds' | 'mvp_count_week' | 'performance_score';
   emoji: string;
   /** full funny header text (without emoji prefix and without trailing whitespace) */
   header: string;
@@ -31,4 +31,6 @@ export const NEAR_MISS_THRESHOLDS: NearMissThreshold[] = [
   // kills_per_weapon excluded — too many sub-types, low signal-to-noise
   { recordType: 'died_first_rounds_match', threshold: 1, source: 'died_first_rounds', emoji: '🐴', header: 'Чуть не стал(а) троянским конём недели', unit: 'первых смертей' },
   { recordType: 'mvp_count_week', threshold: 2, source: 'mvp_count_week', emoji: '👑', header: 'Был(а) близок(ка) к тому чтобы стать королём MVP за неделю', unit: 'MVP-матчей', floor: 10 },
+  // performance_score is a REAL — build.ts rounds it (like the record) before comparing.
+  { recordType: 'performance_score_match', threshold: 10, source: 'performance_score', emoji: '📊', header: 'Был(ла) близко к рекорду по оценке Riot', unit: 'очков' },
 ];

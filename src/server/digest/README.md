@@ -13,6 +13,10 @@ It moved from Fridays on 2026-10-07; the first Sunday window (to
   actually sees, and the plain-text fallback used when `sendRichMessage` fails.
   Layout is **flat lines, no tables** (owner, 2026-08-04 — tables read badly on
   a phone).
+- «📊 Оценка Riot» (built inline in `build.ts`) — 🏅 highest / 🥔 lowest
+  weekly average of Riot's per-match performance score, ≥5 scored matches.
+  The best single-match score is the all-time record «📊 Любимчик Riot»
+  (`record_performance_score_match`), with its own near-miss row.
 - `ace-knife.ts` — the «Эйсы недели» / «Ножи недели» / «Клатчи недели»
   leaderboards: who got how many over the week (clutches since #385 — Riot's
   `CeremonyClutch` credited to the player, ADR 0003). The standalone 23:00

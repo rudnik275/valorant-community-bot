@@ -47,6 +47,8 @@ import {
   type RichPromotion,
   type RichNearMiss,
   type RichPlayerRef,
+  type RichPerformance,
+  type RichPerformanceSide,
 } from './rich-render.ts';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDb = any;
@@ -129,6 +131,12 @@ const RICH_RECORD_META: Record<
       return `${p['value']} минут${roundsPart}`;
     },
   },
+  record_performance_score_match: {
+    emoji: '📊',
+    title: 'Любимчик Riot',
+    context: 'рекорд по оценке Riot за один матч',
+    value: (p) => `${p['value']} очков`,
+  },
 };
 
 /**
@@ -160,6 +168,7 @@ const BRIGHT_EVENT_WEIGHTS: Record<string, number> = {
   record_longest_match_minutes: 7,
   record_died_first_rounds: 7,
   record_survived_last_rounds: 7,
+  record_performance_score_match: 7,
   winstreak_10plus: 4,
   peak_rank_up: 3,
 };
@@ -360,13 +369,18 @@ async function renderNearMisses(
       damage_received: matchRecords.damage_received,
       rounds_played: matchRecords.rounds_played,
       died_first_rounds: matchRecords.died_first_rounds,
+      performance_score: matchRecords.performance_score,
       // game_length_minutes is handled separately below
     } as const;
 
     const expr =
       cfg.source === 'game_length_minutes'
         ? sql`CAST(${matchRecords.game_length_ms} / 60000.0 AS INTEGER)`
-        : sourceColumnMap[cfg.source as keyof typeof sourceColumnMap];
+        : cfg.source === 'performance_score'
+          // REAL column: round it exactly as the record detector does, so the
+          // week-best and the all-time bar are compared in whole points.
+          ? sql`CAST(ROUND(${matchRecords.performance_score}) AS INTEGER)`
+          : sourceColumnMap[cfg.source as keyof typeof sourceColumnMap];
 
     // Every player's week-best for this metric, best first. SQLite's
     // bare-column rule hands back `match_id`/`agent`/`map` from the row that
@@ -910,6 +924,71 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
     sectionsIncluded.push('nearMiss');
   }
 
+  // ─── 📊 ОЦЕНКА RIOT (#387) ──────────────────────────────────────────────────
+  // Weekly average of Riot's per-match performance score
+  // (`match_records.performance_score`, Henrik v4.10). Same ≥5-match bar as
+  // «Больше всех матчей», but counted over SCORED matches only: rows scanned
+  // before #384 are null and must neither count towards the bar nor drag an
+  // average down. 🏅 highest average, 🥔 lowest — comparative and negative
+  // awards are fine for this group (permissive stance).
+  let richPerformance: RichPerformance | null = null;
+  {
+    const optedOut = await getOptOutSet();
+
+    const rows = await db
+      .select({
+        riot_puuid: matchRecords.riot_puuid,
+        avg: sql<number>`AVG(${matchRecords.performance_score})`,
+        cnt: sql<number>`COUNT(${matchRecords.performance_score})`,
+      })
+      .from(matchRecords)
+      .where(and(
+        isNotNull(matchRecords.riot_puuid),
+        isNotNull(matchRecords.performance_score),
+        gte(matchRecords.started_at, weekStart),
+        lt(matchRecords.started_at, weekEnd),
+      ))
+      .groupBy(matchRecords.riot_puuid)
+      // puuid tie-break: equal averages must not swap places between two runs.
+      .orderBy(sql`AVG(${matchRecords.performance_score}) DESC`, matchRecords.riot_puuid);
+
+    // Desc by average; the players we may name, with the average rounded to
+    // what the line shows. Ties are decided on that rounded value — two lines
+    // both reading «284» must not hand the medal to only one of them.
+    const qualified: Array<{ nameHtml: string; avg: number; matches: number }> = [];
+    for (const row of rows as Array<{ riot_puuid: string; avg: number; cnt: number }>) {
+      const matches = Number(row.cnt);
+      if (matches < 5) continue;
+      const user = await getUserByPuuid(row.riot_puuid);
+      if (!user) continue;
+      if (optedOut.has(user.telegram_id)) continue;
+      qualified.push({
+        // Weekly aggregate — no match attached ⇒ bold Ник#Тег, no icons.
+        nameHtml: renderPlayerName({ name: user.riot_name, tag: user.riot_tag, isCommunity: true }),
+        avg: Math.round(Number(row.avg)),
+        matches,
+      });
+    }
+
+    if (qualified.length > 0) {
+      const sideAt = (avg: number): RichPerformanceSide => ({
+        avg,
+        players: qualified
+          .filter((q) => q.avg === avg)
+          .map((q) => ({ nameHtml: q.nameHtml, matches: q.matches })),
+      });
+      const top = Math.max(...qualified.map((q) => q.avg));
+      const bottom = Math.min(...qualified.map((q) => q.avg));
+      richPerformance = {
+        best: sideAt(top),
+        // One qualifier — or everyone on the same average — would put the same
+        // names under 🥔 that just got 🏅.
+        worst: bottom === top ? null : sideAt(bottom),
+      };
+      sectionsIncluded.push('performance');
+    }
+  }
+
   // ─── ACE / KNIFE LEADERBOARDS ────────────────────────────────────────────────
   // Formerly the standalone 23:00 daily digest. Now plain per-player counts —
   // «кто сколько эйсов сделал, кто сколько ножей сделал» (owner, 2026-08-04).
@@ -1110,6 +1189,7 @@ export async function buildDigest(deps: BuildDigestDeps): Promise<BuildDigestRes
     weaponMasters: richWeaponMasters,
     firstBlood: richFirstBlood,
     nearMisses: richNearMisses,
+    performance: richPerformance,
     mostActive: richMostActive,
     topMaps: richTopMaps,
     topAgents: richTopAgents,

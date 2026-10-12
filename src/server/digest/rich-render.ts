@@ -165,6 +165,37 @@ export interface RichTopAgent {
   count: number;
 }
 
+/** One player on a side of «📊 Оценка Riot», with their own scored-match count. */
+export interface RichPerformancePlayer {
+  /** TRUSTED fragment (already `<b>…</b>`-wrapped + escaped by build.ts). */
+  nameHtml: string;
+  /** Matches with a Riot score this week — the average's denominator. */
+  matches: number;
+}
+
+/**
+ * One side of «📊 Оценка Riot»: everyone on that average. Several players only
+ * when they tie on the ROUNDED average — the value the line shows. The match
+ * count stays per player: two players tied on 284 rarely got there over the
+ * same number of games.
+ */
+export interface RichPerformanceSide {
+  players: RichPerformancePlayer[];
+  /** Weekly average of Riot's per-match performance score, rounded. */
+  avg: number;
+}
+
+/**
+ * «📊 Оценка Riot» — highest (🏅) and lowest (🥔) weekly average of Riot's
+ * per-match performance score, among players with ≥5 scored matches.
+ * `worst` is null when it would name the same players as `best` (one
+ * qualifier, or everyone tied).
+ */
+export interface RichPerformance {
+  best: RichPerformanceSide | null;
+  worst: RichPerformanceSide | null;
+}
+
 /**
  * Structured data for one weekly digest. Assembled in a single pass by
  * build.ts and rendered twice (html + text) by `renderDigest`.
@@ -200,6 +231,8 @@ export interface RichDigestModel {
   firstBlood: { namesHtml: string[]; count: number } | null;
   /** Near-miss blocks. Empty ⇒ «Почти рекорды» omitted. */
   nearMisses: RichNearMiss[];
+  /** «📊 Оценка Riot» weekly award; null (or both sides null) ⇒ section omitted. */
+  performance: RichPerformance | null;
   /**
    * Most-active player(s) of the week, or null when omitted (<5 matches).
    * `namesHtml` holds EVERY player on the winning match count — a tie used to
@@ -465,8 +498,8 @@ function standingsRows(standings: AceKnifeStanding[]): Array<{ labelHtml: string
 function buildBlocks(model: RichDigestModel): Block[] {
   // Section order is owner-specified (2026-08-04):
   //   пульс → больше всех матчей → винстрик → рекорды → почти рекорды →
-  //   повышения → мастера своего дела → открывашка → эйсы → ножи → клатчи →
-  //   карты → агенты
+  //   оценка Riot → повышения → мастера своего дела → открывашка → эйсы →
+  //   ножи → клатчи → карты → агенты
   // «Больше всех матчей» leads because it reads straight off the pulse line
   // («сыграли 478» → «больше всех — Госпожа, 68»); the two aggregate boards
   // close the post. Reordering means moving whole blocks here — nothing else
@@ -523,6 +556,24 @@ function buildBlocks(model: RichDigestModel): Block[] {
   for (const nm of model.nearMisses) {
     if (nm.players.length === 0) continue;
     push(`${nm.emoji} <u>${esc(nm.header)}</u>`, ...nm.players.map((p) => awardLine(p, nm.value)));
+  }
+
+  // 5b. Оценка Riot — 🏅 best weekly average, 🥔 worst; one line per player so
+  // a tie shows everyone, each with their own match count.
+  if (model.performance && (model.performance.best || model.performance.worst)) {
+    const sideLines = (marker: string, side: RichPerformanceSide | null): string[] =>
+      side
+        ? side.players.map(
+            (p) =>
+              `${marker} ${p.nameHtml} · ${side.avg} в среднем за ${p.matches} ` +
+              pluralRu(p.matches, 'матч', 'матча', 'матчей'),
+          )
+        : [];
+    const lines = [
+      ...sideLines('🏅', model.performance.best),
+      ...sideLines('🥔', model.performance.worst),
+    ];
+    if (lines.length > 0) push('📊 <b>Оценка Riot</b>', ...lines);
   }
 
   // 6. Повышение по службе — one line per player (was a table).
