@@ -75,6 +75,26 @@ describe('match-codec', () => {
       const rounds: RoundCompact[] = [{ r: 2, w: 'Blue' }];
       expect(encodeRounds(rounds)).toBe(JSON.stringify(rounds));
     });
+
+    it('round-trips the Henrik v4.10 keys (first blood + ceremony player, #384)', () => {
+      const rounds: RoundCompact[] = [
+        { r: 1, w: 'Red', c: 'CeremonyAce', fb: 'p-red', fbt: 'Red', cp: 'p-red' },
+        { r: 2, w: 'Blue', c: 'CeremonyFlawless', fb: 'p-red', fbt: 'Red' },
+        { r: 3, w: 'Blue', fb: 'p-blue' },
+      ];
+      const decoded = decodeRounds(encodeRounds(rounds));
+      expect(decoded).toEqual(rounds);
+      expect(decoded[0]!.cp).toBe('p-red');
+      expect(decoded[1]!.cp).toBeUndefined();
+      expect(decoded[2]!.fbt).toBeUndefined();
+    });
+
+    it('decodes a pre-#384 blob — the new keys are simply absent', () => {
+      const decoded = decodeRounds('[{"r":1,"w":"Blue","c":"CeremonyAce"}]');
+      expect(decoded).toEqual([{ r: 1, w: 'Blue', c: 'CeremonyAce' }]);
+      expect(decoded[0]!.fb).toBeUndefined();
+      expect(decoded[0]!.cp).toBeUndefined();
+    });
   });
 
   describe('decode degradation contract (single source)', () => {

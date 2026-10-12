@@ -4,6 +4,7 @@
     "account": {"name": "rudі", "tag": "1111", "puuid": "26f40503-6b6d-576c-a32d-9fcb8f081042"},
     "current": {"tier": {"id": 21, "name": "Ascendant 1"}, "rr": 0, "last_change": -18, "elo": 1800, "rank_protection_shields": 2, "leaderboard_placement": null, "games_needed_for_rating": 0},
     "peak": {"tier": {"id": 22, "name": "Ascendant 2"}, "rr": 0, "season": {"short": "e11a1", "id": "3ea2b318-423b-cf86-25da-7cbb0eefbe2d"}, "ranking_schema": "ascendant"},
-    "seasonal": []
+    "seasonal": [],
+    "latest_update": {"tier": {"id": 21, "name": "Ascendant 1"}, "match_id": "test-match-id-1", "map": {"name": "Haven", "id": "2bee0dc9-4ffe-519b-1cbd-7fbe763a6047"}, "season": {"id": "3ea2b318-423b-cf86-25da-7cbb0eefbe2d", "short": "e11a1"}, "rr": 0, "last_change": -18, "elo": 1800, "refunded_rr": 0, "was_derank_protected": false, "date": "2026-05-09T15:00:16.000Z", "queue_id": "console_competitive", "match_length": 2211603, "tier_before_update": {"id": 21, "name": "Ascendant 1"}, "rr_before_update": 18, "rr_performance_bonus": 0, "new_map_incentive_rr_forgiven": 0, "competitive_movement": "MOVEMENT_UNKNOWN", "afk_penalty": 0, "rr_penalty": 0, "is_placement_match": false, "was_derank_protection_replenished": false}
   }
 }

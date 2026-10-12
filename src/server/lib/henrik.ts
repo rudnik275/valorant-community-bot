@@ -308,8 +308,23 @@ function parseAccountResponse(json: unknown): RiotAccount {
 // ─── Zod schemas for v4 matches endpoint ─────────────────────────────────────
 
 /**
+ * A player reference Henrik v4.10 attaches to match-level / round-level
+ * verdicts (`metadata.mvp`, `rounds[].first_blood`, `rounds[].ceremony_player`).
+ * Only `puuid` is load-bearing; name/tag/team ride along for display.
+ */
+const PlayerRefV4Schema = z.object({
+  puuid: z.string(),
+  name: z.string().optional(),
+  tag: z.string().optional(),
+  team: z.string().optional(),
+}).passthrough();
+
+/**
  * V4 match metadata — queue is an object with an `id` string field.
  * Map is an object with a `name` field.
+ *
+ * `mvp` (Henrik v4.10) is Riot's own match MVP. Null/absent on older matches —
+ * `scanner/derive.ts` then falls back to the max-combat-score heuristic.
  */
 const MatchMetadataV4Schema = z.object({
   match_id: z.string(),
@@ -320,6 +335,7 @@ const MatchMetadataV4Schema = z.object({
   started_at: z.string().optional(),
   game_length_in_ms: z.number().optional(),
   is_completed: z.boolean().optional(),
+  mvp: PlayerRefV4Schema.nullish(),
 }).passthrough();
 
 const PlayerV4Schema = z.object({
@@ -349,6 +365,11 @@ const PlayerV4Schema = z.object({
     title: z.string().nullish(),
     preferred_level_border: z.string().nullish(),
   }).passthrough().optional(),
+  // Henrik v4.10: Riot's per-player performance rating. Only `score` is typed;
+  // `ratings.grade` is deliberately not modelled — 9/10 players get "pass".
+  performance: z.object({
+    score: z.number().nullable().optional(),
+  }).passthrough().nullish(),
 }).passthrough();
 
 const TeamV4Schema = z.object({
@@ -392,6 +413,11 @@ const RoundV4Schema = z.object({
   plant: z.unknown().nullable().optional(),
   defuse: z.unknown().nullable().optional(),
   stats: z.array(RoundStatsV4Schema).default([]),
+  // Henrik v4.10. `first_blood` is the round's opening kill; `ceremony_player`
+  // is who Riot credits for a player ceremony (Ace / Clutch / Closer) — absent
+  // for team ceremonies (Flawless / Thrifty, which carry `ceremony_team`).
+  first_blood: PlayerRefV4Schema.nullish(),
+  ceremony_player: PlayerRefV4Schema.nullish(),
 }).passthrough();
 
 export type HenrikRoundV4 = z.infer<typeof RoundV4Schema>;
@@ -444,11 +470,24 @@ const MmrPeakSchema = z.object({
   ranking_schema: z.string().optional(),
 }).passthrough().nullable();
 
+/**
+ * Henrik v4.10: the RR update for the player's LAST match (same shape as an
+ * mmr-history v2 entry). Only covers one match — older matches need
+ * `/v2/by-puuid/mmr-history`. `competitive_movement` is not modelled: it reads
+ * `MOVEMENT_UNKNOWN` even on a real demotion.
+ */
+const MmrLatestUpdateSchema = z.object({
+  match_id: z.string(),
+  last_change: z.number().nullable().optional(),
+  tier_before_update: MmrTierSchema.passthrough().nullish(),
+}).passthrough();
+
 const MmrDataSchema = z.object({
   account: z.unknown().optional(),
   current: MmrCurrentSchema,
   peak: MmrPeakSchema.optional(),
   seasonal: z.array(z.unknown()).optional(),
+  latest_update: MmrLatestUpdateSchema.nullish(),
 }).passthrough();
 
 const MmrResponseSchema = z.object({
@@ -467,6 +506,16 @@ export interface HenrikMmr {
     tier: { id: number; name: string };
     rr: number;
     season: string | null;
+  } | null;
+  /**
+   * RR update for the player's most recent match (Henrik v4.10). `null` when
+   * Henrik omits it. Optional so hand-built `HenrikMmr` values (test mocks)
+   * need not carry it.
+   */
+  latest_update?: {
+    match_id: string;
+    last_change: number | null;
+    tier_before_update: { id: number; name: string } | null;
   } | null;
 }
 
@@ -487,6 +536,18 @@ function parseMmrResponse(json: unknown): HenrikMmr {
           tier: data.peak.tier,
           rr: data.peak.rr,
           season: data.peak.season?.short ?? null,
+        }
+      : null,
+    latest_update: data.latest_update
+      ? {
+          match_id: data.latest_update.match_id,
+          last_change: data.latest_update.last_change ?? null,
+          tier_before_update: data.latest_update.tier_before_update
+            ? {
+                id: data.latest_update.tier_before_update.id,
+                name: data.latest_update.tier_before_update.name,
+              }
+            : null,
         }
       : null,
   };

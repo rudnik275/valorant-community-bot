@@ -62,11 +62,12 @@ export async function computeAndEmitWeeklyMvpRecord(
 
   if (mvpCount < 1) return;
 
-  // Every player on the winning count is a king. `is_match_mvp` is set for ALL
-  // players tied on combat score (scanner/derive.ts), so a shared crown is an
-  // ordinary week — and «👑 Король MVP за неделю» used to name whichever of
-  // them sorted first and drop the rest without a trace (owner, 2026-08-09 —
-  // the same complaint as the Эйсы podium).
+  // Every player on the winning count is a king. Two players often end a week
+  // on the same MVP count (and on matches without Riot's `metadata.mvp`,
+  // `is_match_mvp` still flags everyone tied on combat score — scanner/derive.ts),
+  // so a shared crown is an ordinary week — and «👑 Король MVP за неделю» used
+  // to name whichever of them sorted first and drop the rest without a trace
+  // (owner, 2026-08-09 — the same complaint as the Эйсы podium).
   const kings = ranked
     .filter((r) => Number(r.mvp_count ?? 0) === mvpCount)
     .map((r) => r.riot_puuid);

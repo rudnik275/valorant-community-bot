@@ -56,11 +56,24 @@ export interface KillEventCompact {
  * `c` (Henrik's `rounds[].ceremony`, e.g. `"CeremonyAce"`) is optional and
  * only emitted when present. Per ADR-0003 it is NO LONGER consulted for ace
  * detection, but the field is preserved on the wire format going forward.
+ *
+ * `fb` / `fbt` (first blood puuid / team) and `cp` (ceremony player puuid)
+ * come from Henrik v4.10 `rounds[].first_blood` / `rounds[].ceremony_player`
+ * (#384, ADR 0005). Appended going forward only — rows written before the
+ * deploy have none of them, and there is no backfill, so consumers must treat
+ * their absence as "unknown", never as "nobody".
  */
 export interface RoundCompact {
   r: number;
   w?: string;
+  /** Henrik `rounds[].ceremony` verbatim. */
   c?: string;
+  /** `rounds[].first_blood.puuid` — who got the round's opening kill. */
+  fb?: string;
+  /** `rounds[].first_blood.team` — that player's team id. */
+  fbt?: string;
+  /** `rounds[].ceremony_player.puuid` — whom Riot credits for the ceremony. */
+  cp?: string;
 }
 
 /**

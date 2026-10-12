@@ -25,6 +25,11 @@ export interface MatchRecordInsert {
   assists: number;
   result: 'win' | 'loss' | 'draw';
   rounds_played: number;
+  /**
+   * Always `null` out of derive — it is not in the match payload. `scan.ts`
+   * overlays it from MMR v3 `latest_update.tier_before_update` onto the scan
+   * target's newest match.
+   */
   rank_before: string | null;
   rank_after: string | null;
   enemy_avg_rank: string | null;
@@ -49,6 +54,13 @@ export interface MatchRecordInsert {
   is_match_mvp: number | null;
   survived_last_rounds: number | null;
   died_first_rounds: number | null;
+  /** Riot's `players[].performance.score` (Henrik v4.10); null when absent. */
+  performance_score: number | null;
+  /**
+   * Always `null` out of derive — overlaid by `scan.ts` from MMR v3
+   * `latest_update.last_change`, like {@link rank_before}.
+   */
+  rr_change: number | null;
 }
 
 // kill_events_compact / rounds_compact shapes (KillEventCompact, RoundCompact)
@@ -299,17 +311,27 @@ export function deriveMatchRecord(match: HenrikMatchV4, puuid: string): MatchRec
     return !w?.id && !w?.name && !w?.type;
   }).length;
 
-  // is_match_mvp: 1 if this player's combat score is the max among all players in
-  // the match, 0 otherwise. Null when our player has no score, or when no other
-  // player in the match has a score (can't establish a max). Ties → all tied
-  // players are flagged as MVP.
-  const playerScore = player.stats?.score ?? null;
-  const allScores = match.players
-    .map((p) => p.stats?.score)
-    .filter((s): s is number => typeof s === 'number');
-  const isMatchMvp = playerScore != null && allScores.length > 0
-    ? (playerScore >= Math.max(...allScores) ? 1 : 0)
-    : null;
+  // is_match_mvp: Riot's own verdict wins (ADR 0005). Henrik v4.10 names the
+  // match MVP in `metadata.mvp` — exactly one player, so no ties.
+  //
+  // Fallback, only when `metadata.mvp` is null/absent (older matches, or Henrik
+  // dropping the field): 1 if this player's combat score is the max among all
+  // players in the match, 0 otherwise. Null when our player has no score, or
+  // when no player in the match has a score (can't establish a max). Ties →
+  // all tied players are flagged as MVP.
+  const riotMvpPuuid = match.metadata.mvp?.puuid;
+  let isMatchMvp: number | null;
+  if (riotMvpPuuid) {
+    isMatchMvp = riotMvpPuuid === puuid ? 1 : 0;
+  } else {
+    const playerScore = player.stats?.score ?? null;
+    const allScores = match.players
+      .map((p) => p.stats?.score)
+      .filter((s): s is number => typeof s === 'number');
+    isMatchMvp = playerScore != null && allScores.length > 0
+      ? (playerScore >= Math.max(...allScores) ? 1 : 0)
+      : null;
+  }
 
   // kill_events_compact: compact array consumed by clutch, ace, teamkill detectors.
   // Shape: [{round, attacker_team, victim_team, weapon, attacker_puuid, victim_puuid}]
@@ -323,14 +345,21 @@ export function deriveMatchRecord(match: HenrikMatchV4, puuid: string): MatchRec
   }));
 
   // rounds_compact: compact round-level list consumed by match-comeback + ace detectors.
-  // Shape: [{r: round_id, w: winning_team_id, c?: ceremony_string}]
-  // `c` carries Henrik's `rounds[].ceremony` verbatim (e.g. "CeremonyAce") —
-  // the ace detector treats `"CeremonyAce"` as ground truth.
+  // Shape: [{r, w, c?, fb?, fbt?, cp?}] — see RoundCompact in lib/match-codec.ts.
+  // `c` carries Henrik's `rounds[].ceremony` verbatim (e.g. "CeremonyAce"); the
+  // ace detector ignores it (ADR 0003). `fb`/`fbt` (first blood puuid/team) and
+  // `cp` (ceremony player puuid) are Henrik v4.10 fields, stored for later
+  // digest features; each key is written only when Henrik supplies it.
   const roundsCompact: RoundCompact[] = match.rounds
     .filter((r) => r.winning_team)
     .map((r) => {
       const entry: RoundCompact = { r: r.id ?? 0, w: r.winning_team! };
       if (r.ceremony) entry.c = r.ceremony;
+      if (r.first_blood?.puuid) {
+        entry.fb = r.first_blood.puuid;
+        if (r.first_blood.team) entry.fbt = r.first_blood.team;
+      }
+      if (r.ceremony_player?.puuid) entry.cp = r.ceremony_player.puuid;
       return entry;
     });
 
@@ -390,5 +419,7 @@ export function deriveMatchRecord(match: HenrikMatchV4, puuid: string): MatchRec
     is_match_mvp: isMatchMvp,
     survived_last_rounds: calcSurvivedLastRounds(match, puuid, playerTeamId),
     died_first_rounds: calcDiedFirstRounds(match, puuid, playerTeamId),
+    performance_score: player.performance?.score ?? null,
+    rr_change: null,
   };
 }

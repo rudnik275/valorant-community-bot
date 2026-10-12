@@ -1,4 +1,4 @@
-import { integer, text, sqliteTable, index, check, primaryKey } from 'drizzle-orm/sqlite-core';
+import { integer, real, text, sqliteTable, index, check, primaryKey } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 import { users } from './users.ts';
 
@@ -15,6 +15,10 @@ export const matchRecords = sqliteTable(
     assists: integer('assists').notNull(),
     result: text('result').notNull(),
     rounds_played: integer('rounds_played').notNull(),
+    // Tier before this match, from Henrik MMR v3 `latest_update.tier_before_update`
+    // (#384). Only the player's newest match per scan tick gets it — older
+    // matches found in the same tick, friends' lobby records and every row
+    // written before 2026-10-12 stay null.
     rank_before: text('rank_before'),
     rank_after: text('rank_after'),
     enemy_avg_rank: text('enemy_avg_rank'),
@@ -35,7 +39,15 @@ export const matchRecords = sqliteTable(
     team_rounds_won: integer('team_rounds_won'),
     team_rounds_lost: integer('team_rounds_lost'),
     game_length_ms: integer('game_length_ms'),
+    // 1 when Riot names this player the match MVP (`metadata.mvp`, Henrik
+    // v4.10); falls back to "top combat score" when Henrik omits it (ADR 0005).
     is_match_mvp: integer('is_match_mvp'),
+    // Riot's per-player performance score (`players[].performance.score`,
+    // Henrik v4.10). Null on rows written before the deploy (#384).
+    performance_score: real('performance_score'),
+    // RR gained/lost in this match (MMR v3 `latest_update.last_change`).
+    // Same coverage as `rank_before`: newest match of the scan target only.
+    rr_change: integer('rr_change'),
     // Count of rounds in this match where the player died and was the LAST
     // teammate to die among ≥2 dying teammates (max `time_in_round_in_ms`
     // among same-team victims with at least one other team-victim).
