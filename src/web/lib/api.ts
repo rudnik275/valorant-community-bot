@@ -12,6 +12,15 @@ function getInitDataRaw(): string {
 }
 
 /**
+ * False when the page was opened in a plain browser (e.g. a bare https link
+ * tapped in Telegram). The server rejects every call without initData, so
+ * there is no point making one.
+ */
+export function isInsideTelegram(): boolean {
+  return getInitDataRaw() !== '';
+}
+
+/**
  * Typed fetch wrapper that adds Telegram initData auth header and
  * validates the response through the provided Zod schema.
  */

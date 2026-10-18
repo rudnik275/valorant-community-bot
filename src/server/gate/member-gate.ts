@@ -100,7 +100,7 @@ export interface MemberGateDeps {
    * Absent only in tests that exercise pure gating.
    */
   notify?: (args: { chatId: number; userId: number; html: string }) => Promise<unknown>;
-  /** Public HTTPS base of the Mini App, used in the explanation. */
+  /** Link that opens the Mini App inside Telegram (`MINI_APP_LINK`), used in the explanation. */
   getMiniAppUrl?: () => string;
   /** Injectable now timestamp in ms, defaults to Date.now(). */
   getNowMs?: () => number;
