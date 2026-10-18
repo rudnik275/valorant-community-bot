@@ -51,6 +51,7 @@ import { send, sendPhotoExempt, InputFile } from './lib/telegram-send.ts';
 import { sendRichMessageHtml } from './lib/rich-message.ts';
 import { sendEphemeralHtml, notifyUserQuietly } from './lib/ephemeral-message.ts';
 import type { MemberGateDeps } from './gate/member-gate.ts';
+import { MINI_APP_LINK } from '../shared/mini-app-link.ts';
 import { isPublishingEnabled } from './lib/silent-period.ts';
 
 const PORT = Number(process.env['PORT'] ?? 3000);
@@ -77,7 +78,9 @@ function makeGateDeps(api: Bot['api']): MemberGateDeps {
     db,
     restrictChatMember: (chatId, userId, permissions) =>
       api.restrictChatMember(chatId, userId, permissions).then(() => undefined),
-    getMiniAppUrl: () => process.env['PUBLIC_BASE_URL'] ?? '',
+    // t.me link, not PUBLIC_BASE_URL: a bare https link opens in the browser,
+    // where there is no initData and the Mini App only shows a 401.
+    getMiniAppUrl: () => MINI_APP_LINK,
     notify: ({ chatId, userId, html }) =>
       notifyUserQuietly(
         {
