@@ -155,6 +155,14 @@ curl -X POST "https://api.telegram.org/bot<TOKEN>/setChatMenuButton" -H "Content
 
 This adds the webapp button to the bot's menu in the test group.
 
+Then create the Direct Link the read-only notice points at (`MINI_APP_LINK` in `src/shared/mini-app-link.ts`):
+
+```
+@BotFather → /mybots → [select your bot] → Bot Settings → Mini Apps → Create Direct Link → short name: open → URL: https://bot.<your-domain>
+```
+
+Without it `https://t.me/<bot>/open` does not resolve, and a bare https link would open the Mini App in the phone's browser — no initData there, so every API call answers 401.
+
 ---
 
 ### 1.10 Healthchecks.io
