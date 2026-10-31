@@ -23,12 +23,12 @@ Domain terms in `CONTEXT.md`. Read it before naming things.
 
 Read `~/.claude/CLAUDE.md` first — it has the global secrets contract. Project specifics:
 
-- All secrets live in 1Password vault `PetProject` (+ `SlotRanker` for shared infra).
-- `.env.1password` is committed and contains `op://` references — safe.
-- Local: run anything that needs secrets via `with-secrets <cmd>`.
+- Secrets live in 1Password vault `valorant-community-bot` — bot token, Henrik and OpenAI keys, CI deploy key. The only outside secret is the Litestream S3 key in shared vault `SlotRanker`, referenced from `.env.vps.1password`.
+- `.env.1password` (app secrets) and `.env.vps.1password` (VPS-only) are committed and contain `op://` references — safe.
+- Local: run anything that needs secrets via `with-secrets <cmd>`. It runs without Touch ID — also in background sessions — through a read-only Service Account on `valorant-community-bot` whose token sits in the Keychain item named by the gitignored `.op-sa-item` (#359). `op run` fails on any reference that account cannot read, so a secret from another vault goes into `.env.vps.1password`, never into `.env.1password`.
 - Deploy env to VPS: `SSH_HOST=46.62.229.131 ./scripts/deploy-env.sh` (user only — AI sessions cannot run this; secrets would enter the transcript).
 - **Never** read `.env`, run `op item get` / `op read` for secret fields, or echo any secret. Use `op run --env-file=...` or the wrapper script.
-- `OPENAI_API_KEY` (`op://PetProject/openai-api-key/credential`) — weekly digest promo image (#227). Empty/missing ⇒ digest still posts on time, text-only. Two-phase weekly: Sun 18:45 Kyiv prepare tick builds the digest + stashes the image; Sun 19:00 publish tick posts the saved text then best-effort photo-reply (the weekly digest moved from Fridays to Sundays on 2026-10-07 — ADR 0004). Daily digest is unaffected. The image is purely best-effort — it never blocks or delays the digest text.
+- `OPENAI_API_KEY` (`op://valorant-community-bot/openai-api-key/credential`) — weekly digest promo image (#227). Empty/missing ⇒ digest still posts on time, text-only. Two-phase weekly: Sun 18:45 Kyiv prepare tick builds the digest + stashes the image; Sun 19:00 publish tick posts the saved text then best-effort photo-reply (the weekly digest moved from Fridays to Sundays on 2026-10-07 — ADR 0004). Daily digest is unaffected. The image is purely best-effort — it never blocks or delays the digest text.
 
 ## Tooling
 

@@ -200,7 +200,7 @@ ssh deploy@<VPS_IP> 'chmod 600 /opt/valorant-bot/.env'
 **Phase 4 (inject from 1Password then scp):**
 
 ```bash
-op inject -i .env.1password -o /tmp/.env.injected && scp /tmp/.env.injected deploy@<VPS_IP>:/opt/valorant-bot/.env && rm /tmp/.env.injected && ssh deploy@<VPS_IP> 'chmod 600 /opt/valorant-bot/.env'
+cat .env.1password .env.vps.1password | op inject -o /tmp/.env.injected && scp /tmp/.env.injected deploy@<VPS_IP>:/opt/valorant-bot/.env && rm /tmp/.env.injected && ssh deploy@<VPS_IP> 'chmod 600 /opt/valorant-bot/.env'
 ```
 
 See `.env.example` in the repo root for the full list of required variables.
