@@ -4,7 +4,7 @@
  *
  * The PNGs are placed manually by the operator (see issue #227 prerequisites
  * + `src/assets/README.md`):
- *   - `src/assets/agents/<slug>.png` — agent card from playvalorant.com
+ *   - `src/assets/agents/<slug>.png` — valorant-api.com agent fullPortrait
  *   - `src/assets/maps/<slug>.png`   — map preview from playvalorant.com
  *
  * `buildDigest()` returns the agent/map *display name* as Henrik reports it
