@@ -8,3 +8,4 @@ data/
 .claude/worktrees/
 bun.lock.bak
 *.log
+.op-sa-item

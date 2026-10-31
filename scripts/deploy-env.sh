@@ -10,7 +10,9 @@
 #   - VPS bootstrapped (scripts/bootstrap-vps.sh) — /opt/valorant-bot/ exists.
 #
 # What it does:
-#   1. `op inject` resolves .env.1password → tempfile (chmod 600).
+#   1. `op inject` resolves .env.1password + .env.vps.1password → tempfile
+#      (chmod 600). The second holds VPS-only keys from vaults outside the
+#      repo's Service Account (#359).
 #   2. `scp` tempfile → /opt/valorant-bot/.env on VPS.
 #   3. `ssh` → restarts the app container (`docker compose up -d --no-deps app`).
 #   4. Tempfile is deleted on exit.
@@ -18,7 +20,7 @@
 # Notes:
 #   - The resolved file is plaintext and contains real secrets, but it never
 #     enters AI context — `op inject` writes directly to disk, then we scp it.
-#   - Run this whenever .env.1password changes (new secrets, chat-id update,
+#   - Run this whenever either template changes (new secrets, chat-id update,
 #     EVENTS_PUBLISHING_ENABLED_AFTER tweak, etc.).
 
 set -euo pipefail
@@ -32,16 +34,18 @@ if ! command -v op >/dev/null 2>&1; then
   exit 1
 fi
 
-if [ ! -f .env.1password ]; then
-  echo "✗ .env.1password not found in $(pwd)" >&2
-  exit 1
-fi
+for f in .env.1password .env.vps.1password; do
+  if [ ! -f "$f" ]; then
+    echo "✗ $f not found in $(pwd)" >&2
+    exit 1
+  fi
+done
 
 TMP=$(mktemp)
 trap 'rm -f "$TMP"' EXIT
 
 echo "→ Resolving secrets via op inject..."
-op inject -f -i .env.1password -o "$TMP"
+cat .env.1password .env.vps.1password | op inject -f -o "$TMP"
 chmod 600 "$TMP"
 
 echo "→ Uploading .env to ${SSH_USER}@${SSH_HOST}:${REMOTE_PATH}/.env ..."
