@@ -40,6 +40,7 @@ export const AGENT_EMOJI: Record<string, string> = {
   reyna: '5264748637736442596', // Reyna
   omen: '5264787588794851172', // Omen
   jett: '5265124043647916479', // Jett
+  hush: '5417976213111086195', // Hush — appended via scripts/launch/pack-emoji.ts
 };
 
 export const MAP_EMOJI: Record<string, string> = {

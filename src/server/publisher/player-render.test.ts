@@ -82,6 +82,16 @@ describe('renderPlayerName', () => {
     expect(output).toBe(`<b>Player#TAG</b> ${agentToEmojiHtml('Jett')}`);
   });
 
+  it('renders the Hush icon from the group pack (appended 2026-10-31)', () => {
+    const output = renderPlayerName({
+      name: 'Player',
+      tag: 'TAG',
+      isCommunity: true,
+      agent: 'Hush',
+    });
+    expect(output).toBe('<b>Player#TAG</b> <tg-emoji emoji-id="5417976213111086195">🦸</tg-emoji>');
+  });
+
   it('omits agent icon when agent is absent', () => {
     const output = renderPlayerName({ name: 'Player', tag: 'TAG', isCommunity: true });
     expect(output).toBe('<b>Player#TAG</b>');
